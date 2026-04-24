@@ -1,0 +1,163 @@
+PROJET : NEXIAL
+
+1. POSITIONNEMENT
+Nexial est un copilote d’investissement boursier moyen / long terme.
+Ce n’est PAS un outil de trading court terme.
+
+Objectif :
+→ Aider l’utilisateur à prendre de meilleures décisions
+→ Réduire le nombre de décisions
+→ Maximiser la performance avec discipline
+
+Cible :
+→ Débutant (guidé)
+→ Intermédiaire (structuré)
+→ Expert (optimisé via mode expert)
+
+2. PARCOURS UTILISATEUR
+Phase 1 : Je visualise
+→ comprendre rapidement (dashboard)
+
+Phase 2 : Je structure et j’agis
+→ invest now + entry plan
+
+Phase 3 : Je pilote la performance
+→ arbitrage + optimisation
+
+Règle :
+→ peu d’actions (max 3)
+→ toujours actionnable
+→ toujours explicable
+
+3. MONÉTISATION
+FREE :
+→ comprendre
+→ dashboard + actions limitées + broker advisor
+
+STARTER (~5€) :
+→ tester
+→ quelques plans limités
+
+CORE (~20€) :
+→ agir
+→ invest now complet + arbitrage + entry plan + mode expert
+
+PRO :
+→ plus tard
+
+Objectif :
+→ rentabilité rapide (≈ 5 utilisateurs payants)
+
+4. MOTEUR ACTUEL
+Déjà en place :
+- decision engine V4
+- arbitrage (mono + multi-cibles)
+- invest now
+- structure entry plan CTO
+- données marché + benchmark + FX (seed)
+
+Architecture :
+- SQL-first
+- vues métiers
+- Next.js connecté Supabase
+
+5. ARCHITECTURE CODE
+Structure :
+- domains/
+  - portfolio
+  - market
+  - decision
+  - execution
+  - onboarding
+  - broker-advisor
+  - wealth (prévu, non implémenté)
+
+- app/
+  - dashboard
+  - decision-engine
+  - invest-now
+  - entry-plans
+  - onboarding
+
+- lib/
+  - supabase
+  - format
+
+Règle :
+→ ne pas mélanger logique métier et UI
+→ préparer les extensions sans les implémenter
+
+6. PRIORITÉ ACTUELLE
+Objectif principal :
+→ rendre Nexial utilisable et vendable
+
+Focus actuel :
+1. Dashboard (page clé)
+2. Paywall (conversion)
+3. Invest Now (action)
+4. Entry Plan (CTO)
+
+NE PAS FAIRE MAINTENANT :
+- wealth
+- agents
+- private equity
+- API broker
+
+7. UX / PRODUIT
+Toujours afficher :
+
+🔥 Aujourd’hui
+1. Action
+2. Action
+3. Action
+
+Et :
+→ bouton “Voir le plan complet” (payant)
+
+Principe :
+FREE = je comprends
+PAYANT = je peux agir
+
+8. STRATÉGIE PRODUIT
+Nexial doit être :
+→ simple au départ
+→ puissant ensuite
+
+Éviter :
+→ surcharge d’information
+→ trop d’idées
+→ complexité inutile
+
+9. ÉTAT ACTUEL
+Fait :
+- moteur SQL de base en place
+- decision engine V4
+- arbitrage multi-cibles
+- dashboard V1 codé
+
+Dashboard actuel :
+- KPI simples
+- bloc “Aujourd’hui”
+- paywall doux
+- carte opportunité
+
+Code dashboard en place dans src/app/dashboard/page.tsx
+
+En cours :
+- finalisation du dashboard
+- préparation de la suite sur Invest Now
+
+Prochaine étape :
+- construire / améliorer Invest Now en version payante
+
+10. CONTEXTE DE CE CHAT
+On travaille sur :
+→ [module actuel]
+
+Objectif du chat :
+→ [objectif précis]
+
+Mon style :
+→ décisions claires
+→ pas de complexité inutile
+→ focus performance
