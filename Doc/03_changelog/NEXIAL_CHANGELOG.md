@@ -67,3 +67,85 @@ Next:
 
 Blockers:
 - None
+
+---
+
+## 2026-04-24T22:26:58.669Z
+
+# Session Update — 2026-04-25
+
+## Contexte
+Objectif : passer de moteur technique à produit utilisable (Invest Now)
+
+---
+
+## Frontend
+
+- Mise en place Next.js app
+- Création écran Nexial Invest Now
+- UX simplifiée (1 décision = 1 action)
+- Bouton J’ACHÈTE opérationnel
+- Ajout Historique + Performance
+- Correction layout (affichage multi-blocs)
+
+---
+
+## Backend (Supabase)
+
+- Connexion Supabase frontend OK
+- Intégration vw_invest_now_engine_v1
+- Création insertion execution_queue_v1 depuis UI
+- Implémentation anti-spam (UI + DB)
+- Ajout champ mode (INVEST_NOW vs EXPERT)
+
+---
+
+## Data
+
+- Historique isolé via vw_invest_now_history_v1
+- Performance isolée via vw_invest_now_performance_v1
+- Correction cohérence UI ↔ DB (bug quantité fixé)
+
+---
+
+## DevOps
+
+- Git installé et configuré
+- Premier commit projet réalisé
+- Structure Doc Nexial utilisée (state / changelog / archive)
+
+---
+
+## Résultat
+
+- App fonctionnelle (localhost)
+- Flux complet validé :
+  décision → affichage → action → ordre → tracking
+
+---
+
+## Limites actuelles
+
+- Watchlists non segmentées (PEA / CTO)
+- Mode expert non implémenté
+- Allocation globale non optimisée
+- Pas de logique d’arbitrage
+- Pas de gestion multi-actifs
+
+---
+
+## Prochaine étape
+
+- Création watchlists Olivier (PEA / CTO)
+- Construction Strategy Engine (top 3 opportunités)
+- Routing capital intelligent (PEA vs CTO)
+
+---
+
+## Insight clé
+
+- Invest Now validé pour profil débutant
+- Produit utilisable immédiatement
+- Base solide pour stratégie avancée
+
+---

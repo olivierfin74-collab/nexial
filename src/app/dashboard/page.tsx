@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
+import NexialChart from "@/components/NexialChart";
 
 type HeaderRow = {
   user_id: string;
@@ -16,6 +17,13 @@ type HeaderRow = {
   win_d30: number | null;
   execution_rate: number | null;
   nexial_score: number | null;
+};
+
+type CurveRow = {
+  quoted_at: string;
+  nexial_index: number;
+  market_index: number;
+  alpha_vs_market: number;
 };
 
 type ActiveAlertRow = {
@@ -63,16 +71,13 @@ type TopTickerRow = {
 };
 
 function formatNumber(value: number | null | undefined, digits = 2) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "—";
-  }
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
   return Number(value).toFixed(digits);
 }
 
 function formatMoney(value: number | null | undefined, currency = "USD") {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "—";
-  }
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+
   try {
     return new Intl.NumberFormat("fr-FR", {
       style: "currency",
@@ -85,9 +90,7 @@ function formatMoney(value: number | null | undefined, currency = "USD") {
 }
 
 function formatPct(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "—";
-  }
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
   return `${Number(value).toFixed(2)}%`;
 }
 
@@ -122,44 +125,50 @@ export default async function DashboardPage() {
     alertsRes,
     executionsRes,
     topTickersRes,
+    curveRes,
   ] = await Promise.all([
     supabase.from("vw_dashboard_nexial_header_v1").select("*").single<HeaderRow>(),
+
     supabase
       .from("vw_dashboard_active_alerts_v1")
       .select("*")
       .order("created_at", { ascending: false })
       .returns<ActiveAlertRow[]>(),
+
     supabase
       .from("vw_dashboard_recent_executions_v1")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(10)
       .returns<RecentExecutionRow[]>(),
+
     supabase
       .from("vw_dashboard_top_tickers_v1")
       .select("*")
       .order("total_pnl_abs", { ascending: false })
       .limit(10)
       .returns<TopTickerRow[]>(),
+
+    supabase
+      .from("nexial_vs_market_curve_v1")
+      .select("*")
+      .order("quoted_at", { ascending: true })
+      .returns<CurveRow[]>(),
   ]);
 
-  if (headerRes.error) {
-    throw new Error(`Erreur header dashboard: ${headerRes.error.message}`);
-  }
-  if (alertsRes.error) {
-    throw new Error(`Erreur alertes dashboard: ${alertsRes.error.message}`);
-  }
-  if (executionsRes.error) {
-    throw new Error(`Erreur exécutions dashboard: ${executionsRes.error.message}`);
-  }
-  if (topTickersRes.error) {
-    throw new Error(`Erreur top tickers dashboard: ${topTickersRes.error.message}`);
-  }
+  if (headerRes.error) throw new Error(`Erreur header dashboard: ${headerRes.error.message}`);
+  if (alertsRes.error) throw new Error(`Erreur alertes dashboard: ${alertsRes.error.message}`);
+  if (executionsRes.error) throw new Error(`Erreur exécutions dashboard: ${executionsRes.error.message}`);
+  if (topTickersRes.error) throw new Error(`Erreur top tickers dashboard: ${topTickersRes.error.message}`);
+  if (curveRes.error) throw new Error(`Erreur courbe Nexial: ${curveRes.error.message}`);
 
   const header = headerRes.data;
   const alerts = alertsRes.data ?? [];
   const executions = executionsRes.data ?? [];
   const topTickers = topTickersRes.data ?? [];
+  const curve = curveRes.data ?? [];
+
+  const lastCurve = curve.length > 0 ? curve[curve.length - 1] : null;
 
   return (
     <div className="space-y-8">
@@ -170,33 +179,41 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
+        <Card label="Nexial Score" value={formatNumber(header?.nexial_score, 2)} helper="qualité globale" />
+        <Card label="Win Rate" value={formatPct(header?.win_live)} helper="trades live" />
+        <Card label="PnL Live" value={formatPct(header?.pnl_live)} helper="performance moyenne" />
+        <Card label="PnL J+1" value={formatPct(header?.pnl_d1)} helper="qualité du timing" />
+        <Card label="Execution Rate" value={formatPct(header?.execution_rate)} helper="discipline" />
         <Card
-          label="Nexial Score"
-          value={formatNumber(header?.nexial_score, 2)}
-          helper="qualité globale"
-        />
-        <Card
-          label="Win Rate"
-          value={formatPct(header?.win_live)}
-          helper="trades live"
-        />
-        <Card
-          label="PnL Live"
-          value={formatPct(header?.pnl_live)}
-          helper="performance moyenne"
-        />
-        <Card
-          label="PnL J+1"
-          value={formatPct(header?.pnl_d1)}
-          helper="qualité du timing"
-        />
-        <Card
-          label="Execution Rate"
-          value={formatPct(header?.execution_rate)}
-          helper="discipline"
+          label="Alpha vs marché"
+          value={lastCurve ? `${Number(lastCurve.alpha_vs_market).toFixed(2)} pts` : "—"}
+          helper="Nexial - benchmark"
         />
       </div>
+
+      <section className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">📊 Nexial vs Marché</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              Courbe de performance base 100 et alpha cumulé
+            </p>
+          </div>
+
+          <span className="rounded-full bg-neutral-100 px-3 py-1 text-sm text-neutral-600">
+            {curve.length} point(s)
+          </span>
+        </div>
+
+        {curve.length === 0 ? (
+          <p className="text-sm text-neutral-500">
+            Pas encore assez de données pour afficher la courbe.
+          </p>
+        ) : (
+          <NexialChart data={curve} />
+        )}
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -212,65 +229,38 @@ export default async function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {alerts.map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-2xl border border-neutral-200 p-4"
-                >
+                <div key={a.id} className="rounded-2xl border border-neutral-200 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-semibold">
-                          {a.buy_ticker ?? "—"}
-                        </h3>
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(
-                            a.confidence_level
-                          )}`}
-                        >
+                        <h3 className="text-lg font-semibold">{a.buy_ticker ?? "—"}</h3>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(a.confidence_level)}`}>
                           {a.confidence_level ?? "—"}
                         </span>
                       </div>
 
                       <p className="mt-1 text-sm text-neutral-500">
-                        {a.sell_ticker
-                          ? `Arbitrage depuis ${a.sell_ticker}`
-                          : "Nouvelle opportunité"}
+                        {a.sell_ticker ? `Arbitrage depuis ${a.sell_ticker}` : "Nouvelle opportunité"}
                       </p>
                     </div>
 
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(
-                        a.alert_type
-                      )}`}
-                    >
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(a.alert_type)}`}>
                       {a.alert_type ?? "—"}
                     </span>
                   </div>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-4">
-                    <MiniStat
-                      label="Prix actuel"
-                      value={formatMoney(a.current_price, "USD")}
-                    />
+                    <MiniStat label="Prix actuel" value={formatMoney(a.current_price, "USD")} />
                     <MiniStat
                       label="Zone d’achat"
                       value={
                         a.buy_zone_low !== null && a.buy_zone_high !== null
-                          ? `${formatNumber(a.buy_zone_low, 2)} - ${formatNumber(
-                              a.buy_zone_high,
-                              2
-                            )}`
+                          ? `${formatNumber(a.buy_zone_low, 2)} - ${formatNumber(a.buy_zone_high, 2)}`
                           : "—"
                       }
                     />
-                    <MiniStat
-                      label="Montant cible"
-                      value={formatMoney(a.target_buy_amount, "USD")}
-                    />
-                    <MiniStat
-                      label="Quantité cible"
-                      value={a.target_quantity ?? "—"}
-                    />
+                    <MiniStat label="Montant cible" value={formatMoney(a.target_buy_amount, "USD")} />
+                    <MiniStat label="Quantité cible" value={a.target_quantity ?? "—"} />
                   </div>
 
                   <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
@@ -278,16 +268,10 @@ export default async function DashboardPage() {
                   </div>
 
                   <div className="mt-4 flex gap-3">
-                    <button
-                      disabled
-                      className="rounded-xl bg-black px-4 py-2 text-sm text-white opacity-60"
-                    >
+                    <button disabled className="rounded-xl bg-black px-4 py-2 text-sm text-white opacity-60">
                       EXECUTE
                     </button>
-                    <button
-                      disabled
-                      className="rounded-xl border px-4 py-2 text-sm text-neutral-700 opacity-60"
-                    >
+                    <button disabled className="rounded-xl border px-4 py-2 text-sm text-neutral-700 opacity-60">
                       DISMISS
                     </button>
                   </div>
@@ -301,22 +285,10 @@ export default async function DashboardPage() {
           <h2 className="mb-4 text-xl font-semibold">📊 Vue rapide</h2>
 
           <div className="grid gap-3">
-            <QuickCard
-              label="Alertes totales"
-              value={header?.total_alerts ?? 0}
-            />
-            <QuickCard
-              label="Alertes exécutées"
-              value={header?.executed_alerts ?? 0}
-            />
-            <QuickCard
-              label="Trades suivis"
-              value={header?.total_trades ?? 0}
-            />
-            <QuickCard
-              label="Win rate J+1"
-              value={formatPct(header?.win_d1)}
-            />
+            <QuickCard label="Alertes totales" value={header?.total_alerts ?? 0} />
+            <QuickCard label="Alertes exécutées" value={header?.executed_alerts ?? 0} />
+            <QuickCard label="Trades suivis" value={header?.total_trades ?? 0} />
+            <QuickCard label="Win rate J+1" value={formatPct(header?.win_d1)} />
           </div>
         </section>
       </div>
@@ -328,9 +300,7 @@ export default async function DashboardPage() {
         </div>
 
         {executions.length === 0 ? (
-          <p className="text-sm text-neutral-500">
-            Aucune exécution enregistrée.
-          </p>
+          <p className="text-sm text-neutral-500">Aucune exécution enregistrée.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -345,31 +315,18 @@ export default async function DashboardPage() {
                   <th className="pb-3 pr-4 font-medium">Statut</th>
                 </tr>
               </thead>
+
               <tbody>
                 {executions.map((e) => (
                   <tr key={e.id} className="border-b last:border-b-0">
                     <td className="py-3 pr-4 font-medium">{e.buy_ticker ?? "—"}</td>
+                    <td className="py-3 pr-4">{formatMoney(e.execution_price, "USD")}</td>
+                    <td className="py-3 pr-4">{formatMoney(e.price_last, "USD")}</td>
+                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_abs)}`}>{formatMoney(e.pnl_abs, "USD")}</td>
+                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_pct)}`}>{formatPct(e.pnl_pct)}</td>
+                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_d1_pct)}`}>{formatPct(e.pnl_d1_pct)}</td>
                     <td className="py-3 pr-4">
-                      {formatMoney(e.execution_price, "USD")}
-                    </td>
-                    <td className="py-3 pr-4">
-                      {formatMoney(e.price_last, "USD")}
-                    </td>
-                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_abs)}`}>
-                      {formatMoney(e.pnl_abs, "USD")}
-                    </td>
-                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_pct)}`}>
-                      {formatPct(e.pnl_pct)}
-                    </td>
-                    <td className={`py-3 pr-4 ${pnlTone(e.pnl_d1_pct)}`}>
-                      {formatPct(e.pnl_d1_pct)}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(
-                          e.execution_status
-                        )}`}
-                      >
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass(e.execution_status)}`}>
                         {e.execution_status ?? "—"}
                       </span>
                     </td>
@@ -388,9 +345,7 @@ export default async function DashboardPage() {
         </div>
 
         {topTickers.length === 0 ? (
-          <p className="text-sm text-neutral-500">
-            Aucun historique disponible.
-          </p>
+          <p className="text-sm text-neutral-500">Aucun historique disponible.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -402,17 +357,14 @@ export default async function DashboardPage() {
                   <th className="pb-3 pr-4 font-medium">PnL total</th>
                 </tr>
               </thead>
+
               <tbody>
                 {topTickers.map((t) => (
                   <tr key={t.buy_ticker ?? "unknown"} className="border-b last:border-b-0">
                     <td className="py-3 pr-4 font-medium">{t.buy_ticker ?? "—"}</td>
                     <td className="py-3 pr-4">{t.trade_count ?? 0}</td>
-                    <td className={`py-3 pr-4 ${pnlTone(t.avg_pnl_pct)}`}>
-                      {formatPct(t.avg_pnl_pct)}
-                    </td>
-                    <td className={`py-3 pr-4 ${pnlTone(t.total_pnl_abs)}`}>
-                      {formatMoney(t.total_pnl_abs, "USD")}
-                    </td>
+                    <td className={`py-3 pr-4 ${pnlTone(t.avg_pnl_pct)}`}>{formatPct(t.avg_pnl_pct)}</td>
+                    <td className={`py-3 pr-4 ${pnlTone(t.total_pnl_abs)}`}>{formatMoney(t.total_pnl_abs, "USD")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -424,15 +376,7 @@ export default async function DashboardPage() {
   );
 }
 
-function Card({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string | number;
-  helper?: string;
-}) {
+function Card({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
   return (
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="text-sm text-neutral-500">{label}</div>
@@ -442,13 +386,7 @@ function Card({
   );
 }
 
-function MiniStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
+function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl border bg-white p-3">
       <div className="text-xs text-neutral-500">{label}</div>
@@ -457,13 +395,7 @@ function MiniStat({
   );
 }
 
-function QuickCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
+function QuickCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl border bg-neutral-50 p-4">
       <div className="text-sm text-neutral-500">{label}</div>
