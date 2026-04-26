@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 
-if (process.env.NODE_ENV !== "production") {
+if (!process.env.SUPABASE_URL) {
   dotenv.config({ path: ".env.local" });
 }
 
@@ -10,100 +10,77 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWELVE_API_KEY = process.env.TWELVE_API_KEY;
 
+console.log("SUPABASE_URL =", SUPABASE_URL ? "OK" : "MISSING");
+
 if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL");
 if (!SUPABASE_KEY) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 if (!TWELVE_API_KEY) throw new Error("Missing TWELVE_API_KEY");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-async function getEnabledAssets() {
+async function getAssets() {
   const { data, error } = await supabase
     .from("assets_v1")
     .select("id, ticker, provider_symbol, currency")
-    .eq("market_data_enabled", true)
-    .eq("market_data_provider", "twelve_data");
+    .eq("market_data_enabled", true);
 
-  if (error) throw new Error(`Assets fetch failed: ${error.message}`);
+  if (error) throw new Error(error.message);
   return data ?? [];
 }
 
 async function fetchPrices(symbols) {
   const url = `https://api.twelvedata.com/price?symbol=${symbols.join(",")}&apikey=${TWELVE_API_KEY}`;
-
   const res = await fetch(url);
   const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error(`Twelve Data HTTP error: ${res.status}`);
-  }
-
   return data;
 }
 
-async function insertPrices(assets, rawData) {
+async function insertPrices(assets, data) {
   const now = new Date().toISOString();
 
-  const prices = [];
+  const rows = assets.map(a => {
+    const symbol = a.provider_symbol || a.ticker;
+    const value = data[symbol] || data;
 
-  for (const asset of assets) {
-    const symbol = asset.provider_symbol || asset.ticker;
-    const value = rawData[symbol] ?? rawData;
+    if (!value?.price) return null;
 
-    if (!value?.price) {
-      console.log(`Skipped ${symbol}: no valid price`);
-      continue;
-    }
-
-    prices.push({
-      asset_id: asset.id,
+    return {
+      asset_id: a.id,
       price: Number(value.price),
-      currency: asset.currency ?? null,
-      day_change_pct: null,
-      day_change_amount: null,
-      volume: null,
+      currency: a.currency,
       source: "twelve_data",
-      quoted_at: now,
-    });
-  }
+      quoted_at: now
+    };
+  }).filter(Boolean);
 
-  if (prices.length === 0) {
-    console.log("No valid prices to insert.");
+  if (rows.length === 0) {
+    console.log("No prices to insert");
     return;
   }
 
-  const { error } = await supabase.from("price_quotes_v1").insert(prices);
+  const { error } = await supabase
+    .from("price_quotes_v1")
+    .insert(rows);
 
-  if (error) throw new Error(`Insert prices failed: ${error.message}`);
+  if (error) throw new Error(error.message);
 
-  console.log(`Prices inserted: ${prices.length}`);
+  console.log("Prices inserted:", rows.length);
 }
 
 async function main() {
   console.log("Starting market data update...");
 
-  const assets = await getEnabledAssets();
-  console.log(`Enabled assets: ${assets.length}`);
+  const assets = await getAssets();
+  const symbols = assets.map(a => a.provider_symbol || a.ticker);
 
-  const symbols = assets.map((a) => a.provider_symbol || a.ticker);
-  console.log(`Symbols requested: ${symbols.join(", ")}`);
+  const data = await fetchPrices(symbols);
 
-  if (symbols.length === 0) {
-    console.log("No enabled assets.");
-    return;
-  }
-
-  const rawData = await fetchPrices(symbols);
-
-  const validCount = symbols.filter((s) => rawData[s]?.price || rawData.price).length;
-  console.log(`Valid prices received: ${validCount}`);
-
-  await insertPrices(assets, rawData);
+  await insertPrices(assets, data);
 
   console.log("Done.");
 }
 
-main().catch((error) => {
-  console.error("Market data update failed:");
-  console.error(error.message);
+main().catch(err => {
+  console.error(err.message);
   process.exit(1);
 });
