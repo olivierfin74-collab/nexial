@@ -109,6 +109,42 @@ Objectif : passer de moteur technique à produit utilisable (Invest Now)
 - Insérer les prix dans price_quotes_v1
 - Recalculer vw_asset_market_metrics_v2
 - Tester Opportunity Desk sur prix réels
+
+---
+
+## Session update — 2026-04-26
+
+### Completed
+- GitHub repo créé
+- Pipeline GitHub Actions opérationnel
+- Secrets configurés
+- Automatisation cloud active (cron 30 min)
+- Scoring V5 implémenté
+- Invest router V2 OK
+- Alert engine V5 OK
+- Dashboard + equity curve OK
+
+### Current behavior
+- MSFT → PREPARE_BUY
+- Z2 = 382$
+- Aucun BUY (marché trop haut → comportement correct)
+
+### Infra
+- Nexial tourne en cloud sans machine locale
+- Telegram connecté
+- Multi-user OK
+
+### Next
+- Position sizing (capital allocation)
+- Portfolio tracking réel
+- IBKR integration (option)
+- UX refinement
+
+### Notes
+- Système stable
+- Pas de sur-trading
+- Edge basé sur pullback confirmé
+
 ---
 
 ## Restart instruction
