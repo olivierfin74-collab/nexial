@@ -10,6 +10,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWELVE_API_KEY = process.env.TWELVE_API_KEY;
 
+const API_DELAY_MS = 8500;
+
 console.log("SUPABASE_URL =", SUPABASE_URL ? "OK" : "MISSING");
 
 if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL");
@@ -18,31 +20,18 @@ if (!TWELVE_API_KEY) throw new Error("Missing TWELVE_API_KEY");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const API_CHUNK_SIZE = 6;
-const API_DELAY_MS = 15000;
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function chunkArray(array, size) {
-  const chunks = [];
+function cleanPrice(value) {
+  const price = Number(value);
 
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-
-  return chunks;
-}
-
-function cleanPrice(price) {
-  const value = Number(price);
-
-  if (!Number.isFinite(value) || value <= 0) {
+  if (!Number.isFinite(price) || price <= 0) {
     return null;
   }
 
-  return Number(value.toFixed(2));
+  return Number(price.toFixed(2));
 }
 
 function cleanTimestamp() {
@@ -63,10 +52,10 @@ async function getEnabledAssets() {
   return data ?? [];
 }
 
-async function fetchPricesForSymbols(symbols) {
+async function fetchSinglePrice(symbol) {
   const url = new URL("https://api.twelvedata.com/price");
 
-  url.searchParams.set("symbol", symbols.join(","));
+  url.searchParams.set("symbol", symbol);
   url.searchParams.set("apikey", TWELVE_API_KEY);
 
   const response = await fetch(url);
@@ -78,20 +67,16 @@ async function fetchPricesForSymbols(symbols) {
   const json = await response.json();
 
   if (json?.status === "error") {
-    throw new Error(`Twelve Data API error: ${json.message ?? "unknown error"}`);
+    throw new Error(json.message ?? "Twelve Data API error");
   }
 
-  return json;
-}
+  const price = cleanPrice(json?.price);
 
-function extractPrice(rawData, symbol) {
-  const value = rawData?.[symbol] ?? rawData;
-
-  if (!value || value.price === undefined || value.price === null) {
-    return null;
+  if (!price) {
+    throw new Error("Invalid or missing price");
   }
 
-  return cleanPrice(value.price);
+  return price;
 }
 
 async function insertPrices(rows) {
@@ -121,32 +106,16 @@ async function main() {
     return;
   }
 
-  const symbols = assets.map((asset) => asset.provider_symbol || asset.ticker);
-
-  console.log(`Symbols requested: ${symbols.join(", ")}`);
-
-  const chunks = chunkArray(symbols, API_CHUNK_SIZE);
   const rows = [];
 
-  for (let i = 0; i < chunks.length; i += 1) {
-    const chunk = chunks[i];
+  for (let i = 0; i < assets.length; i += 1) {
+    const asset = assets[i];
+    const symbol = asset.provider_symbol || asset.ticker;
 
-    console.log(`Fetching chunk ${i + 1}/${chunks.length}: ${chunk.join(", ")}`);
+    console.log(`Fetching ${i + 1}/${assets.length}: ${asset.ticker} (${symbol})`);
 
-    const rawData = await fetchPricesForSymbols(chunk);
-    const quotedAt = cleanTimestamp();
-
-    for (const asset of assets) {
-      const symbol = asset.provider_symbol || asset.ticker;
-
-      if (!chunk.includes(symbol)) continue;
-
-      const price = extractPrice(rawData, symbol);
-
-      if (!price) {
-        console.log(`Skipped ${asset.ticker} (${symbol}): no valid price`);
-        continue;
-      }
+    try {
+      const price = await fetchSinglePrice(symbol);
 
       rows.push({
         asset_id: asset.id,
@@ -156,11 +125,15 @@ async function main() {
         day_change_amount: null,
         volume: null,
         source: "twelve_data",
-        quoted_at: quotedAt,
+        quoted_at: cleanTimestamp(),
       });
+
+      console.log(`✔ ${asset.ticker} = ${price}`);
+    } catch (error) {
+      console.log(`❌ ${asset.ticker} (${symbol}) failed: ${error.message}`);
     }
 
-    if (i < chunks.length - 1) {
+    if (i < assets.length - 1) {
       console.log(`Waiting ${API_DELAY_MS / 1000}s to avoid Twelve Data rate limit...`);
       await sleep(API_DELAY_MS);
     }
