@@ -1,39 +1,34 @@
 import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
+
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: ".env.local" });
+}
 
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!SUPABASE_URL) {
-  throw new Error("Missing SUPABASE_URL in .env.local");
-}
-
-if (!SUPABASE_KEY) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY in .env.local");
-}
+if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL");
+if (!SUPABASE_KEY) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function countPendingAlerts() {
   const { count, error } = await supabase
-    .from("notification_queue_live")
+    .from("user_notifications")
     .select("*", { count: "exact", head: true })
     .eq("status", "PENDING");
 
-  if (error) {
-    throw new Error(`Pending alerts count failed: ${error.message}`);
-  }
-
+  if (error) throw new Error(`Pending alerts count failed: ${error.message}`);
   return count ?? 0;
 }
 
 async function generateAlertQueue() {
-  const { error } = await supabase.rpc("fn_generate_notification_queue_live");
+  const { error } = await supabase.rpc("fn_generate_user_notifications");
 
   if (error) {
-    throw new Error(`RPC fn_generate_notification_queue_live failed: ${error.message}`);
+    throw new Error(`RPC fn_generate_user_notifications failed: ${error.message}`);
   }
 }
 

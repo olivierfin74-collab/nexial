@@ -1,5 +1,8 @@
 import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
+
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: ".env.local" });
+}
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -24,7 +27,7 @@ async function getPendingNotifications() {
 
   if (!notifications || notifications.length === 0) return [];
 
-  const userIds = [...new Set(notifications.map(n => n.user_id))];
+  const userIds = [...new Set(notifications.map((n) => n.user_id))];
 
   const { data: channels, error: chError } = await supabase
     .from("user_channels")
@@ -34,13 +37,13 @@ async function getPendingNotifications() {
   if (chError) throw new Error(`Fetch channels failed: ${chError.message}`);
 
   const channelMap = {};
-  channels.forEach(c => {
-    channelMap[c.user_id] = c.telegram_chat_id;
-  });
+  for (const channel of channels ?? []) {
+    channelMap[channel.user_id] = channel.telegram_chat_id;
+  }
 
-  return notifications.map(n => ({
+  return notifications.map((n) => ({
     ...n,
-    telegram_chat_id: channelMap[n.user_id]
+    telegram_chat_id: channelMap[n.user_id],
   }));
 }
 
@@ -80,7 +83,7 @@ async function markAsSent(id) {
 }
 
 async function main() {
-  console.log("🚀 Checking multi-user alerts...");
+  console.log("Checking multi-user alerts...");
 
   const alerts = await getPendingNotifications();
 
@@ -93,7 +96,7 @@ async function main() {
     const chatId = alert.telegram_chat_id;
 
     if (!chatId) {
-      console.log(`⚠️ No Telegram linked for user ${alert.user_id}`);
+      console.log(`No Telegram linked for user ${alert.user_id}`);
       continue;
     }
 
@@ -103,18 +106,18 @@ async function main() {
       await sendTelegram(chatId, message);
       await markAsSent(alert.id);
 
-      console.log(`✅ Alert sent → user ${alert.user_id} (${alert.ticker})`);
+      console.log(`Alert sent → user ${alert.user_id} (${alert.ticker})`);
     } catch (err) {
-      console.error(`❌ Failed sending alert ${alert.id}`);
+      console.error(`Failed sending alert ${alert.id}`);
       console.error(err.message);
     }
   }
 
-  console.log("🎯 Done.");
+  console.log("Done.");
 }
 
 main().catch((err) => {
-  console.error("❌ Global failure:");
+  console.error("Global failure:");
   console.error(err.message);
   process.exit(1);
 });
