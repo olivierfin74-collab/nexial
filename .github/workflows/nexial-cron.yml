@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 name: Nexial Automation
-=======
-name: Nexial Cloud Automation
->>>>>>> 1658dcf (Fix environment handling for cloud automation)
 
 on:
   workflow_dispatch:
@@ -13,8 +9,11 @@ jobs:
   run-nexial:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: nexial-app
+
     steps:
-<<<<<<< HEAD
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -22,35 +21,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Nexial
-=======
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Nexial pipeline
->>>>>>> 1658dcf (Fix environment handling for cloud automation)
         run: node scripts/run-nexial.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TWELVE_API_KEY: ${{ secrets.TWELVE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-<<<<<<< HEAD
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-=======
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
->>>>>>> 1658dcf (Fix environment handling for cloud automation)
