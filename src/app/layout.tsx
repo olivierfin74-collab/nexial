@@ -1,41 +1,28 @@
 import './globals.css'
-import Link from 'next/link'
-
-export const metadata = {
-  title: 'Nexial',
-  description: 'Copilote investissement',
-}
+import Sidebar from '@/components/layout/Sidebar'
+import Header from '@/components/layout/Header'
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="fr">
-      <body className="bg-gray-50 text-gray-900">
-        <header className="border-b bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="text-xl font-bold">
-              Nexial
-            </Link>
+      <body className="bg-[#111a33] text-white">
+        <div className="flex h-screen overflow-hidden">
 
-            <nav className="flex gap-6 text-sm font-semibold flex-wrap">
-              <Link href="/">Dashboard</Link>
-              <Link href="/portfolio">Portefeuille</Link>
-              <Link href="/allocation">Allocation</Link>
-              <Link href="/opportunities">Opportunités</Link>
-              <Link href="/signals">Signals</Link>
-              <Link href="/invest">Investir</Link>
-              <Link href="/watchlist">Watchlist</Link>
-              <Link href="/preferences">Préférences</Link>
-            </nav>
+          <Sidebar />
+
+          <div className="flex flex-1 flex-col">
+            <Header />
+
+            <main className="flex-1 overflow-y-auto px-5 py-5">
+              {children}
+            </main>
           </div>
-        </header>
 
-        <main className="max-w-7xl mx-auto px-6 py-6">
-          {children}
-        </main>
+        </div>
       </body>
     </html>
   )

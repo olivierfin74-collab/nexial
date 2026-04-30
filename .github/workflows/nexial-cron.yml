@@ -3,11 +3,23 @@ name: Nexial Automation
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/5 * * * *"
 
 jobs:
+  update-market-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call update-market-data
+        run: |
+          curl -X POST "https://kttdmeyrhndufymgoxqk.supabase.co/functions/v1/update-market-data" \
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{"max":25,"delay":800}'
+
   run-nexial:
     runs-on: ubuntu-latest
+    needs: update-market-data
 
     steps:
       - name: Checkout repo
