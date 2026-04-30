@@ -10,9 +10,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Call update-market-data
+      - name: Call Supabase update-market-data
         run: |
-          curl -X POST "https://kttdmeyrhndufymgoxqk.supabase.co/functions/v1/update-market-data" \
-          -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-          -H "Content-Type: application/json" \
-          -d '{"max":25,"delay":800}'
+          echo "🚀 Calling Supabase function..."
+
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}\n" \
+            -X POST "https://kttdmeyrhndufymgoxqk.supabase.co/functions/v1/update-market-data" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"max":25,"delay":800}')
+
+          echo "📡 Full Response:"
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d":" -f2)
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ ERROR: Supabase function failed with HTTP $STATUS"
+            exit 1
+          fi
+
+          echo "✅ Supabase function executed successfully"
+
+      - name: Wait 2 seconds (safety)
+        run: sleep 2
+
+      - name: Validate DB update (optional check)
+        run: |
+          echo "🔍 Checking if data should have updated..."
+          echo "⚠️ (Check manually in Supabase UI if needed)"
