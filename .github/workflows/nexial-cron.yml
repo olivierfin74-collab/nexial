@@ -3,7 +3,7 @@ name: Nexial Automation
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/6 * * * *"
 
 jobs:
   update-market-data:
