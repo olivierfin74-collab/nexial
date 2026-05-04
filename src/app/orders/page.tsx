@@ -7,11 +7,8 @@ import FeedbackModal from '@/components/FeedbackModal'
 import {
   AlertTriangle,
   ArrowRight,
-  BadgeEuro,
   CheckCircle2,
   ChevronDown,
-  CircleDollarSign,
-  Clock3,
   Database,
   Eye,
   Filter,
@@ -20,8 +17,6 @@ import {
   Sparkles,
   Target,
   TimerReset,
-  TrendingDown,
-  TrendingUp,
   Wallet,
   X,
 } from 'lucide-react'
@@ -172,8 +167,40 @@ function normalizeScope(value?: string | null): ScopeFilter {
   return 'UNKNOWN'
 }
 
-function normalizeTicker(value?: string | null) {
-  return String(value || '').trim().toUpperCase()
+function isCancelled(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return status === 'CANCELLED' || status === 'CANCELED' || row.cancelled_at != null
+}
+
+function isConfirmed(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return status === 'CONFIRMED' || status === 'FILLED' || row.confirmed_at != null
+}
+
+function isReplaced(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return status === 'REPLACED' || row.replaced_at != null
+}
+
+function isToConfirm(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return status === 'TO_CONFIRM' || status === 'FILLED_OR_TRIGGERED' || row.execution_to_confirm_at != null
+}
+
+function isTouched(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return row.is_price_touched === true || status === 'TOUCHED'
+}
+
+function isPlaced(row: OrderRow) {
+  const status = normalizeStatus(row.status)
+
+  return status === 'PLACED' || status === 'ACTIVE' || status === 'OPEN' || row.placed_at != null
 }
 
 function isReady(row: OrderRow) {
@@ -184,61 +211,8 @@ function isReady(row: OrderRow) {
     status === 'ORDER_READY' ||
     status === 'PENDING' ||
     status === 'CREATED' ||
-    status === 'TO_PLACE'
-  )
-}
-
-function isPlaced(row: OrderRow) {
-  const status = normalizeStatus(row.status)
-
-  return (
-    status === 'PLACED' ||
-    status === 'ACTIVE' ||
-    status === 'OPEN' ||
-    row.placed_at != null
-  )
-}
-
-function isTouched(row: OrderRow) {
-  return row.is_price_touched === true || normalizeStatus(row.status) === 'TOUCHED'
-}
-
-function isToConfirm(row: OrderRow) {
-  const status = normalizeStatus(row.status)
-
-  return (
-    status === 'TO_CONFIRM' ||
-    status === 'FILLED_OR_TRIGGERED' ||
-    row.execution_to_confirm_at != null
-  )
-}
-
-function isConfirmed(row: OrderRow) {
-  const status = normalizeStatus(row.status)
-
-  return (
-    status === 'CONFIRMED' ||
-    status === 'FILLED' ||
-    row.confirmed_at != null
-  )
-}
-
-function isCancelled(row: OrderRow) {
-  const status = normalizeStatus(row.status)
-
-  return (
-    status === 'CANCELLED' ||
-    status === 'CANCELED' ||
-    row.cancelled_at != null
-  )
-}
-
-function isReplaced(row: OrderRow) {
-  const status = normalizeStatus(row.status)
-
-  return (
-    status === 'REPLACED' ||
-    row.replaced_at != null
+    status === 'TO_PLACE' ||
+    (!isClosed(row) && !isToConfirm(row) && !isTouched(row) && !isPlaced(row))
   )
 }
 
@@ -247,15 +221,15 @@ function isClosed(row: OrderRow) {
 }
 
 function orderLifecycle(row: OrderRow): StatusFilter {
-  if (row.confirmed_at) return 'CONFIRMED'
-  if (row.cancelled_at) return 'CANCELLED'
-  if (row.replaced_at) return 'REPLACED'
-  if (row.execution_to_confirm_at) return 'TO_CONFIRM'
-  if (row.touched_at || row.is_price_touched) return 'TOUCHED'
-  if (row.placed_at) return 'PLACED'
+  if (isCancelled(row)) return 'CANCELLED'
+  if (isConfirmed(row)) return 'CONFIRMED'
+  if (isReplaced(row)) return 'REPLACED'
+  if (isToConfirm(row)) return 'TO_CONFIRM'
+  if (isTouched(row)) return 'TOUCHED'
+  if (isPlaced(row)) return 'PLACED'
+  if (isReady(row)) return 'READY'
 
   return 'READY'
-
 }
 
 function lifecycleLabel(row: OrderRow) {
@@ -351,10 +325,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [actionState, setActionState] = useState<{
-  status: 'success' | 'error'
-  message: string
-} | null>(null)
+  const [actionState, setActionState] = useState<OrderActionState | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('ALL')
   const [sortMode, setSortMode] = useState<SortMode>('PRIORITY')
@@ -368,9 +339,7 @@ export default function OrdersPage() {
 
     setError(null)
 
-    const { data, error } = await supabase
-      .from(ORDERS_VIEW)
-      .select('*')
+    const { data, error } = await supabase.from(ORDERS_VIEW).select('*')
 
     if (error) {
       setRows([])
@@ -391,11 +360,26 @@ export default function OrdersPage() {
     setProcessingId(row.id)
     setActionState(null)
 
+    const now = new Date().toISOString()
     const payload: Record<string, unknown> = {
       status: nextStatus,
-      touched_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      updated_at: now,
       ...extra,
+    }
+
+    if (nextStatus === 'PLACED') {
+      payload.placed_at = extra.placed_at ?? now
+      payload.touched_at = row.touched_at ?? null
+      payload.execution_to_confirm_at = row.execution_to_confirm_at ?? null
+    }
+
+    if (nextStatus === 'CONFIRMED') {
+      payload.confirmed_at = extra.confirmed_at ?? now
+      payload.execution_to_confirm_at = row.execution_to_confirm_at ?? now
+    }
+
+    if (nextStatus === 'CANCELLED') {
+      payload.cancelled_at = extra.cancelled_at ?? now
     }
 
     const { error } = await supabase
@@ -416,7 +400,10 @@ export default function OrdersPage() {
     setActionState({
       status: 'success',
       title: 'Ordre mis à jour',
-      message: `${row.ticker} → ${nextStatus}`,
+      message:
+        nextStatus === 'CANCELLED'
+          ? `${row.ticker} annulé et déplacé dans l’historique.`
+          : `${row.ticker} → ${nextStatus}`,
     })
 
     await load(true)
@@ -450,7 +437,8 @@ export default function OrdersPage() {
     }, AUTO_REFRESH_MS)
 
     return () => clearInterval(interval)
-}, [supabase])
+  }, [supabase])
+
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()
 
@@ -507,6 +495,20 @@ export default function OrdersPage() {
     })
   }, [filteredRows, sortMode])
 
+  const activeRows = useMemo(() => {
+    return sortedRows.filter((row) => {
+      const lifecycle = orderLifecycle(row)
+      return lifecycle === 'READY' || lifecycle === 'PLACED' || lifecycle === 'TOUCHED' || lifecycle === 'TO_CONFIRM'
+    })
+  }, [sortedRows])
+
+  const closedRows = useMemo(() => {
+    return sortedRows.filter((row) => {
+      const lifecycle = orderLifecycle(row)
+      return lifecycle === 'CONFIRMED' || lifecycle === 'CANCELLED' || lifecycle === 'REPLACED'
+    })
+  }, [sortedRows])
+
   const stats = useMemo<OrdersStats>(() => {
     const total = filteredRows.length
     const ready = filteredRows.filter((row) => orderLifecycle(row) === 'READY').length
@@ -547,33 +549,8 @@ export default function OrdersPage() {
   }, [filteredRows])
 
   const priorityOrder = useMemo(() => {
-    return sortedRows.find((row) => !isClosed(row)) || sortedRows[0] || null
-  }, [sortedRows])
-
-  const activeRows = useMemo(() => {
-  return sortedRows.filter((row) => {
-    const lifecycle = orderLifecycle(row)
-
-    return (
-      lifecycle === 'READY' ||
-      lifecycle === 'PLACED' ||
-      lifecycle === 'TOUCHED' ||
-      lifecycle === 'TO_CONFIRM'
-    )
-  })
-}, [sortedRows])
-
-const closedRows = useMemo(() => {
-  return sortedRows.filter((row) => {
-    const lifecycle = orderLifecycle(row)
-
-    return (
-      lifecycle === 'CONFIRMED' ||
-      lifecycle === 'CANCELLED' ||
-      lifecycle === 'REPLACED'
-    )
-  })
-}, [sortedRows])
+    return activeRows[0] || null
+  }, [activeRows])
 
   if (loading) {
     return <LoadingState />
@@ -610,15 +587,7 @@ const closedRows = useMemo(() => {
         />
 
         <OrdersBoard
-          activeRows={activeRows.filter((row) => {
-  const lifecycle = orderLifecycle(row)
-
-  return (
-    lifecycle !== 'CANCELLED' &&
-    lifecycle !== 'CONFIRMED' &&
-    lifecycle !== 'REPLACED'
-  )
-})}
+          activeRows={activeRows}
           closedRows={closedRows}
           processingId={processingId}
           onOpen={setSelectedOrder}
@@ -935,6 +904,7 @@ function OrdersFilters({
     </section>
   )
 }
+
 function OrdersBoard({
   activeRows,
   closedRows,
