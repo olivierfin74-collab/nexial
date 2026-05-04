@@ -351,8 +351,10 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [actionState, setActionState] = useState<OrderActionState | null>(null)
-
+  const [actionState, setActionState] = useState<{
+  status: 'success' | 'error'
+  message: string
+} | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('ALL')
   const [sortMode, setSortMode] = useState<SortMode>('PRIORITY')
@@ -608,7 +610,15 @@ const closedRows = useMemo(() => {
         />
 
         <OrdersBoard
-          activeRows={activeRows}
+          activeRows={activeRows.filter((row) => {
+  const lifecycle = orderLifecycle(row)
+
+  return (
+    lifecycle !== 'CANCELLED' &&
+    lifecycle !== 'CONFIRMED' &&
+    lifecycle !== 'REPLACED'
+  )
+})}
           closedRows={closedRows}
           processingId={processingId}
           onOpen={setSelectedOrder}
