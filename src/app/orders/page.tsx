@@ -247,15 +247,15 @@ function isClosed(row: OrderRow) {
 }
 
 function orderLifecycle(row: OrderRow): StatusFilter {
-  if (isConfirmed(row)) return 'CONFIRMED'
-  if (isCancelled(row)) return 'CANCELLED'
-  if (isReplaced(row)) return 'REPLACED'
-  if (isToConfirm(row)) return 'TO_CONFIRM'
-  if (isTouched(row)) return 'TOUCHED'
-  if (isPlaced(row)) return 'PLACED'
-  if (isReady(row)) return 'READY'
+  if (row.confirmed_at) return 'CONFIRMED'
+  if (row.cancelled_at) return 'CANCELLED'
+  if (row.replaced_at) return 'REPLACED'
+  if (row.execution_to_confirm_at) return 'TO_CONFIRM'
+  if (row.touched_at || row.is_price_touched) return 'TOUCHED'
+  if (row.placed_at) return 'PLACED'
 
   return 'READY'
+
 }
 
 function lifecycleLabel(row: OrderRow) {
