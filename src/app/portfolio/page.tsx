@@ -245,6 +245,20 @@ function rawPct(value?: number | null, decimals = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
   return `${Number(value).toFixed(decimals)} %`
 }
+function formatDate(value?: string | null) {
+  if (!value) return '—'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
 
 function uniqueOptions(values: Array<string | null | undefined>) {
   return ['Tous', ...Array.from(new Set(values.filter(Boolean) as string[])).sort()]
