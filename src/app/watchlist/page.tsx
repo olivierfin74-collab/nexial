@@ -390,6 +390,7 @@ export default function WatchlistPage() {
     const query = search.trim().toLowerCase()
 
     return rows.filter((row) => {
+      if (!row.buy_zone_low || !row.buy_zone_high) return false
       const rowScope = normalizeScope(row.account_type)
       const rowPhase = getPhase(row)
       const rowQuality = String(row.price_quality || 'NO_DATA').toUpperCase()
