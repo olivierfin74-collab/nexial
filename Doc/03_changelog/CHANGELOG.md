@@ -1,5 +1,35 @@
 # CHANGELOG NEXIAL
 
+## [2026-04-30] — Event Engine v2 FULL MASTER
+
+### 🚀 Features
+- Création Watchlist Event Engine v2 (stateful)
+- Ajout tables:
+  - watchlist_event_state_v1
+  - watchlist_event_log_v1
+  - watchlist_alert_dispatch_log_v1
+- Création vues:
+  - vw_watchlist_event_engine_v2
+  - vw_watchlist_actionable_events_v2
+- Création fonction:
+  - send-watchlist-alert v2
+
+### 🧠 Améliorations
+- Passage état → événement (NEW / UPGRADE / WORSENING / RECOVERY)
+- Anti-spam avancé (cooldown + déduplication)
+- Top 3 opportunités max
+- Filtrage hors marché
+
+### ⚙️ Infra
+- Abandon GitHub cron
+- Migration vers cron-job.org
+- Pipeline 100% autonome
+
+### 🎯 Résultat
+- Détection META -8% OK
+- Alertes Telegram OK
+- Système production-ready
+
 > Journal des évolutions produit, data et UX.
 > Format : clair, actionnable, sans bruit.
 > Objectif : comprendre rapidement ce qui a changé et pourquoi.
@@ -149,3 +179,13 @@ Premarket → Alerts → Entry Plans → Actions
 - Construire vue premarket alert
 - Définir univers 150 actifs
 - Intégrer signaux dans Actions / Alerts / Premarket
+
+## [2026-05-03]
+
+- Portfolio execution merge finalized
+- PRU correction (execution priority)
+- Account normalization (PEA / CTO)
+- Data health logic updated
+- Beta preparation started
+- Onboarding planning added
+- Feedback system defined

@@ -15,10 +15,31 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 )
 
-type Total = {
-  total_positions_eur: number
+const COLORS = ['#38bdf8', '#22c55e', '#a78bfa', '#f59e0b', '#ef4444', '#14b8a6']
+
+type PatrimoineV2 = {
+  positions_count: number
+  patrimoine_total_eur: number
+  invested_value_eur: number
+  invested_pnl_eur: number
+  performance_pct: number
   total_cash_eur: number
-  total_general_eur: number
+  pea_cash_eur: number
+  cto_cash_eur: number
+  pea_value_eur: number
+  cto_value_eur: number
+  pea_pnl_eur: number
+  cto_pnl_eur: number
+  active_orders_count: number
+  engaged_capital_eur: number
+  orders_to_confirm_count: number
+  available_cash_after_orders_eur: number
+  new_alerts: number
+  active_alerts: number
+  urgent_alerts: number
+  nexial_global_status: string
+  nexial_global_message: string
+  calculated_at: string
 }
 
 type AccountTotal = {
@@ -37,72 +58,109 @@ type CashDetail = {
   cash_amount: number
 }
 
-const COLORS = ['#38bdf8', '#22c55e', '#a78bfa', '#f59e0b', '#ef4444', '#14b8a6']
-
-function eur(v?: number | null) {
-  if (v == null) return '—'
+function eur(v?: number | null, digits = 0) {
+  if (v == null || Number.isNaN(Number(v))) return '—'
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
     currency: 'EUR',
-    maximumFractionDigits: 2,
-  }).format(v)
+    maximumFractionDigits: digits,
+  }).format(Number(v))
 }
 
 function num(v?: number | null) {
-  if (v == null) return '—'
+  if (v == null || Number.isNaN(Number(v))) return '—'
   return new Intl.NumberFormat('fr-FR', {
     maximumFractionDigits: 2,
-  }).format(v)
+  }).format(Number(v))
 }
 
-function pct(value: number, total: number) {
-  if (!total) return '0%'
-  return `${((value / total) * 100).toFixed(1)}%`
+function pct(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value))) return '—'
+  return `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)} %`
+}
+
+function weight(value: number, total: number) {
+  if (!total) return '0.0 %'
+  return `${((value / total) * 100).toFixed(1)} %`
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function statusColor(status: string) {
+  if (status === 'ACTION_REQUIRED') return 'text-red-300'
+  if (status === 'CONFIRM_EXECUTION') return 'text-amber-300'
+  if (status === 'ORDERS_ACTIVE') return 'text-cyan-300'
+  if (status === 'CAPITAL_AVAILABLE') return 'text-emerald-300'
+  return 'text-slate-300'
 }
 
 export default function PatrimoinePage() {
-  const [total, setTotal] = useState<Total | null>(null)
+  const [patrimoine, setPatrimoine] = useState<PatrimoineV2 | null>(null)
   const [accounts, setAccounts] = useState<AccountTotal[]>([])
   const [cashDetails, setCashDetails] = useState<CashDetail[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function load(isRefresh = false) {
+    if (isRefresh) setRefreshing(true)
+    else setLoading(true)
+
+    setError(null)
+
+    const [p, a, c] = await Promise.all([
+      supabase.from('vw_patrimoine_global_v2').select('*').limit(1).maybeSingle(),
+      supabase.from('vw_patrimoine_by_account_v1').select('*'),
+      supabase.from('vw_patrimoine_cash_by_currency_v1').select('*'),
+    ])
+
+    if (p.error) setError(p.error.message)
+    if (p.data) setPatrimoine(p.data as PatrimoineV2)
+
+    if (a.data) setAccounts(a.data as AccountTotal[])
+    if (c.data) setCashDetails(c.data as CashDetail[])
+
+    setLoading(false)
+    setRefreshing(false)
+  }
 
   useEffect(() => {
-    async function load() {
-      const [t, a, c] = await Promise.all([
-        supabase.from('vw_patrimoine_total_general_eur_v1').select('*').single(),
-        supabase.from('vw_patrimoine_by_account_v1').select('*'),
-        supabase.from('vw_patrimoine_cash_by_currency_v1').select('*'),
-      ])
-
-      if (t.data) setTotal(t.data)
-      if (a.data) setAccounts(a.data)
-      if (c.data) setCashDetails(c.data)
-
-      setLoading(false)
-    }
-
-    load()
+    load(false)
   }, [])
 
-  const totalGeneral = Number(total?.total_general_eur || 0)
-
-  const accountPie = accounts.map((a) => ({
-    name: a.account_name,
-    value: Number(a.total_eur || 0),
-  }))
-
-  const cashPie = accounts
-    .map((a) => ({
+  const accountPie = useMemo(() => {
+    return accounts.map((a) => ({
       name: a.account_name,
-      value: Number(a.cash_eur || 0),
+      value: Number(a.total_eur || 0),
     }))
-    .filter((a) => a.value > 0)
+  }, [accounts])
+
+  const cashPie = useMemo(() => {
+    return accounts
+      .map((a) => ({
+        name: a.account_name,
+        value: Number(a.cash_eur || 0),
+      }))
+      .filter((a) => a.value > 0)
+  }, [accounts])
 
   const cashByCurrency = useMemo(() => {
     const map = new Map<string, number>()
     cashDetails.forEach((c) => {
-      map.set(c.currency, (map.get(c.currency) || 0) + Number(c.cash_amount))
+      map.set(c.currency, (map.get(c.currency) || 0) + Number(c.cash_amount || 0))
     })
+
     return Array.from(map.entries()).map(([currency, amount]) => ({
       currency,
       amount,
@@ -117,6 +175,19 @@ export default function PatrimoinePage() {
     )
   }
 
+  if (!patrimoine) {
+    return (
+      <main className="min-h-screen bg-[#050816] p-8 text-white">
+        <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8">
+          <h1 className="text-3xl font-semibold">Aucune donnée patrimoine.</h1>
+          {error && <p className="mt-4 text-red-300">{error}</p>}
+        </div>
+      </main>
+    )
+  }
+
+  const totalGeneral = Number(patrimoine.patrimoine_total_eur || 0)
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#172554_0,#020617_38%,#020617_100%)] px-6 py-8 text-white">
       <div className="mx-auto max-w-7xl space-y-8">
@@ -130,29 +201,112 @@ export default function PatrimoinePage() {
                 Patrimoine
               </h1>
               <p className="mt-3 max-w-2xl text-slate-300">
-                Vue consolidée PEA, CTO, crypto et liquidités. Objectif : savoir exactement où se trouve le capital.
+                Vue consolidée PEA, CTO, liquidités, performance, alertes et ordres engagés.
               </p>
+
+              <button
+                onClick={() => load(true)}
+                disabled={refreshing}
+                className="mt-6 rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+              >
+                {refreshing ? 'Actualisation...' : 'Actualiser'}
+              </button>
             </div>
 
             <div className="rounded-3xl border border-sky-400/20 bg-sky-400/10 px-6 py-5 text-right">
-              <p className="text-sm text-sky-200">Total général</p>
-              <p className="mt-1 text-4xl font-semibold">{eur(total?.total_general_eur)}</p>
+              <p className="text-sm text-sky-200">Patrimoine total</p>
+              <p className="mt-1 text-5xl font-semibold">{eur(patrimoine.patrimoine_total_eur)}</p>
+              <p className="mt-3 text-sm text-slate-400">
+                MAJ {formatDate(patrimoine.calculated_at)}
+              </p>
             </div>
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard label="Positions" value={eur(total?.total_positions_eur)} />
-          <MetricCard label="Cash converti EUR" value={eur(total?.total_cash_eur)} />
-          <MetricCard
-            label="Poids cash"
-            value={pct(Number(total?.total_cash_eur || 0), totalGeneral)}
-          />
+        {error && (
+          <section className="rounded-2xl border border-red-300/30 bg-red-400/10 p-4 text-sm text-red-200">
+            {error}
+          </section>
+        )}
+
+        <section className="grid gap-4 md:grid-cols-4">
+          <MetricCard label="Investi" value={eur(patrimoine.invested_value_eur)} />
+          <MetricCard label="Cash" value={eur(patrimoine.total_cash_eur)} positive />
+          <MetricCard label="P&L investi" value={eur(patrimoine.invested_pnl_eur)} positive />
+          <MetricCard label="Performance" value={pct(patrimoine.performance_pct)} positive />
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-black/20">
+            <p className="text-sm font-semibold uppercase tracking-[0.26em] text-sky-300">
+              Statut Nexial
+            </p>
+
+            <h2 className={`mt-5 text-4xl font-semibold ${statusColor(patrimoine.nexial_global_status)}`}>
+              {patrimoine.nexial_global_status}
+            </h2>
+
+            <p className="mt-4 text-base leading-7 text-slate-300">
+              {patrimoine.nexial_global_message}
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <Mini label="Alertes" value={String(patrimoine.active_alerts)} />
+              <Mini label="Nouvelles" value={String(patrimoine.new_alerts)} />
+              <Mini label="Urgentes" value={String(patrimoine.urgent_alerts)} warning={patrimoine.urgent_alerts > 0} />
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-black/20">
+            <p className="text-sm font-semibold uppercase tracking-[0.26em] text-sky-300">
+              Capital disponible
+            </p>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <Mini label="Cash total" value={eur(patrimoine.total_cash_eur)} positive />
+              <Mini label="Capital engagé" value={eur(patrimoine.engaged_capital_eur)} warning />
+              <Mini label="Cash net" value={eur(patrimoine.available_cash_after_orders_eur)} positive />
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <Mini label="Ordres actifs" value={String(patrimoine.active_orders_count)} />
+              <Mini label="À confirmer" value={String(patrimoine.orders_to_confirm_count)} warning={patrimoine.orders_to_confirm_count > 0} />
+              <Mini label="Positions" value={String(patrimoine.positions_count)} />
+            </div>
+          </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
           <ChartCard title="Répartition par portefeuille" data={accountPie} />
           <ChartCard title="Cash par portefeuille" data={cashPie} />
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-black/20">
+          <h2 className="text-2xl font-semibold">Répartition PEA / CTO / Cash</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Vision utile pour piloter le risque, le cash et l’exposition globale.
+          </p>
+
+          <div className="mt-6 space-y-4">
+            <AllocationLine
+              label="PEA"
+              value={patrimoine.pea_value_eur}
+              pnl={patrimoine.pea_pnl_eur}
+              total={patrimoine.patrimoine_total_eur}
+            />
+            <AllocationLine
+              label="CTO"
+              value={patrimoine.cto_value_eur}
+              pnl={patrimoine.cto_pnl_eur}
+              total={patrimoine.patrimoine_total_eur}
+            />
+            <AllocationLine
+              label="Cash"
+              value={patrimoine.total_cash_eur}
+              pnl={0}
+              total={patrimoine.patrimoine_total_eur}
+            />
+          </div>
         </section>
 
         <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-black/20">
@@ -165,7 +319,7 @@ export default function PatrimoinePage() {
 
           <div className="space-y-4">
             {accounts.map((a, index) => {
-              const weight = totalGeneral ? (Number(a.total_eur || 0) / totalGeneral) * 100 : 0
+              const accountWeight = totalGeneral ? (Number(a.total_eur || 0) / totalGeneral) * 100 : 0
 
               return (
                 <div
@@ -186,7 +340,7 @@ export default function PatrimoinePage() {
 
                     <div className="text-right">
                       <p className="text-xl font-semibold">{eur(a.total_eur)}</p>
-                      <p className="text-sm text-slate-400">{weight.toFixed(1)}%</p>
+                      <p className="text-sm text-slate-400">{accountWeight.toFixed(1)} %</p>
                     </div>
                   </div>
 
@@ -194,7 +348,7 @@ export default function PatrimoinePage() {
                     <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${Math.min(weight, 100)}%`,
+                        width: `${Math.min(accountWeight, 100)}%`,
                         backgroundColor: COLORS[index % COLORS.length],
                       }}
                     />
@@ -252,11 +406,91 @@ export default function PatrimoinePage() {
   )
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  positive = false,
+  warning = false,
+}: {
+  label: string
+  value: string
+  positive?: boolean
+  warning?: boolean
+}) {
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-6 shadow-xl shadow-black/20 backdrop-blur">
       <p className="text-sm text-slate-400">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
+      <p
+        className={`mt-2 text-3xl font-semibold tracking-tight ${
+          positive ? 'text-emerald-300' : warning ? 'text-amber-300' : 'text-white'
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function Mini({
+  label,
+  value,
+  positive = false,
+  warning = false,
+}: {
+  label: string
+  value: string
+  positive?: boolean
+  warning?: boolean
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p
+        className={`mt-2 text-xl font-semibold ${
+          positive ? 'text-emerald-300' : warning ? 'text-amber-300' : 'text-white'
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function AllocationLine({
+  label,
+  value,
+  pnl,
+  total,
+}: {
+  label: string
+  value: number
+  pnl: number
+  total: number
+}) {
+  const allocationWeight = total > 0 ? (value / total) * 100 : 0
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-lg font-semibold text-white">{label}</p>
+          <p className={`mt-1 text-sm ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+            {pnl === 0 ? '—' : eur(pnl)}
+          </p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-xl font-semibold text-white">{eur(value)}</p>
+          <p className="text-sm text-slate-500">{allocationWeight.toFixed(1)} %</p>
+        </div>
+      </div>
+
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-sky-300"
+          style={{ width: `${Math.min(Math.max(allocationWeight, 0), 100)}%` }}
+        />
+      </div>
     </div>
   )
 }
@@ -285,7 +519,7 @@ function ChartCard({ title, data }: { title: string; data: { name: string; value
               ))}
             </Pie>
             <Tooltip
-              formatter={(value: number) => eur(value)}
+              formatter={(value) => eur(Number(value))}
               contentStyle={{
                 background: '#020617',
                 border: '1px solid rgba(255,255,255,0.12)',
@@ -309,7 +543,7 @@ function ChartCard({ title, data }: { title: string; data: { name: string; value
             </div>
             <div className="text-right">
               <p className="font-medium">{eur(item.value)}</p>
-              <p className="text-xs text-slate-500">{pct(item.value, total)}</p>
+              <p className="text-xs text-slate-500">{weight(item.value, total)}</p>
             </div>
           </div>
         ))}

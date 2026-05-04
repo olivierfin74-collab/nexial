@@ -1,6 +1,5 @@
 import './globals.css'
-import Sidebar from '@/components/layout/Sidebar'
-import Header from '@/components/layout/Header'
+import AppNav from '@/components/layout/AppNav'
 
 export default function RootLayout({
   children,
@@ -9,20 +8,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr">
-      <body className="bg-[#111a33] text-white">
-        <div className="flex h-screen overflow-hidden">
-
-          <Sidebar />
-
-          <div className="flex flex-1 flex-col">
-            <Header />
-
-            <main className="flex-1 overflow-y-auto px-5 py-5">
-              {children}
-            </main>
-          </div>
-
-        </div>
+      <body className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top_left,#1e3a8a_0,#07111f_45%,#020617_100%)] text-white">
+        <AppNav>{children}</AppNav>
       </body>
     </html>
   )

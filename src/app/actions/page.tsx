@@ -1,48 +1,142 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import FeedbackModal from '@/components/FeedbackModal'
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  ClipboardCheck,
+  Database,
+  RefreshCcw,
+  ShieldCheck,
+  Sparkles,
+  TimerReset,
+  Wallet,
+  X,
+} from 'lucide-react'
 
-const SIGNAL_VIEW = 'vw_top_ideas_v1'
+const INVEST_VIEW = 'vw_invest_ui_v1'
+const ADAPTIVE_VIEW = 'vw_actions_adaptive_top3_v1'
+const AUTO_EXECUTION_VIEW = 'vw_auto_execution_suggestions_v1'
+const CREATE_ORDER_RPC = 'fn_create_execution_order_from_auto_suggestion_v1'
 
-type RawIdeaRow = {
+type InvestRow = {
+  id: string
   ticker: string
-  close_price: number | null
-  drawdown: number | null
-  nb_points: number | null
+  asset_name: string
+  display_subtitle: string | null
+  amount_suggested: number | null
+  suggested_quantity: number | null
+  buy_zone_low: number | null
+  buy_zone_high: number | null
+  score: number | null
+  capital_efficiency_score: number | null
+  expected_return_pct: number | null
   decision: string | null
-  priority: number | null
+  reason: string | null
+  latest_close_price: number | null
+  currency: string | null
+  price_quality: string | null
+  price_source: string | null
+  updated_at: string | null
+
+  adaptive_nexial_score?: number | null
+  learning_signal?: string | null
+  adaptive_reason?: string | null
+  adaptive_decision?: string | null
+  adaptive_rank?: number | null
+
+  auto_is_order_ready?: boolean | null
+  auto_limit_price?: number | null
+  auto_quantity?: number | null
+  auto_amount_estimated?: number | null
+  auto_execution_probability?: number | null
+  auto_block_reason?: string | null
+  auto_source?: string | null
 }
 
-type SignalRow = {
-  id: string
+type AdaptiveRow = {
   ticker: string
   asset_name: string | null
   account_type: string | null
   latest_price: number | null
   currency: string | null
-  buy_zone_low: number | null
-  buy_zone_high: number | null
-  distance_to_buy_zone_pct: number | null
-  zone_status: string | null
   price_quality: string | null
-  priority_score: number | null
-  score: number | null
-  capital_efficiency_score: number | null
   nexial_score: number | null
+  adaptive_nexial_score: number | null
+  learning_signal: string | null
+  adaptive_reason: string | null
   nexial_phase: string | null
-  nexial_action: string | null
-  nexial_reason: string | null
-  thesis: string | null
-  price_timestamp: string | null
+  adaptive_decision: string | null
+  adaptive_rank: number | null
+  calculated_at: string | null
 }
 
-type ScoredSignalRow = SignalRow & {
-  nexialScore: number
+type AutoExecutionRow = {
+  invest_row_id?: string | null
+  ticker: string
+  asset_name?: string | null
+  account_scope?: string | null
+  broker?: string | null
+  latest_price?: number | null
+  currency?: string | null
+  price_quality?: string | null
+  buy_zone_low?: number | null
+  buy_zone_high?: number | null
+  suggested_limit_price?: number | null
+  suggested_quantity?: number | null
+  suggested_amount?: number | null
+  amount_unused?: number | null
+  suggested_order_type?: string | null
+  execution_probability?: number | null
+  execution_status?: string | null
+  is_order_ready?: boolean | null
+  nexial_score?: number | null
+  adaptive_nexial_score?: number | null
+  learning_signal?: string | null
+  adaptive_reason?: string | null
+  adaptive_decision?: string | null
+  adaptive_rank?: number | null
+  expected_return_pct?: number | null
+  capital_efficiency_score?: number | null
+  execution_reason?: string | null
+  order_message?: string | null
+  calculated_at?: string | null
 }
 
-type WatchCandidateRow = ScoredSignalRow & {
-  diff: number
+type ExecutionHealth = {
+  totalRows: number
+  actionable: number
+  adaptiveBuyReady: number
+  adaptiveWatch: number
+  adaptiveBlocked: number
+  blockedNoZone: number
+  blockedNoPrice: number
+  blockedQuantity: number
+  blockedData: number
+  blockedAuto: number
+  staleRows: number
+  blockedDecision: number
+}
+
+type OrderCreationState = {
+  ticker: string
+  status: 'success' | 'error'
+  message: string
+  payload?: unknown
+}
+
+function eur(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value))) return '—'
+
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  }).format(Number(value))
 }
 
 function money(value?: number | null, currency = 'EUR') {
@@ -56,941 +150,1297 @@ function money(value?: number | null, currency = 'EUR') {
   }).format(Number(value))
 }
 
-function num(value?: number | null, digits = 2) {
+function num(value?: number | null, digits = 4) {
   if (value == null || Number.isNaN(Number(value))) return '—'
 
   return new Intl.NumberFormat('fr-FR', {
-    minimumFractionDigits: digits,
+    minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   }).format(Number(value))
 }
 
-function pct(value?: number | null) {
+function pct(value?: number | null, digits = 1) {
   if (value == null || Number.isNaN(Number(value))) return '—'
-  return `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)} %`
+  return `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(digits)} %`
 }
 
-function diffPct(current?: number | null, limit?: number | null) {
-  if (current == null || limit == null || limit === 0) return null
+function formatDate(value?: string | null) {
+  if (!value) return 'date inconnue'
 
-  return ((current - limit) / limit) * 100
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'date inconnue'
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
-function distanceToBuyZonePct(row: SignalRow) {
-  const computed = diffPct(row.latest_price, row.buy_zone_high)
+function isFresh(value?: string | null) {
+  if (!value) return false
 
-  if (computed != null) return computed
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
 
-  if (
-    row.distance_to_buy_zone_pct != null &&
-    !Number.isNaN(Number(row.distance_to_buy_zone_pct))
-  ) {
-    return Number(row.distance_to_buy_zone_pct)
-  }
-
-  return null
+  return (Date.now() - date.getTime()) / 36e5 <= 48
 }
 
-function normalizeDecisionToPhase(decision?: string | null) {
-  const d = String(decision || '').toUpperCase()
-
-  if (d === 'STRONG_BUY_ZONE') return 'BUY'
-  if (d === 'BUY_ZONE') return 'BUY'
-  if (d === 'WATCH') return 'WATCH'
-
-  return 'WAIT'
+function normalizeTicker(ticker?: string | null) {
+  return String(ticker || '')
+    .replace(/\..*$/, '')
+    .trim()
+    .toUpperCase()
 }
 
-function isBuy(row: SignalRow) {
-  return String(row.nexial_phase || '').toUpperCase() === 'BUY'
+function isDecisionReady(row: InvestRow) {
+  const adaptiveDecision = String(row.adaptive_decision || '').toUpperCase()
+  const decision = String(row.decision || '').toUpperCase()
+
+  return (
+    adaptiveDecision === 'BUY_READY' ||
+    decision.includes('READY') ||
+    decision.includes('BUY') ||
+    decision.includes('ACHAT')
+  )
 }
 
-function isWatch(row: SignalRow) {
-  return String(row.nexial_phase || '').toUpperCase() === 'WATCH'
-}
-
-function isWait(row: SignalRow) {
-  return String(row.nexial_phase || '').toUpperCase() === 'WAIT'
-}
-
-function isPriceOk(row: SignalRow) {
+function isPriceOk(row: InvestRow) {
   return String(row.price_quality || '').toUpperCase() === 'OK'
 }
 
-function isFresh(timestamp?: string | null) {
-  if (!timestamp) return false
-
-  const date = new Date(timestamp)
-  if (Number.isNaN(date.getTime())) return false
-
-  const diffHours = (Date.now() - date.getTime()) / 36e5
-  return diffHours <= 48
+function hasValidPrice(row: InvestRow) {
+  return row.latest_close_price != null && Number(row.latest_close_price) > 0
 }
 
-function freshnessLabel(timestamp?: string | null) {
-  if (!timestamp) return 'MAJ inconnue'
-
-  const date = new Date(timestamp)
-  if (Number.isNaN(date.getTime())) return 'MAJ inconnue'
-
-  const diffHours = (Date.now() - date.getTime()) / 36e5
-
-  if (diffHours < 24) return '< 24h'
-  if (diffHours < 48) return '24-48h'
-  if (diffHours < 72) return '48-72h'
-
-  return '> 72h'
+function hasValidZone(row: InvestRow) {
+  return row.buy_zone_low != null && row.buy_zone_high != null
 }
 
-function zoneLabel(row: SignalRow) {
-  if (row.buy_zone_low != null && row.buy_zone_high != null) {
-    return `${money(row.buy_zone_low, row.currency || 'EUR')} - ${money(
-      row.buy_zone_high,
-      row.currency || 'EUR'
-    )}`
-  }
-
-  if (isBuy(row)) return 'Zone achat validée'
-  if (isWatch(row)) return 'Zone surveillance'
-  return 'Aucune zone'
+function hasValidQuantity(row: InvestRow) {
+  return row.suggested_quantity != null && Number(row.suggested_quantity) > 0
 }
 
-function phaseRank(row: SignalRow) {
-  const phase = String(row.nexial_phase || '').toUpperCase()
-
-  if (phase === 'BUY') return 4
-  if (phase === 'WATCH') return 3
-  if (phase === 'WAIT') return 2
-  if (phase === 'RISK') return 1
-
-  return 0
+function hasValidAmount(row: InvestRow) {
+  return row.amount_suggested != null && Number(row.amount_suggested) > 0
 }
 
-function executionStatus(row: SignalRow) {
-  const phase = String(row.nexial_phase || '').toUpperCase()
-  const quality = String(row.price_quality || '').toUpperCase()
-
-  if (quality !== 'OK') {
-    return {
-      label: 'Achat bloqué',
-      detail: 'La donnée prix n’est pas fiable. Nexial bloque l’achat.',
-      tone: 'watch' as const,
-    }
-  }
-
-  if (phase === 'BUY') {
-    return {
-      label: 'Acheter possible',
-      detail:
-        row.nexial_reason ||
-        'Actif en zone d’achat validée par le moteur Nexial.',
-      tone: 'buy' as const,
-    }
-  }
-
-  if (phase === 'WATCH') {
-    return {
-      label: 'Surveillance active',
-      detail:
-        row.nexial_reason ||
-        'Actif intéressant mais pas encore en achat propre.',
-      tone: 'watch' as const,
-    }
-  }
-
-  return {
-    label: 'Attendre',
-    detail:
-      row.nexial_reason ||
-      'Prix trop haut : attendre un meilleur point d’entrée.',
-    tone: 'wait' as const,
-  }
+function hasAutoSuggestion(row: InvestRow) {
+  return row.auto_is_order_ready != null
 }
 
-function opportunityScoreLabel(score: number) {
-  if (score < 30) return 'Peu d’opportunités exploitables'
-  if (score < 60) return 'Opportunités moyennes'
-  if (score < 75) return 'Opportunités intéressantes'
-  return 'Opportunités fortes'
+function isAutoOrderReady(row: InvestRow) {
+  return (
+    row.auto_is_order_ready === true &&
+    Number(row.auto_quantity || 0) > 0 &&
+    Number(row.auto_amount_estimated || 0) > 0 &&
+    Number(row.auto_limit_price || 0) > 0
+  )
 }
 
-function computeNexialScore(row: SignalRow) {
-  const phase = String(row.nexial_phase || '').toUpperCase()
-  const priceQuality = String(row.price_quality || '').toUpperCase()
-  const baseScore = Number(row.nexial_score ?? row.score ?? 0)
-  const capitalEfficiency = Number(row.capital_efficiency_score ?? 0)
-  const priority = Number(row.priority_score ?? 0)
-  const distance = distanceToBuyZonePct(row)
-
-  const phaseBoost =
-    phase === 'BUY'
-      ? 25
-      : phase === 'WATCH'
-        ? 15
-        : phase === 'WAIT'
-          ? 5
-          : 0
-
-  const distanceScore =
-    distance == null
-      ? 0
-      : distance <= -20
-        ? 30
-        : distance <= -10
-          ? 25
-          : distance <= -5
-            ? 20
-            : distance <= 0
-              ? 15
-              : 0
-
-  const dataPenalty = priceQuality === 'OK' ? 0 : -35
-
-  const computed =
-    baseScore * 0.45 +
-    capitalEfficiency * 0.2 +
-    priority * 10 +
-    phaseBoost +
-    distanceScore +
-    dataPenalty
-
-  return Math.round(Math.min(100, Math.max(0, computed)))
+function isActionable(row: InvestRow) {
+  return (
+    isPriceOk(row) &&
+    hasValidPrice(row) &&
+    hasValidZone(row) &&
+    hasValidQuantity(row) &&
+    hasValidAmount(row) &&
+    isDecisionReady(row) &&
+    isAutoOrderReady(row)
+  )
 }
 
-function mapRawIdeaToSignalRow(row: RawIdeaRow): SignalRow {
-  const decision = String(row.decision || '').toUpperCase()
-  const phase = normalizeDecisionToPhase(decision)
-  const priority = Number(row.priority || 0)
-  const drawdownPct = row.drawdown == null ? null : Number(row.drawdown) * 100
-  const score = Math.min(100, Math.max(0, priority * 33))
+function zoneLabel(row: InvestRow) {
+  if (!hasValidZone(row)) return 'Zone non définie'
 
-  return {
-    id: `${row.ticker}-${decision}`,
-    ticker: row.ticker,
-    asset_name: row.ticker,
-    account_type: null,
-    latest_price: row.close_price,
-    currency: 'EUR',
-    buy_zone_low: null,
-    buy_zone_high: null,
-    distance_to_buy_zone_pct: drawdownPct,
-    zone_status: decision,
-    price_quality: 'OK',
-    priority_score: priority,
-    score,
-    capital_efficiency_score: score,
-    nexial_score: score,
-    nexial_phase: phase,
-    nexial_action: phase === 'BUY' ? 'BUY' : 'WATCH',
-    nexial_reason:
-      phase === 'BUY'
-        ? `Drawdown ${num(drawdownPct, 2)} %. Zone d’achat détectée.`
-        : `Drawdown ${num(
-            drawdownPct,
-            2
-          )} %. Surveillance active, pas d’achat immédiat.`,
-    thesis:
-      decision === 'STRONG_BUY_ZONE'
-        ? 'Opportunité forte détectée par drawdown.'
-        : decision === 'BUY_ZONE'
-          ? 'Zone d’achat détectée.'
-          : 'Actif à surveiller.',
-    price_timestamp: new Date().toISOString(),
-  }
+  return `${money(row.buy_zone_low, row.currency || 'EUR')} – ${money(
+    row.buy_zone_high,
+    row.currency || 'EUR'
+  )}`
+}
+
+function executionBlockReason(row: InvestRow) {
+  if (!isPriceOk(row)) return 'Donnée prix non fiable'
+  if (!hasValidPrice(row)) return 'Prix indisponible'
+  if (!hasValidZone(row)) return 'Zone d’achat absente'
+  if (!hasValidQuantity(row)) return 'Quantité non exécutable côté Invest'
+  if (!hasValidAmount(row)) return 'Montant non exploitable côté Invest'
+  if (!isDecisionReady(row)) return 'Décision non validée'
+  if (!hasAutoSuggestion(row)) return 'Suggestion auto absente'
+  if (!isAutoOrderReady(row)) return row.auto_block_reason || 'Auto execution non validée'
+  return 'Aucun blocage'
+}
+
+function baseScore(row: InvestRow) {
+  return Number(row.score || 0) + Number(row.capital_efficiency_score || 0)
+}
+
+function adaptiveScore(row: InvestRow) {
+  return Number(row.adaptive_nexial_score ?? baseScore(row))
+}
+
+function scoreDelta(row: InvestRow) {
+  if (row.adaptive_nexial_score == null || row.score == null) return null
+  return Number(row.adaptive_nexial_score) - Number(row.score)
+}
+
+function orderRank(row: InvestRow) {
+  return (
+    adaptiveScore(row) * 2 +
+    Number(row.expected_return_pct || 0) +
+    Number(row.amount_suggested || 0) / 1000 +
+    Number(row.auto_execution_probability || 0) +
+    (String(row.adaptive_decision || '').toUpperCase() === 'BUY_READY' ? 30 : 0) +
+    (isAutoOrderReady(row) ? 40 : 0)
+  )
+}
+
+function distanceToZone(row: InvestRow) {
+  const price = Number(row.latest_close_price)
+  const high = Number(row.buy_zone_high)
+
+  if (!price || !high) return null
+  return ((price - high) / high) * 100
+}
+
+function orderLimitPrice(row: InvestRow) {
+  if (row.auto_limit_price != null && Number(row.auto_limit_price) > 0) return Number(row.auto_limit_price)
+  if (row.buy_zone_high != null) return Number(row.buy_zone_high)
+  return row.latest_close_price
+}
+
+function executionQuantity(row: InvestRow) {
+  if (row.auto_quantity != null && Number(row.auto_quantity) > 0) return Number(row.auto_quantity)
+  return Number(row.suggested_quantity || 0)
+}
+
+function executionAmount(row: InvestRow) {
+  if (row.auto_amount_estimated != null && Number(row.auto_amount_estimated) > 0) return Number(row.auto_amount_estimated)
+  return Number(row.amount_suggested || 0)
+}
+
+function executionAccount(row: InvestRow) {
+  const subtitle = String(row.display_subtitle || '').toUpperCase()
+  const currency = String(row.currency || '').toUpperCase()
+
+  if (subtitle.includes('PEA')) return 'PEA'
+  if (subtitle.includes('IBKR')) return 'CTO IBKR'
+  if (currency === 'USD') return 'CTO IBKR'
+  return 'Compte à confirmer'
+}
+
+function orderType(row: InvestRow) {
+  const currency = String(row.currency || '').toUpperCase()
+  if (currency === 'USD') return 'Limit GTC'
+  return 'Limit jour'
+}
+
+function learningClass(signal?: string | null) {
+  const s = String(signal || '').toUpperCase()
+
+  if (s.includes('POSITIVE')) return 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
+  if (s.includes('NEGATIVE')) return 'border-red-300/30 bg-red-400/10 text-red-200'
+  if (s.includes('LOW')) return 'border-amber-300/30 bg-amber-400/10 text-amber-200'
+  if (s.includes('NO')) return 'border-white/10 bg-white/5 text-slate-300'
+
+  return 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
+}
+
+function adaptiveDecisionClass(decision?: string | null) {
+  const d = String(decision || '').toUpperCase()
+
+  if (d === 'BUY_READY') return 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
+  if (d === 'WATCH') return 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
+  if (d === 'BLOCKED_DATA') return 'border-red-300/30 bg-red-400/10 text-red-200'
+
+  return 'border-amber-300/30 bg-amber-400/10 text-amber-200'
+}
+
+function adaptiveDecisionLabel(decision?: string | null) {
+  const d = String(decision || '').toUpperCase()
+
+  if (d === 'BUY_READY') return 'BUY READY'
+  if (d === 'WATCH') return 'WATCH'
+  if (d === 'BLOCKED_DATA') return 'DATA BLOCK'
+  return 'WAIT'
+}
+
+function extractAutoLimit(row: AutoExecutionRow) {
+  return Number(row.suggested_limit_price ?? 0) || null
+}
+
+function extractAutoQuantity(row: AutoExecutionRow) {
+  return Number(row.suggested_quantity ?? 0) || null
+}
+
+function extractAutoAmount(row: AutoExecutionRow) {
+  return Number(row.suggested_amount ?? 0) || null
+}
+
+function extractAutoBlockReason(row: AutoExecutionRow) {
+  return row.execution_status || row.execution_reason || row.order_message || null
 }
 
 export default function ActionsPage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
-  const [rows, setRows] = useState<SignalRow[]>([])
+  const [rows, setRows] = useState<InvestRow[]>([])
+  const [adaptiveRows, setAdaptiveRows] = useState<AdaptiveRow[]>([])
+  const [autoRows, setAutoRows] = useState<AutoExecutionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [creatingAll, setCreatingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<InvestRow | null>(null)
+  const [creatingTicker, setCreatingTicker] = useState<string | null>(null)
+  const [orderCreation, setOrderCreation] = useState<OrderCreationState | null>(null)
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      setError(null)
+  async function load(isRefresh = false) {
+    if (isRefresh) setRefreshing(true)
+    else setLoading(true)
 
-      const { data, error } = await supabase
-        .from(SIGNAL_VIEW)
-        .select('*')
-        .in('decision', ['WAIT', 'WATCH', 'BUY_ZONE', 'STRONG_BUY_ZONE'])
-        .order('priority', { ascending: false })
-        .order('drawdown', { ascending: true })
-        .limit(10)
+    setError(null)
 
-      if (error) {
-        setError(error.message)
-        setRows([])
-      } else {
-        const unique = new Map<string, SignalRow>()
+    const [investResult, adaptiveResult, autoResult] = await Promise.all([
+      supabase.from(INVEST_VIEW).select('*'),
+      supabase.from(ADAPTIVE_VIEW).select('*'),
+      supabase.from(AUTO_EXECUTION_VIEW).select('*'),
+    ])
 
-        for (const raw of (data || []) as RawIdeaRow[]) {
-          if (!unique.has(raw.ticker)) {
-            unique.set(raw.ticker, mapRawIdeaToSignalRow(raw))
-          }
+    if (investResult.error) {
+      setError(investResult.error.message)
+      setRows([])
+    } else {
+      const baseRows = (investResult.data || []) as InvestRow[]
+      const adaptive = (adaptiveResult.data || []) as AdaptiveRow[]
+      const auto = (autoResult.data || []) as AutoExecutionRow[]
+
+      setAdaptiveRows(adaptive)
+      setAutoRows(auto)
+
+      const adaptiveMap = new Map<string, AdaptiveRow>()
+      adaptive.forEach((row) => {
+        adaptiveMap.set(normalizeTicker(row.ticker), row)
+      })
+
+      const autoMap = new Map<string, AutoExecutionRow>()
+      auto.forEach((row) => {
+        autoMap.set(normalizeTicker(row.ticker), row)
+      })
+
+      const mergedRows = baseRows.map((row) => {
+        const adaptiveRow = adaptiveMap.get(normalizeTicker(row.ticker))
+        const autoRow = autoMap.get(normalizeTicker(row.ticker))
+
+        return {
+          ...row,
+          adaptive_nexial_score: adaptiveRow?.adaptive_nexial_score ?? null,
+          learning_signal: adaptiveRow?.learning_signal ?? null,
+          adaptive_reason: adaptiveRow?.adaptive_reason ?? null,
+          adaptive_decision: adaptiveRow?.adaptive_decision ?? null,
+          adaptive_rank: adaptiveRow?.adaptive_rank ?? null,
+
+          auto_is_order_ready: autoRow?.is_order_ready ?? null,
+          auto_limit_price: autoRow ? extractAutoLimit(autoRow) : null,
+          auto_quantity: autoRow ? extractAutoQuantity(autoRow) : null,
+          auto_amount_estimated: autoRow ? extractAutoAmount(autoRow) : null,
+          auto_execution_probability: autoRow?.execution_probability ?? null,
+          auto_block_reason: autoRow ? extractAutoBlockReason(autoRow) : null,
+          auto_source: 'AUTO_EXECUTION_SUGGESTION',
         }
+      })
 
-        setRows(Array.from(unique.values()).slice(0, 3))
-      }
-
-      setLoading(false)
+      setRows(mergedRows)
     }
 
-    load()
-  }, [supabase])
+    if (adaptiveResult.error && !investResult.error) {
+      setError(adaptiveResult.error.message)
+    }
 
-  const scoredRows = useMemo<ScoredSignalRow[]>(() => {
-    return rows.map((row) => ({
-      ...row,
-      nexialScore: computeNexialScore(row),
-    }))
-  }, [rows])
+    if (autoResult.error && !investResult.error && !adaptiveResult.error) {
+      setError(autoResult.error.message)
+    }
+
+    setLoading(false)
+    setRefreshing(false)
+  }
+
+  async function createOrder(row: InvestRow) {
+    const ticker = normalizeTicker(row.ticker)
+
+    setOrderCreation(null)
+
+    if (!isActionable(row)) {
+      setOrderCreation({
+        ticker,
+        status: 'error',
+        message: executionBlockReason(row),
+      })
+      return false
+    }
+
+    setCreatingTicker(ticker)
+
+    const firstAttempt = await supabase.rpc(CREATE_ORDER_RPC, { ticker })
+
+    if (firstAttempt.error) {
+      const secondAttempt = await supabase.rpc(CREATE_ORDER_RPC, { p_ticker: ticker })
+
+      if (secondAttempt.error) {
+        setCreatingTicker(null)
+        setOrderCreation({
+          ticker,
+          status: 'error',
+          message: secondAttempt.error.message || firstAttempt.error.message,
+        })
+        return false
+      }
+
+      setCreatingTicker(null)
+      setOrderCreation({
+        ticker,
+        status: 'success',
+        message: 'Ordre créé ou déjà actif. Disponible dans /orders.',
+        payload: secondAttempt.data,
+      })
+      return true
+    }
+
+    setCreatingTicker(null)
+    setOrderCreation({
+      ticker,
+      status: 'success',
+      message: 'Ordre créé ou déjà actif. Disponible dans /orders.',
+      payload: firstAttempt.data,
+    })
+
+    return true
+  }
+
+  async function createAllOrders(items: InvestRow[]) {
+    if (items.length === 0) return
+
+    setCreatingAll(true)
+
+    setOrderCreation({
+      ticker: 'SYSTEM',
+      status: 'success',
+      message: 'Traitement des ordres en cours. Nexial vérifie chaque ordre avant création.',
+    })
+
+    let successCount = 0
+    let lastError: string | null = null
+
+    for (const item of items) {
+      const ok = await createOrder(item)
+      if (ok) successCount += 1
+      if (!ok) lastError = `${normalizeTicker(item.ticker)} : ${executionBlockReason(item)}`
+    }
+
+    setCreatingAll(false)
+
+    if (successCount === items.length) {
+      setOrderCreation({
+        ticker: 'TOP 3',
+        status: 'success',
+        message: `${successCount} ordre(s) créé(s) ou déjà actif(s). Disponible(s) dans /orders.`,
+      })
+      return
+    }
+
+    setOrderCreation({
+      ticker: 'TOP 3',
+      status: successCount > 0 ? 'success' : 'error',
+      message:
+        successCount > 0
+          ? `${successCount} ordre(s) créé(s). Certains ordres sont bloqués : ${lastError || 'blocage inconnu'}.`
+          : lastError || 'Aucun ordre créé.',
+    })
+  }
+
+  useEffect(() => {
+    load(false)
+  }, [])
 
   const sortedRows = useMemo(() => {
-    return [...scoredRows].sort((a, b) => {
-      const phaseDiff = phaseRank(b) - phaseRank(a)
-      if (phaseDiff !== 0) return phaseDiff
+    return [...rows].sort((a, b) => orderRank(b) - orderRank(a))
+  }, [rows])
 
-      return Number(b.nexialScore || 0) - Number(a.nexialScore || 0)
-    })
-  }, [scoredRows])
-
-  const buyRows = useMemo(() => sortedRows.filter(isBuy), [sortedRows])
-  const watchRows = useMemo(() => sortedRows.filter(isWatch), [sortedRows])
-  const waitRows = useMemo(() => sortedRows.filter(isWait), [sortedRows])
-
-  const topRows = useMemo(() => sortedRows.slice(0, 3), [sortedRows])
-
-  const watchCandidates = useMemo<WatchCandidateRow[]>(() => {
-    return [...scoredRows]
-      .filter((row) =>
-        ['ACTIVE', 'WATCH', 'WAIT', 'BUY'].includes(
-          String(row.nexial_phase || row.nexial_action || '').toUpperCase()
-        )
-      )
-      .map((row) => {
-        const diff = distanceToBuyZonePct(row)
-        return { ...row, diff }
-      })
-      .filter((row): row is WatchCandidateRow => row.diff != null && row.diff < 0)
-      .sort((a, b) => a.diff - b.diff)
-      .slice(0, 3)
-  }, [scoredRows])
+  const actionableRows = useMemo(() => {
+    return sortedRows.filter(isActionable).slice(0, 3)
+  }, [sortedRows])
 
   const blockedRows = useMemo(() => {
-    return topRows.filter((row) => !isPriceOk(row)).length
-  }, [topRows])
+    return sortedRows.filter((row) => !isActionable(row))
+  }, [sortedRows])
 
-  const staleRows = useMemo(() => {
-    return topRows.filter((row) => !isFresh(row.price_timestamp)).length
-  }, [topRows])
+  const executionHealth = useMemo<ExecutionHealth>(() => {
+    return {
+      totalRows: sortedRows.length,
+      actionable: actionableRows.length,
+      adaptiveBuyReady: adaptiveRows.filter((row) => row.adaptive_decision === 'BUY_READY').length,
+      adaptiveWatch: adaptiveRows.filter((row) => row.adaptive_decision === 'WATCH').length,
+      adaptiveBlocked: adaptiveRows.filter((row) => row.adaptive_decision === 'BLOCKED_DATA').length,
+      blockedNoZone: blockedRows.filter((row) => !hasValidZone(row)).length,
+      blockedNoPrice: blockedRows.filter((row) => !hasValidPrice(row)).length,
+      blockedQuantity: blockedRows.filter((row) => !hasValidQuantity(row) || !isAutoOrderReady(row)).length,
+      blockedData: blockedRows.filter((row) => !isPriceOk(row)).length,
+      blockedAuto: blockedRows.filter((row) => !isAutoOrderReady(row)).length,
+      staleRows: sortedRows.filter((row) => !isFresh(row.updated_at)).length,
+      blockedDecision: blockedRows.filter((row) => !isDecisionReady(row)).length,
+    }
+  }, [sortedRows, actionableRows, blockedRows, adaptiveRows])
 
-  const avgScore = useMemo(() => {
-    if (topRows.length === 0) return 0
+  const latestUpdate = useMemo(() => {
+    const dates = sortedRows
+      .map((row) => row.updated_at)
+      .filter(Boolean)
+      .map((value) => new Date(value as string))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => b.getTime() - a.getTime())
 
-    return (
-      topRows.reduce((sum, row) => sum + Number(row.nexialScore || 0), 0) /
-      topRows.length
+    return dates[0]?.toISOString() || null
+  }, [sortedRows])
+
+  const totalAmount = useMemo(() => {
+    return actionableRows.reduce((sum, row) => sum + Number(executionAmount(row) || 0), 0)
+  }, [actionableRows])
+
+  const avgAdaptiveScore = useMemo(() => {
+    if (adaptiveRows.length === 0) return 0
+
+    return Math.round(
+      adaptiveRows.reduce((sum, row) => sum + Number(row.adaptive_nexial_score || 0), 0) /
+        adaptiveRows.length
     )
-  }, [topRows])
+  }, [adaptiveRows])
 
-  const mainDecision =
-    buyRows.length > 0
-      ? 'Exécuter'
-      : watchRows.length > 0
-        ? 'Surveiller'
-        : 'Attendre'
-
-  const mainText =
-    buyRows.length > 0
-      ? `${buyRows.length} opportunité(s) en phase BUY. Priorité aux meilleurs scores Nexial.`
-      : watchRows.length > 0
-        ? 'Aucun achat propre immédiat. Surveillance active des actifs proches des zones.'
-        : 'NO ACTION — WAIT. Aucune opportunité actionnable actuellement. Discipline : attendre un meilleur point d’entrée.'
+  const bestOrder = actionableRows[0] || null
+  const hasAction = actionableRows.length > 0
+  const dataAlerts =
+    executionHealth.blockedData +
+    executionHealth.blockedNoPrice +
+    executionHealth.staleRows
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-[#111a33] p-8 text-white">
-        <div className="mx-auto max-w-[1550px] rounded-[1.75rem] border border-white/10 bg-[#182441] p-8 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-300">
-            Nexial Actions
-          </p>
-
-          <h1 className="mt-3 text-3xl font-semibold">
-            Chargement des actions...
-          </h1>
-
-          <p className="mt-2 text-sm text-blue-100">
-            Lecture de {SIGNAL_VIEW}.
-          </p>
-        </div>
-      </main>
-    )
+    return <LoadingState />
   }
 
   return (
-    <main className="min-h-screen bg-[#111a33] px-5 py-5 text-white">
-      <div className="mx-auto max-w-[1550px] space-y-5">
-        <header className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-[#243763] via-[#1c2b50] to-[#151f3b] shadow-sm">
-          <div className="px-7 py-8">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-300">
-                  Nexial Actions
-                </p>
+    <main className="min-h-screen bg-[#08111f] px-4 py-4 text-white sm:px-6 sm:py-6">
+      <div className="mx-auto max-w-[1720px] space-y-5">
+        {error && <ErrorBanner message={error} />}
+        {orderCreation && <OrderCreationBanner state={orderCreation} onClose={() => setOrderCreation(null)} />}
 
-                <h1 className="mt-4 text-5xl font-semibold tracking-tight text-white">
-                  Décisions à exécuter
-                </h1>
+        <PremiumDecisionHero
+          hasAction={hasAction}
+          actionCount={actionableRows.length}
+          totalAmount={totalAmount}
+          bestOrder={bestOrder}
+          latestUpdate={latestUpdate}
+          dataAlerts={dataAlerts}
+          refreshing={refreshing}
+          creatingAll={creatingAll}
+          avgAdaptiveScore={avgAdaptiveScore}
+          autoSuggestions={autoRows.length}
+          onRefresh={() => load(true)}
+          onCreateAll={() => createAllOrders(actionableRows)}
+          onOpenDetails={() => setDetailsOpen(true)}
+        />
 
-                <p className="mt-4 max-w-3xl text-base leading-7 text-blue-100">
-                  Source officielle : Top idées Nexial. Acheter uniquement sur
-                  opportunité actionnable. Sinon, Nexial bloque l’action et
-                  impose la discipline.
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-right backdrop-blur">
-                  <p className="text-xs text-blue-200">Décision</p>
-
-                  <p
-                    className={`mt-1 text-2xl font-semibold ${
-                      buyRows.length > 0
-                        ? 'text-emerald-300'
-                        : watchRows.length > 0
-                          ? 'text-cyan-300'
-                          : 'text-amber-300'
-                    }`}
-                  >
-                    {mainDecision}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-right backdrop-blur">
-                  <p className="text-xs text-blue-200">Score opportunités</p>
-
-                  <p
-                    className={`mt-1 text-4xl font-semibold ${
-                      avgScore >= 70
-                        ? 'text-emerald-300'
-                        : avgScore >= 40
-                          ? 'text-amber-300'
-                          : 'text-red-300'
-                    }`}
-                  >
-                    {num(avgScore, 0)}/100
-                  </p>
-
-                  <p className="mt-1 text-xs text-blue-200">
-                    {opportunityScoreLabel(avgScore)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <section className="grid gap-3 border-t border-white/10 p-4 md:grid-cols-2 xl:grid-cols-7">
-            <Kpi label="Signaux" value={String(rows.length)} />
-            <Kpi
-              label="BUY"
-              value={String(buyRows.length)}
-              positive={buyRows.length > 0}
-            />
-            <Kpi label="WATCH" value={String(watchRows.length)} />
-            <Kpi label="WAIT" value={String(waitRows.length)} />
-            <Kpi
-              label="Achat bloqué"
-              value={String(blockedRows)}
-              danger={blockedRows > 0}
-            />
-            <Kpi
-              label="Données anciennes"
-              value={String(staleRows)}
-              danger={staleRows > 0}
-            />
-            <Kpi label="Source" value="Top idées" />
-          </section>
-        </header>
-
-        {error && (
-          <section className="rounded-2xl border border-red-300/30 bg-red-400/10 p-4 text-sm text-red-200">
-            Erreur source Actions : {error}
-          </section>
+        {hasAction ? (
+          <ExecutableOrders
+            rows={actionableRows}
+            creatingTicker={creatingTicker}
+            creatingAll={creatingAll}
+            onOpen={setSelectedOrder}
+            onCreateOrder={createOrder}
+            onCreateAll={() => createAllOrders(actionableRows)}
+          />
+        ) : (
+          <NoActionState
+            blockedCount={blockedRows.length}
+            dataAlerts={dataAlerts}
+            onOpenDetails={() => setDetailsOpen(true)}
+          />
         )}
 
-        <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[1.5rem] border border-white/10 bg-[#182441] p-6 shadow-sm">
-            <p className="text-sm font-medium text-blue-200">
-              Décision immédiate
-            </p>
+        <ExecutionControlPanel health={executionHealth} onOpenDetails={() => setDetailsOpen(true)} />
+      </div>
 
-            <h2
-              className={`mt-2 text-4xl font-semibold ${
-                buyRows.length > 0
-                  ? 'text-emerald-300'
-                  : watchRows.length > 0
-                    ? 'text-cyan-300'
-                    : 'text-amber-300'
-              }`}
-            >
-              {buyRows.length > 0 ? mainDecision : 'NO ACTION — WAIT'}
-            </h2>
+      {detailsOpen && (
+        <SystemDetailsModal
+          health={executionHealth}
+          rows={blockedRows.slice(0, 10)}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
 
-            <p className="mt-3 max-w-4xl text-base leading-7 text-blue-100">
-              {mainText}
+      {selectedOrder && (
+        <OrderDrawer
+          item={selectedOrder}
+          creating={creatingTicker === normalizeTicker(selectedOrder.ticker)}
+          onClose={() => setSelectedOrder(null)}
+          onCreateOrder={() => createOrder(selectedOrder)}
+        />
+      )}
+
+      <FeedbackModal page="actions" />
+    </main>
+  )
+}
+
+function LoadingState() {
+  return (
+    <main className="min-h-screen bg-[#08111f] p-6 text-white">
+      <div className="mx-auto max-w-[1600px] overflow-hidden rounded-[2rem] border border-white/10 bg-[#101827] shadow-[0_30px_120px_rgba(0,0,0,0.35)]">
+        <div className="relative p-8">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.18),transparent_36%),radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_32%)]" />
+          <div className="relative">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">
+              <Database size={14} /> Nexial Actions
+            </div>
+            <h1 className="text-4xl font-semibold tracking-tight">Chargement du cockpit d’exécution...</h1>
+            <p className="mt-3 text-sm text-slate-400">
+              Lecture de <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{INVEST_VIEW}</code> +{' '}
+              <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{ADAPTIVE_VIEW}</code> +{' '}
+              <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{AUTO_EXECUTION_VIEW}</code>
             </p>
           </div>
-
-          <div className="rounded-[1.5rem] border border-white/10 bg-[#182441] p-6 shadow-sm">
-            <p className="text-sm font-medium text-blue-200">
-              Règles d’exécution
-            </p>
-
-            <h2 className="mt-2 text-2xl font-semibold text-white">
-              Discipline Nexial
-            </h2>
-
-            <div className="mt-5 space-y-3">
-              <SystemLine label="Achat autorisé" value="BUY_ZONE uniquement" ok />
-              <SystemLine label="Top idées" value="Max 3" ok />
-              <SystemLine label="Doublon ticker" value="Interdit" ok />
-              <SystemLine label="WAIT / WAIT_DATA" value="Masqués" ok />
-            </div>
-          </div>
-        </section>
-
-        {watchCandidates.length > 0 && (
-          <section className="rounded-[1.5rem] border border-white/10 bg-[#182441] p-6 shadow-sm">
-            <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-white">
-                  À surveiller — proches opportunités
-                </h3>
-
-                <p className="mt-1 text-sm text-blue-100">
-                  Actifs les plus proches d’une zone exploitable selon la
-                  distance prix / zone d’achat.
-                </p>
-              </div>
-
-              <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-sm text-cyan-100">
-                Top {watchCandidates.length}
-              </span>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              {watchCandidates.map((row, index) => (
-                <div
-                  key={`${row.id}-${row.ticker}-watch`}
-                  className="rounded-xl border border-white/10 bg-white/5 p-4"
-                >
-                  <div className="flex justify-between gap-4">
-                    <div>
-                      <p className="font-bold text-white">
-                        #{index + 1} {row.ticker}
-                      </p>
-
-                      <p className="text-sm text-blue-100">
-                        {row.asset_name || row.ticker}
-                      </p>
-
-                      <p className="mt-2 text-xs text-blue-200">
-                        Phase : {row.nexial_phase || '—'}
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-sm text-blue-200">Distance</p>
-
-                      <p className="font-semibold text-cyan-300">
-                        {row.diff.toFixed(2)}%
-                      </p>
-
-                      <p className="mt-2 text-xs text-blue-200">Score</p>
-
-                      <p className="font-bold text-white">
-                        {num(row.nexialScore, 0)}/100
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {buyRows.length > 0 && (
-          <section className="rounded-[1.5rem] border border-white/10 bg-[#182441] p-6 shadow-sm">
-            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-white">
-                  Top actions BUY
-                </h2>
-
-                <p className="mt-1 text-sm text-blue-100">
-                  Une carte = une décision possible. Acheter reste bloqué hors
-                  opportunité validée.
-                </p>
-              </div>
-
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm text-blue-100">
-                Max 3
-              </span>
-            </div>
-
-            <div className="grid gap-4">
-              {topRows.map((item, index) => {
-                const actionable = isBuy(item) && isPriceOk(item)
-                const fresh = isFresh(item.price_timestamp)
-                const status = executionStatus(item)
-
-                return (
-                  <article
-                    key={`${item.id}-${item.ticker}-${index}`}
-                    className={`rounded-[1.35rem] border p-5 shadow-sm ${
-                      actionable
-                        ? 'border-emerald-300/30 bg-emerald-400/10'
-                        : isWatch(item)
-                          ? 'border-cyan-300/30 bg-cyan-300/10'
-                          : 'border-white/10 bg-[#1d2b4c]'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-medium text-blue-100">
-                            #{index + 1}
-                          </span>
-
-                          <ScopeBadge value={item.account_type || 'UNKNOWN'} />
-
-                          <h3 className="text-2xl font-semibold text-white">
-                            {item.ticker}
-                          </h3>
-
-                          <p className="text-lg text-blue-100">
-                            {item.asset_name || '—'}
-                          </p>
-
-                          {actionable && (
-                            <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
-                              BUY
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="mt-2 max-w-3xl text-sm leading-6 text-blue-100">
-                          {item.nexial_reason ||
-                            item.thesis ||
-                            'Signal suivi par Nexial.'}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 xl:justify-end">
-                        <ScoreBadge value={item.nexialScore} />
-                        <PhaseBadge value={item.nexial_phase || 'WATCH'} />
-                        <QualityBadge value={item.price_quality || 'UNKNOWN'} />
-                        <FreshnessBadge
-                          label={freshnessLabel(item.price_timestamp)}
-                          fresh={fresh}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <Info
-                        label="Prix actuel"
-                        value={money(item.latest_price, item.currency || 'EUR')}
-                        highlight={isPriceOk(item)}
-                      />
-                      <Info label="Zone d’achat" value={zoneLabel(item)} />
-                      <Info
-                        label="Drawdown / distance"
-                        value={pct(item.distance_to_buy_zone_pct)}
-                      />
-                      <Info
-                        label="Score Nexial"
-                        value={`${num(item.nexialScore, 0)}/100`}
-                      />
-                      <Info label="Score brut" value={num(item.score, 2)} />
-                      <Info
-                        label="Capital efficiency"
-                        value={num(item.capital_efficiency_score, 2)}
-                      />
-                      <Info label="Priorité" value={num(item.priority_score, 2)} />
-                      <Info label="Phase" value={item.nexial_phase || 'WATCH'} />
-                    </div>
-
-                    <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_420px]">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">
-                          Raison Nexial
-                        </p>
-
-                        <p className="mt-2 text-sm leading-6 text-blue-100">
-                          {item.nexial_reason || status.detail}
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">
-                          Exécution
-                        </p>
-
-                        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-                          <button
-                            disabled={!actionable}
-                            className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
-                              actionable
-                                ? 'border border-emerald-300/30 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30'
-                                : 'cursor-not-allowed border border-white/10 bg-white/5 text-blue-200/50'
-                            }`}
-                          >
-                            Acheter
-                          </button>
-
-                          <button className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20">
-                            Surveiller
-                          </button>
-
-                          <button className="rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-blue-100 transition hover:bg-white/15">
-                            Ignorer
-                          </button>
-                        </div>
-
-                        <p
-                          className={`mt-3 text-sm ${
-                            status.tone === 'buy'
-                              ? 'text-emerald-200'
-                              : status.tone === 'wait'
-                                ? 'text-amber-200'
-                                : 'text-blue-100'
-                          }`}
-                        >
-                          {status.detail}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-blue-100">
-                        Devise : {item.currency || 'EUR'}
-                      </span>
-
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-blue-100">
-                        Zone : {item.zone_status || '—'}
-                      </span>
-
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-blue-100">
-                        Source : Top idées Nexial
-                      </span>
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          </section>
-        )}
-
-        {topRows.length === 0 && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-blue-100">
-            Aucune opportunité actionnable actuellement. Marché trop proche des
-            plus hauts. NO ACTION — WAIT.
-          </div>
-        )}
+        </div>
       </div>
     </main>
   )
 }
 
-function Kpi({
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <section className="rounded-[1.5rem] border border-red-300/30 bg-red-400/10 p-4 text-sm text-red-200">
+      Erreur de lecture : {message}
+    </section>
+  )
+}
+
+function OrderCreationBanner({
+  state,
+  onClose,
+}: {
+  state: OrderCreationState
+  onClose: () => void
+}) {
+  const isSuccess = state.status === 'success'
+  const isProcessing = state.ticker === 'SYSTEM'
+
+  return (
+    <section
+      className={`rounded-[1.5rem] border p-5 ${
+        isSuccess
+          ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
+          : 'border-red-300/30 bg-red-400/10 text-red-100'
+      }`}
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-lg font-semibold">
+            {isProcessing ? 'Vérification en cours' : isSuccess ? 'Exécution préparée' : 'Exécution bloquée'}
+          </p>
+
+          <p className="mt-1 text-sm opacity-90">{state.message}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {isSuccess && !isProcessing && (
+            <Link
+              href="/orders"
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20"
+            >
+              Voir mes ordres <ArrowRight size={15} />
+            </Link>
+          )}
+
+          <button
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold transition hover:bg-white/10"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+function PremiumDecisionHero({
+  hasAction,
+  actionCount,
+  totalAmount,
+  bestOrder,
+  latestUpdate,
+  dataAlerts,
+  refreshing,
+  creatingAll,
+  avgAdaptiveScore,
+  autoSuggestions,
+  onRefresh,
+  onCreateAll,
+  onOpenDetails,
+}: {
+  hasAction: boolean
+  actionCount: number
+  totalAmount: number
+  bestOrder: InvestRow | null
+  latestUpdate: string | null
+  dataAlerts: number
+  refreshing: boolean
+  creatingAll: boolean
+  avgAdaptiveScore: number
+  autoSuggestions: number
+  onRefresh: () => void
+  onCreateAll: () => void
+  onOpenDetails: () => void
+}) {
+  return (
+    <header className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-[#101827] shadow-[0_30px_120px_rgba(0,0,0,0.38)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.22),transparent_34%),radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.07),transparent_42%)]" />
+
+      <div className="relative grid gap-8 p-6 lg:grid-cols-[1.25fr_0.75fr] lg:p-8">
+        <div>
+          <div
+            className={`mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${
+              hasAction
+                ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200'
+                : 'border-amber-300/20 bg-amber-300/10 text-amber-200'
+            }`}
+          >
+            {hasAction ? <Sparkles size={14} /> : <TimerReset size={14} />}
+            Décision Nexial
+          </div>
+
+          <h1
+            className={`max-w-5xl text-5xl font-semibold tracking-[-0.055em] md:text-7xl ${
+              hasAction ? 'text-emerald-300' : 'text-amber-300'
+            }`}
+          >
+            {hasAction ? 'Acheter maintenant' : 'Attendre'}
+          </h1>
+
+          <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
+            {hasAction
+              ? `${actionCount} ordre(s) prêt(s), validé(s) par le moteur d’exécution. Aucun ordre marché. Prix limite uniquement.`
+              : 'Aucune opportunité ne respecte toutes les règles. Le meilleur ordre aujourd’hui est de ne rien faire.'}
+          </p>
+
+          <div className="mt-7 grid gap-3 sm:grid-cols-3">
+            <DecisionMetric
+              label={hasAction ? 'Montant à engager' : 'Capital protégé'}
+              value={hasAction ? eur(totalAmount) : '100 %'}
+              helper={hasAction ? 'ordres limités' : 'aucun achat forcé'}
+              icon={<Wallet size={18} />}
+              tone={hasAction ? 'positive' : 'warning'}
+            />
+            <DecisionMetric
+              label="Ordres prêts"
+              value={String(actionCount)}
+              helper="top 3 maximum"
+              icon={<ClipboardCheck size={18} />}
+              tone={hasAction ? 'positive' : 'neutral'}
+            />
+            <DecisionMetric
+              label="Qualité"
+              value={dataAlerts === 0 ? 'OK' : 'À vérifier'}
+              helper={dataAlerts === 0 ? `maj ${formatDate(latestUpdate)}` : `${dataAlerts} alerte(s) data`}
+              icon={dataAlerts === 0 ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+              tone={dataAlerts === 0 ? 'positive' : 'warning'}
+            />
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            {hasAction && (
+              <button
+                onClick={onCreateAll}
+                disabled={creatingAll}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-6 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {creatingAll ? 'Création des ordres...' : 'Créer les ordres prêts'} <ArrowRight size={16} />
+              </button>
+            )}
+
+            <button
+              onClick={onRefresh}
+              disabled={refreshing || creatingAll}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              <RefreshCcw size={16} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Actualisation...' : 'Actualiser'}
+            </button>
+
+            <button
+              onClick={onOpenDetails}
+              className={`inline-flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-semibold transition ${
+                dataAlerts > 0
+                  ? 'border-amber-300/30 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15'
+                  : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              Audit système
+            </button>
+          </div>
+        </div>
+
+        <aside className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-5 backdrop-blur-xl">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Priorité</p>
+              <h2 className="mt-1 text-2xl font-semibold text-white">
+                {bestOrder ? bestOrder.ticker : 'No action'}
+              </h2>
+            </div>
+            <div
+              className={`rounded-2xl border p-3 ${
+                hasAction
+                  ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300'
+                  : 'border-amber-300/20 bg-amber-400/10 text-amber-300'
+              }`}
+            >
+              {hasAction ? <Sparkles size={22} /> : <ShieldCheck size={22} />}
+            </div>
+          </div>
+
+          {bestOrder ? (
+            <div className="space-y-3">
+              <PriorityLine label="Nom" value={bestOrder.asset_name} />
+              <PriorityLine label="Compte" value={executionAccount(bestOrder)} />
+              <PriorityLine label="Prix limite" value={money(orderLimitPrice(bestOrder), bestOrder.currency || 'EUR')} />
+              <PriorityLine label="Quantité" value={num(executionQuantity(bestOrder), 0)} />
+              <PriorityLine label="Montant" value={money(executionAmount(bestOrder), bestOrder.currency || 'EUR')} />
+              <PriorityLine label="Score" value={`${num(adaptiveScore(bestOrder), 0)}/100`} />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm leading-6 text-slate-300">
+              Nexial ne propose aucun ordre lorsque le prix, la zone, la quantité ou la décision ne sont pas alignés.
+            </div>
+          )}
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <CompactMetric label="Score moyen" value={`${avgAdaptiveScore}/100`} />
+            <CompactMetric label="Suggestions" value={String(autoSuggestions)} />
+          </div>
+        </aside>
+      </div>
+    </header>
+  )
+}
+
+function ExecutableOrders({
+  rows,
+  creatingTicker,
+  creatingAll,
+  onOpen,
+  onCreateOrder,
+  onCreateAll,
+}: {
+  rows: InvestRow[]
+  creatingTicker: string | null
+  creatingAll: boolean
+  onOpen: (row: InvestRow) => void
+  onCreateOrder: (row: InvestRow) => void
+  onCreateAll: () => void
+}) {
+  return (
+    <section className="rounded-[1.75rem] border border-white/10 bg-[#101827]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Sparkles size={18} className="text-emerald-300" /> Ordres validés
+          </div>
+          <p className="mt-1 text-sm text-slate-400">
+            Le système affiche uniquement les actions réellement exécutables.
+          </p>
+        </div>
+
+        <button
+          onClick={onCreateAll}
+          disabled={creatingAll}
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-5 py-2.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {creatingAll ? 'Création...' : `Créer ${rows.length} ordre(s)`}
+          <ArrowRight size={15} />
+        </button>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {rows.map((item, index) => (
+          <OrderCard
+            key={`${item.id}-${item.ticker}`}
+            item={item}
+            index={index}
+            creating={creatingTicker === normalizeTicker(item.ticker) || creatingAll}
+            onOpen={() => onOpen(item)}
+            onCreateOrder={() => onCreateOrder(item)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function OrderCard({
+  item,
+  index,
+  creating,
+  onOpen,
+  onCreateOrder,
+}: {
+  item: InvestRow
+  index: number
+  creating: boolean
+  onOpen: () => void
+  onCreateOrder: () => void
+}) {
+  const delta = scoreDelta(item)
+
+  return (
+    <article className="rounded-[1.5rem] border border-emerald-300/20 bg-emerald-400/[0.08] p-5 shadow-[0_0_70px_rgba(16,185,129,0.08)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-emerald-100">#{index + 1}</span>
+            <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">BUY</span>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${adaptiveDecisionClass(item.adaptive_decision)}`}>
+              {adaptiveDecisionLabel(item.adaptive_decision)}
+            </span>
+            <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-xs font-semibold text-cyan-100">
+              AUTO READY
+            </span>
+          </div>
+          <h3 className="mt-3 truncate text-3xl font-semibold text-white">{item.ticker}</h3>
+          <p className="mt-1 truncate text-sm text-slate-300">{item.asset_name}</p>
+        </div>
+
+        <ScoreBadge value={adaptiveScore(item)} label="Score" />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${learningClass(item.learning_signal)}`}>
+          {item.learning_signal || 'NO_LEARNING'}
+        </span>
+
+        {delta != null && (
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              delta >= 0
+                ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
+                : 'border-red-300/30 bg-red-400/10 text-red-200'
+            }`}
+          >
+            Delta {delta >= 0 ? '+' : ''}
+            {delta.toFixed(1)}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <OrderMetric label="Montant" value={money(executionAmount(item), item.currency || 'EUR')} />
+        <OrderMetric label="Quantité" value={num(executionQuantity(item), 0)} />
+        <OrderMetric label="Limite" value={money(orderLimitPrice(item), item.currency || 'EUR')} />
+        <OrderMetric label="Compte" value={executionAccount(item)} />
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-white/10 bg-black/10 p-4">
+        <div className="grid gap-3 text-sm">
+          <Line label="Prix actuel" value={money(item.latest_close_price, item.currency || 'EUR')} />
+          <Line label="Zone validée" value={zoneLabel(item)} />
+          <Line label="Type ordre" value={orderType(item)} />
+          <Line label="Distance zone" value={pct(distanceToZone(item))} />
+          <Line label="Probabilité" value={`${num(item.auto_execution_probability, 0)}/100`} />
+        </div>
+      </div>
+
+      <div className="mt-5 flex gap-3">
+        <button
+          onClick={onCreateOrder}
+          disabled={creating}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {creating ? 'Création...' : 'Créer l’ordre'} <ArrowRight size={16} />
+        </button>
+
+        <button
+          onClick={onOpen}
+          className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+        >
+          Audit
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function NoActionState({
+  blockedCount,
+  dataAlerts,
+  onOpenDetails,
+}: {
+  blockedCount: number
+  dataAlerts: number
+  onOpenDetails: () => void
+}) {
+  return (
+    <section className="rounded-[1.75rem] border border-white/10 bg-[#101827]/95 p-8 text-center shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
+      <div className="mx-auto max-w-2xl">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-400/10 text-amber-300">
+          <TimerReset size={26} />
+        </div>
+
+        <p className="mt-6 text-sm uppercase tracking-[0.28em] text-slate-500">Discipline active</p>
+        <h2 className="mt-3 text-4xl font-semibold text-white">Aucun ordre à placer</h2>
+
+        <p className="mt-4 text-base leading-7 text-slate-300">
+          {blockedCount > 0
+            ? `${blockedCount} idée(s) sont suivies mais bloquées par les règles Nexial.`
+            : 'Aucune idée exploitable n’est disponible actuellement.'}
+        </p>
+
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-6 text-slate-300">
+          Nexial protège le capital : pas de breakout, pas de marché, pas d’ordre sans zone, pas d’achat si la donnée prix est douteuse.
+        </div>
+
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={onOpenDetails}
+            className={`inline-flex rounded-full border px-6 py-3 text-sm font-semibold transition ${
+              dataAlerts > 0
+                ? 'border-amber-300/30 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15'
+                : 'border-white/10 bg-white/[0.05] text-slate-200 hover:bg-white/10'
+            }`}
+          >
+            Voir pourquoi
+          </button>
+
+          <Link href="/watchlist" className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-6 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15">
+            Voir Watchlist
+          </Link>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function ExecutionControlPanel({ health, onOpenDetails }: { health: ExecutionHealth; onOpenDetails: () => void }) {
+  return (
+    <section className="rounded-[1.75rem] border border-white/10 bg-[#101827]/95 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <ShieldCheck size={18} className="text-cyan-300" /> Audit exécution
+          </div>
+          <p className="mt-1 text-sm text-slate-400">Panneau secondaire. Les signaux bloqués ne deviennent jamais des ordres utilisateur.</p>
+        </div>
+
+        <button onClick={onOpenDetails} className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10">
+          Voir détails
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-10">
+        <Metric label="Signaux" value={String(health.totalRows)} />
+        <Metric label="Prêts" value={String(health.actionable)} positive={health.actionable > 0} />
+        <Metric label="BUY" value={String(health.adaptiveBuyReady)} positive={health.adaptiveBuyReady > 0} />
+        <Metric label="WATCH" value={String(health.adaptiveWatch)} />
+        <Metric label="DATA" value={String(health.adaptiveBlocked)} warning={health.adaptiveBlocked > 0} />
+        <Metric label="Auto" value={String(health.blockedAuto)} warning={health.blockedAuto > 0} />
+        <Metric label="Zone" value={String(health.blockedNoZone)} warning={health.blockedNoZone > 0} />
+        <Metric label="Prix" value={String(health.blockedNoPrice)} warning={health.blockedNoPrice > 0} />
+        <Metric label="Qté" value={String(health.blockedQuantity)} warning={health.blockedQuantity > 0} />
+        <Metric label="Fresh" value={String(health.blockedData + health.staleRows)} warning={health.blockedData + health.staleRows > 0} />
+      </div>
+    </section>
+  )
+}
+
+function SystemDetailsModal({
+  health,
+  rows,
+  onClose,
+}: {
+  health: ExecutionHealth
+  rows: InvestRow[]
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <div className="max-h-[85vh] w-full max-w-5xl overflow-y-auto rounded-[2rem] border border-white/10 bg-[#07111f] p-6 text-white shadow-2xl">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className="text-sm uppercase tracking-[0.28em] text-cyan-300">Données système</p>
+            <h2 className="mt-3 text-3xl font-semibold">Contrôle exécution</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Les idées bloquées ne sont pas affichées comme actions. Ce panneau sert uniquement à l’audit.
+            </p>
+          </div>
+
+          <button onClick={onClose} className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200 transition hover:bg-white/10">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Metric label="Signaux lus" value={String(health.totalRows)} />
+          <Metric label="Actionnables" value={String(health.actionable)} positive={health.actionable > 0} />
+          <Metric label="Adaptive BUY" value={String(health.adaptiveBuyReady)} positive={health.adaptiveBuyReady > 0} />
+          <Metric label="Auto bloqués" value={String(health.blockedAuto)} warning={health.blockedAuto > 0} />
+          <Metric label="Data prix" value={String(health.blockedData + health.staleRows)} warning={health.blockedData + health.staleRows > 0} />
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {rows.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+              Aucun blocage à afficher.
+            </div>
+          ) : (
+            rows.map((row) => (
+              <div key={`${row.id}-${row.ticker}-blocked`} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-white">{row.ticker}</p>
+                    <p className="text-sm text-slate-400">{row.asset_name}</p>
+                  </div>
+
+                  <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                    {executionBlockReason(row)}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-3 text-sm sm:grid-cols-5">
+                  <BlockedMetric label="Prix" value={money(row.latest_close_price, row.currency || 'EUR')} />
+                  <BlockedMetric label="Zone" value={zoneLabel(row)} />
+                  <BlockedMetric label="Quantité Invest" value={num(row.suggested_quantity)} />
+                  <BlockedMetric label="Quantité Auto" value={num(row.auto_quantity, 0)} />
+                  <BlockedMetric label="Auto statut" value={row.auto_block_reason || '—'} />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrderDrawer({
+  item,
+  creating,
+  onClose,
+  onCreateOrder,
+}: {
+  item: InvestRow
+  creating: boolean
+  onClose: () => void
+  onCreateOrder: () => void
+}) {
+  const delta = scoreDelta(item)
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm">
+      <button aria-label="Fermer" className="absolute inset-0 cursor-default" onClick={onClose} />
+
+      <aside className="relative h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-[#07111f] p-6 text-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">Ordre prêt à créer</p>
+            <h2 className="mt-3 text-4xl font-semibold tracking-tight">{item.ticker}</h2>
+            <p className="mt-1 text-slate-400">{item.asset_name}</p>
+          </div>
+
+          <button onClick={onClose} className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-300 transition hover:bg-white/10 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-6 rounded-[1.5rem] border border-emerald-300/20 bg-emerald-400/10 p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-emerald-200">Action</p>
+              <p className="mt-1 text-3xl font-semibold text-white">BUY LIMIT</p>
+            </div>
+            <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">Auto ready</span>
+          </div>
+          <p className="mt-4 text-sm leading-6 text-slate-200">{item.reason || 'Ordre validé par le moteur Nexial.'}</p>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <DrawerMetric label="Compte" value={executionAccount(item)} />
+          <DrawerMetric label="Type" value={orderType(item)} />
+          <DrawerMetric label="Quantité" value={num(executionQuantity(item), 0)} />
+          <DrawerMetric label="Prix limite" value={money(orderLimitPrice(item), item.currency || 'EUR')} />
+          <DrawerMetric label="Montant" value={money(executionAmount(item), item.currency || 'EUR')} />
+          <DrawerMetric label="Devise" value={item.currency || 'EUR'} />
+          <DrawerMetric label="Prix actuel" value={money(item.latest_close_price, item.currency || 'EUR')} />
+          <DrawerMetric label="Zone" value={zoneLabel(item)} />
+          <DrawerMetric label="Score base" value={num(item.score, 0)} />
+          <DrawerMetric label="Score adaptatif" value={num(item.adaptive_nexial_score, 0)} />
+          <DrawerMetric label="Delta learning" value={delta == null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`} />
+          <DrawerMetric label="Learning" value={item.learning_signal || 'NO_LEARNING'} />
+        </div>
+
+        <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+          <p className="text-sm font-semibold text-white">Contrôles avant création ordre</p>
+          <div className="mt-4 space-y-3">
+            <CheckLine label="Prix fiable" ok={isPriceOk(item)} />
+            <CheckLine label="Prix disponible" ok={hasValidPrice(item)} />
+            <CheckLine label="Zone valide" ok={hasValidZone(item)} />
+            <CheckLine label="Quantité entière exécutable" ok={executionQuantity(item) > 0} />
+            <CheckLine label="Montant exploitable" ok={executionAmount(item) > 0} />
+            <CheckLine label="Décision BUY validée" ok={isDecisionReady(item)} />
+            <CheckLine label="Auto execution ready" ok={isAutoOrderReady(item)} />
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-[1.5rem] border border-cyan-300/20 bg-cyan-300/10 p-5">
+          <p className="text-sm font-semibold text-cyan-100">Lecture adaptive</p>
+          <p className="mt-3 text-sm leading-6 text-slate-200">
+            {item.adaptive_reason || 'Historique insuffisant : moteur standard conservé.'}
+          </p>
+        </div>
+
+        <div className="mt-5 flex gap-3">
+          <button
+            onClick={onCreateOrder}
+            disabled={creating || !isActionable(item)}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creating ? 'Création...' : 'Créer l’ordre'} <ArrowRight size={16} />
+          </button>
+
+          <Link
+            href="/orders"
+            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+          >
+            /orders
+          </Link>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function DecisionMetric({
   label,
   value,
-  positive,
-  danger,
+  helper,
+  icon,
+  tone = 'neutral',
 }: {
   label: string
   value: string
-  positive?: boolean
-  danger?: boolean
+  helper: string
+  icon: ReactNode
+  tone?: 'neutral' | 'positive' | 'warning'
 }) {
-  const numericValue = Number(String(value).replace('/100', '').replace(',', '.'))
-  const isScoreLike =
-    String(value).includes('/100') && Number.isFinite(numericValue)
+  const toneClass =
+    tone === 'positive'
+      ? 'text-emerald-300 border-emerald-300/20 bg-emerald-400/10'
+      : tone === 'warning'
+        ? 'text-amber-300 border-amber-300/20 bg-amber-400/10'
+        : 'text-cyan-200 border-white/10 bg-white/[0.05]'
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 p-4 shadow-sm backdrop-blur">
-      <p className="text-sm font-medium text-blue-200">{label}</p>
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl">
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
+        <div className={`rounded-2xl border p-2 ${toneClass}`}>{icon}</div>
+      </div>
+      <div className="text-2xl font-semibold tracking-tight text-white">{value}</div>
+      <div className="mt-1 text-sm text-slate-400">{helper}</div>
+    </div>
+  )
+}
 
-      <p
-        className={`mt-2 text-2xl font-semibold ${
-          danger
-            ? 'text-red-300'
-            : positive
-              ? 'text-emerald-300'
-              : isScoreLike && numericValue < 30
-                ? 'text-red-300'
-                : isScoreLike && numericValue < 60
-                  ? 'text-amber-300'
-                  : isScoreLike
-                    ? 'text-cyan-300'
-                    : 'text-white'
-        }`}
-      >
+function PriorityLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/10 px-4 py-3">
+      <span className="text-sm text-slate-400">{label}</span>
+      <span className="truncate text-right text-sm font-semibold text-white">{value}</span>
+    </div>
+  )
+}
+
+function CompactMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-white">{value}</p>
+    </div>
+  )
+}
+
+function OrderMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-white">{value}</p>
+    </div>
+  )
+}
+
+function Line({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-slate-400">{label}</span>
+      <span className="text-right font-semibold text-white">{value}</span>
+    </div>
+  )
+}
+
+function Metric({ label, value, positive = false, warning = false }: { label: string; value: string; positive?: boolean; warning?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className={`mt-2 text-2xl font-semibold ${positive ? 'text-emerald-300' : warning ? 'text-amber-300' : 'text-white'}`}>
         {value}
       </p>
     </div>
   )
 }
 
-function SystemLine({
-  label,
-  value,
-  ok,
-}: {
-  label: string
-  value: string
-  ok: boolean
-}) {
+function BlockedMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-      <span className="text-sm text-blue-100">{label}</span>
+    <div className="rounded-xl border border-white/10 bg-black/10 p-3">
+      <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-slate-200">{value}</p>
+    </div>
+  )
+}
 
-      <span
-        className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-          ok
-            ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-            : 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-        }`}
-      >
-        {value}
+function DrawerMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 truncate text-lg font-semibold text-white">{value}</p>
+    </div>
+  )
+}
+
+function CheckLine({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/10 px-4 py-3">
+      <span className="text-sm text-slate-300">{label}</span>
+      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${ok ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200' : 'border-red-300/30 bg-red-400/10 text-red-200'}`}>
+        {ok ? 'OK' : 'BLOQUÉ'}
       </span>
     </div>
   )
 }
 
-function Info({
-  label,
-  value,
-  highlight = false,
-}: {
-  label: string
-  value: string
-  highlight?: boolean
-}) {
-  return (
-    <div
-      className={`rounded-2xl border p-4 ${
-        highlight
-          ? 'border-cyan-300/30 bg-cyan-300/10'
-          : 'border-white/10 bg-white/5'
-      }`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">
-        {label}
-      </p>
-
-      <p className="mt-2 text-lg font-semibold text-white">{value}</p>
-    </div>
-  )
-}
-
-function ScopeBadge({ value }: { value: string }) {
-  const className =
-    value === 'PEA'
-      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-      : value === 'CTO'
-        ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
-        : 'border-white/10 bg-white/10 text-blue-100'
-
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}
-    >
-      {value}
-    </span>
-  )
-}
-
-function ScoreBadge({ value }: { value?: number | null }) {
+function ScoreBadge({ value, label = 'Score' }: { value?: number | null; label?: string }) {
   const score = Number(value || 0)
-
   const className =
-    score >= 80
+    score >= 90
       ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-      : score >= 60
+      : score >= 75
         ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
-        : score >= 40
-          ? 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-          : 'border-red-300/30 bg-red-400/10 text-red-200'
+        : 'border-amber-300/30 bg-amber-400/10 text-amber-200'
 
-  return (
-    <span
-      className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}
-    >
-      {num(score, 0)}/100
-    </span>
-  )
-}
-
-function PhaseBadge({ value }: { value: string }) {
-  const phase = value.toUpperCase()
-
-  const className =
-    phase === 'BUY'
-      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-      : phase === 'WATCH'
-        ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
-        : phase === 'WAIT'
-          ? 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-          : 'border-red-300/30 bg-red-400/10 text-red-200'
-
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}
-    >
-      {phase}
-    </span>
-  )
-}
-
-function QualityBadge({ value }: { value: string }) {
-  const normalized = value.toUpperCase()
-
-  const className =
-    normalized === 'OK'
-      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-      : normalized === 'STALE'
-        ? 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-        : 'border-red-300/30 bg-red-400/10 text-red-200'
-
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}
-    >
-      {value}
-    </span>
-  )
-}
-
-function FreshnessBadge({
-  label,
-  fresh,
-}: {
-  label: string
-  fresh: boolean
-}) {
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-        fresh
-          ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-          : 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-      }`}
-    >
-      {label}
-    </span>
-  )
+  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{label} {num(score, 0)}</span>
 }

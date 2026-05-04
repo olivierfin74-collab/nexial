@@ -1,40 +1,59 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useState } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+
+export const dynamic = 'force-dynamic'
 
 export default function LoginPage() {
-  const supabase = createClient();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
+  )
+}
 
-  const next = searchParams.get("next") || "/app";
+function LoginFallback() {
+  return (
+    <main className="mx-auto max-w-md p-6">
+      <h1 className="mb-6 text-2xl font-semibold">Connexion</h1>
+      <p className="text-sm text-slate-500">Chargement...</p>
+    </main>
+  )
+}
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+function LoginForm() {
+  const supabase = createClient()
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setErrorMsg(null);
+  const next = searchParams.get('next') || '/app'
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setErrorMsg(null)
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
-    });
+    })
 
     if (error) {
-      setErrorMsg(error.message);
-      setLoading(false);
-      return;
+      setErrorMsg(error.message)
+      setLoading(false)
+      return
     }
 
-    router.push(next);
-    router.refresh();
+    router.push(next)
+    router.refresh()
   }
 
   return (
@@ -69,7 +88,7 @@ export default function LoginPage() {
           disabled={loading}
           className="rounded border px-4 py-2"
         >
-          {loading ? "Connexion..." : "Se connecter"}
+          {loading ? 'Connexion...' : 'Se connecter'}
         </button>
       </form>
 
@@ -88,5 +107,5 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
-  );
+  )
 }
