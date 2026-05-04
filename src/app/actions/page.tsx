@@ -6,73 +6,58 @@ import { createClient } from '@/lib/supabase/client'
 import FeedbackModal from '@/components/FeedbackModal'
 import {
   AlertTriangle,
+  ArrowDownRight,
   ArrowRight,
+  BadgeEuro,
   CheckCircle2,
+  CircleDollarSign,
   ClipboardCheck,
   Database,
+  Eye,
   RefreshCcw,
   ShieldCheck,
   Sparkles,
+  Target,
   TimerReset,
+  TrendingUp,
   Wallet,
   X,
 } from 'lucide-react'
 
-const INVEST_VIEW = 'vw_invest_ui_v1'
-const ADAPTIVE_VIEW = 'vw_actions_adaptive_top3_v1'
+const SIGNAL_VIEW = 'vw_nexial_signal_v1'
 const AUTO_EXECUTION_VIEW = 'vw_auto_execution_suggestions_v1'
 const CREATE_ORDER_RPC = 'fn_create_execution_order_from_auto_suggestion_v1'
+const AUTO_REFRESH_MS = 60000
 
-type InvestRow = {
+type OpportunityStatus =
+  | 'EXECUTABLE'
+  | 'HOT_PULLBACK'
+  | 'WATCH_PULLBACK'
+  | 'TOO_EARLY'
+  | 'DEEP_PULLBACK'
+  | 'BLOCKED_DATA'
+
+type SignalRow = {
   id: string
-  ticker: string
-  asset_name: string
-  display_subtitle: string | null
-  amount_suggested: number | null
-  suggested_quantity: number | null
-  buy_zone_low: number | null
-  buy_zone_high: number | null
-  score: number | null
-  capital_efficiency_score: number | null
-  expected_return_pct: number | null
-  decision: string | null
-  reason: string | null
-  latest_close_price: number | null
-  currency: string | null
-  price_quality: string | null
-  price_source: string | null
-  updated_at: string | null
-
-  adaptive_nexial_score?: number | null
-  learning_signal?: string | null
-  adaptive_reason?: string | null
-  adaptive_decision?: string | null
-  adaptive_rank?: number | null
-
-  auto_is_order_ready?: boolean | null
-  auto_limit_price?: number | null
-  auto_quantity?: number | null
-  auto_amount_estimated?: number | null
-  auto_execution_probability?: number | null
-  auto_block_reason?: string | null
-  auto_source?: string | null
-}
-
-type AdaptiveRow = {
   ticker: string
   asset_name: string | null
   account_type: string | null
   latest_price: number | null
   currency: string | null
+  buy_zone_low: number | null
+  buy_zone_high: number | null
+  distance_to_buy_zone_pct: number | null
+  zone_status: string | null
   price_quality: string | null
+  priority_score: number | null
+  score: number | null
+  capital_efficiency_score: number | null
   nexial_score: number | null
-  adaptive_nexial_score: number | null
-  learning_signal: string | null
-  adaptive_reason: string | null
   nexial_phase: string | null
-  adaptive_decision: string | null
-  adaptive_rank: number | null
-  calculated_at: string | null
+  nexial_reason: string | null
+  nexial_action: string | null
+  thesis: string | null
+  price_timestamp: string | null
 }
 
 type AutoExecutionRow = {
@@ -107,19 +92,34 @@ type AutoExecutionRow = {
   calculated_at?: string | null
 }
 
+type ActionRow = SignalRow & {
+  auto_is_order_ready?: boolean | null
+  auto_limit_price?: number | null
+  auto_quantity?: number | null
+  auto_amount_estimated?: number | null
+  auto_execution_probability?: number | null
+  auto_block_reason?: string | null
+  auto_source?: string | null
+  auto_order_type?: string | null
+  auto_broker?: string | null
+  auto_account_scope?: string | null
+}
+
 type ExecutionHealth = {
   totalRows: number
+  executableSignals: number
   actionable: number
-  adaptiveBuyReady: number
-  adaptiveWatch: number
-  adaptiveBlocked: number
+  hot: number
+  watch: number
+  tooEarly: number
+  deepPullback: number
+  blockedData: number
   blockedNoZone: number
   blockedNoPrice: number
-  blockedQuantity: number
-  blockedData: number
   blockedAuto: number
-  staleRows: number
+  blockedQuantity: number
   blockedDecision: number
+  staleRows: number
 }
 
 type OrderCreationState = {
@@ -142,9 +142,11 @@ function eur(value?: number | null) {
 function money(value?: number | null, currency = 'EUR') {
   if (value == null || Number.isNaN(Number(value))) return '—'
 
+  const safeCurrency = currency && currency.length === 3 ? currency : 'EUR'
+
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
-    currency,
+    currency: safeCurrency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value))
@@ -159,7 +161,7 @@ function num(value?: number | null, digits = 4) {
   }).format(Number(value))
 }
 
-function pct(value?: number | null, digits = 1) {
+function pct(value?: number | null, digits = 2) {
   if (value == null || Number.isNaN(Number(value))) return '—'
   return `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(digits)} %`
 }
@@ -194,43 +196,70 @@ function normalizeTicker(ticker?: string | null) {
     .toUpperCase()
 }
 
-function isDecisionReady(row: InvestRow) {
-  const adaptiveDecision = String(row.adaptive_decision || '').toUpperCase()
-  const decision = String(row.decision || '').toUpperCase()
+function normalizeScope(scope?: string | null) {
+  const value = String(scope || '').toUpperCase()
 
-  return (
-    adaptiveDecision === 'BUY_READY' ||
-    decision.includes('READY') ||
-    decision.includes('BUY') ||
-    decision.includes('ACHAT')
-  )
+  if (value.includes('PEA')) return 'PEA'
+  if (value.includes('CTO')) return 'CTO'
+
+  return 'UNKNOWN'
 }
 
-function isPriceOk(row: InvestRow) {
+function priceIsOk(row: ActionRow) {
   return String(row.price_quality || '').toUpperCase() === 'OK'
 }
 
-function hasValidPrice(row: InvestRow) {
-  return row.latest_close_price != null && Number(row.latest_close_price) > 0
+function hasValidPrice(row: ActionRow) {
+  return row.latest_price != null && Number(row.latest_price) > 0
 }
 
-function hasValidZone(row: InvestRow) {
-  return row.buy_zone_low != null && row.buy_zone_high != null
+function hasValidZone(row: ActionRow) {
+  return (
+    row.buy_zone_low != null &&
+    row.buy_zone_high != null &&
+    Number(row.buy_zone_low) > 0 &&
+    Number(row.buy_zone_high) > 0 &&
+    Number(row.buy_zone_low) <= Number(row.buy_zone_high)
+  )
 }
 
-function hasValidQuantity(row: InvestRow) {
-  return row.suggested_quantity != null && Number(row.suggested_quantity) > 0
+function hasValidQuantity(row: ActionRow) {
+  return row.auto_quantity != null && Number(row.auto_quantity) > 0
 }
 
-function hasValidAmount(row: InvestRow) {
-  return row.amount_suggested != null && Number(row.amount_suggested) > 0
+function hasValidAmount(row: ActionRow) {
+  return row.auto_amount_estimated != null && Number(row.auto_amount_estimated) > 0
 }
 
-function hasAutoSuggestion(row: InvestRow) {
-  return row.auto_is_order_ready != null
+function phase(row: ActionRow) {
+  return String(row.nexial_phase || '').toUpperCase()
 }
 
-function isAutoOrderReady(row: InvestRow) {
+function isPhaseBuyCompatible(row: ActionRow) {
+  const value = phase(row)
+  return value === 'BUY' || value === 'WATCH'
+}
+
+function opportunityStatus(row: ActionRow): OpportunityStatus {
+  if (!priceIsOk(row) || !hasValidPrice(row) || !hasValidZone(row)) {
+    return 'BLOCKED_DATA'
+  }
+
+  const price = Number(row.latest_price)
+  const low = Number(row.buy_zone_low)
+  const high = Number(row.buy_zone_high)
+  const distance = Number(row.distance_to_buy_zone_pct)
+
+  if (price >= low && price <= high) return 'EXECUTABLE'
+  if (price < low) return 'DEEP_PULLBACK'
+
+  if (Number.isFinite(distance) && distance > 0 && distance <= 2) return 'HOT_PULLBACK'
+  if (Number.isFinite(distance) && distance > 2 && distance <= 5) return 'WATCH_PULLBACK'
+
+  return 'TOO_EARLY'
+}
+
+function isAutoOrderReady(row: ActionRow) {
   return (
     row.auto_is_order_ready === true &&
     Number(row.auto_quantity || 0) > 0 &&
@@ -239,19 +268,20 @@ function isAutoOrderReady(row: InvestRow) {
   )
 }
 
-function isActionable(row: InvestRow) {
+function isActionable(row: ActionRow) {
   return (
-    isPriceOk(row) &&
+    opportunityStatus(row) === 'EXECUTABLE' &&
+    isPhaseBuyCompatible(row) &&
+    priceIsOk(row) &&
     hasValidPrice(row) &&
     hasValidZone(row) &&
     hasValidQuantity(row) &&
     hasValidAmount(row) &&
-    isDecisionReady(row) &&
     isAutoOrderReady(row)
   )
 }
 
-function zoneLabel(row: InvestRow) {
+function zoneLabel(row: ActionRow) {
   if (!hasValidZone(row)) return 'Zone non définie'
 
   return `${money(row.buy_zone_low, row.currency || 'EUR')} – ${money(
@@ -260,110 +290,106 @@ function zoneLabel(row: InvestRow) {
   )}`
 }
 
-function executionBlockReason(row: InvestRow) {
-  if (!isPriceOk(row)) return 'Donnée prix non fiable'
+function actionLabel(row: ActionRow) {
+  const status = opportunityStatus(row)
+
+  if (status === 'EXECUTABLE') return 'Achat possible'
+  if (status === 'HOT_PULLBACK') return 'Attendre entrée zone'
+  if (status === 'WATCH_PULLBACK') return 'Surveiller pullback'
+  if (status === 'DEEP_PULLBACK') return 'Audit pullback fort'
+  if (status === 'TOO_EARLY') return 'Trop tôt'
+  return 'Data bloquée'
+}
+
+function executionBlockReason(row: ActionRow) {
+  const status = opportunityStatus(row)
+
+  if (!priceIsOk(row)) return 'Donnée prix non fiable'
   if (!hasValidPrice(row)) return 'Prix indisponible'
   if (!hasValidZone(row)) return 'Zone d’achat absente'
-  if (!hasValidQuantity(row)) return 'Quantité non exécutable côté Invest'
-  if (!hasValidAmount(row)) return 'Montant non exploitable côté Invest'
-  if (!isDecisionReady(row)) return 'Décision non validée'
-  if (!hasAutoSuggestion(row)) return 'Suggestion auto absente'
+  if (status !== 'EXECUTABLE') return actionLabel(row)
+  if (!isPhaseBuyCompatible(row)) return 'Phase Nexial non compatible achat'
+  if (!hasValidQuantity(row)) return 'Quantité non exécutable'
+  if (!hasValidAmount(row)) return 'Montant non exploitable'
   if (!isAutoOrderReady(row)) return row.auto_block_reason || 'Auto execution non validée'
+
   return 'Aucun blocage'
 }
 
-function baseScore(row: InvestRow) {
-  return Number(row.score || 0) + Number(row.capital_efficiency_score || 0)
+function statusTone(status: OpportunityStatus): 'positive' | 'warning' | 'negative' | 'neutral' | 'risk' {
+  if (status === 'EXECUTABLE') return 'positive'
+  if (status === 'HOT_PULLBACK') return 'warning'
+  if (status === 'WATCH_PULLBACK') return 'neutral'
+  if (status === 'TOO_EARLY') return 'negative'
+  if (status === 'DEEP_PULLBACK') return 'warning'
+  return 'risk'
 }
 
-function adaptiveScore(row: InvestRow) {
-  return Number(row.adaptive_nexial_score ?? baseScore(row))
+function score(row: ActionRow) {
+  return Number(row.nexial_score || row.score || 0)
 }
 
-function scoreDelta(row: InvestRow) {
-  if (row.adaptive_nexial_score == null || row.score == null) return null
-  return Number(row.adaptive_nexial_score) - Number(row.score)
-}
+function orderRank(row: ActionRow) {
+  const status = opportunityStatus(row)
 
-function orderRank(row: InvestRow) {
+  const statusBoost =
+    status === 'EXECUTABLE'
+      ? 200
+      : status === 'HOT_PULLBACK'
+        ? 80
+        : status === 'WATCH_PULLBACK'
+          ? 35
+          : status === 'DEEP_PULLBACK'
+            ? 10
+            : status === 'TOO_EARLY'
+              ? -30
+              : -120
+
   return (
-    adaptiveScore(row) * 2 +
-    Number(row.expected_return_pct || 0) +
-    Number(row.amount_suggested || 0) / 1000 +
+    score(row) * 2 +
+    Number(row.priority_score || 0) +
+    Number(row.capital_efficiency_score || 0) +
     Number(row.auto_execution_probability || 0) +
-    (String(row.adaptive_decision || '').toUpperCase() === 'BUY_READY' ? 30 : 0) +
-    (isAutoOrderReady(row) ? 40 : 0)
+    statusBoost +
+    (isAutoOrderReady(row) ? 60 : 0)
   )
 }
 
-function distanceToZone(row: InvestRow) {
-  const price = Number(row.latest_close_price)
-  const high = Number(row.buy_zone_high)
-
-  if (!price || !high) return null
-  return ((price - high) / high) * 100
+function distanceToZone(row: ActionRow) {
+  return row.distance_to_buy_zone_pct ?? null
 }
 
-function orderLimitPrice(row: InvestRow) {
+function orderLimitPrice(row: ActionRow) {
   if (row.auto_limit_price != null && Number(row.auto_limit_price) > 0) return Number(row.auto_limit_price)
   if (row.buy_zone_high != null) return Number(row.buy_zone_high)
-  return row.latest_close_price
+  return row.latest_price
 }
 
-function executionQuantity(row: InvestRow) {
-  if (row.auto_quantity != null && Number(row.auto_quantity) > 0) return Number(row.auto_quantity)
-  return Number(row.suggested_quantity || 0)
+function executionQuantity(row: ActionRow) {
+  return Number(row.auto_quantity || 0)
 }
 
-function executionAmount(row: InvestRow) {
-  if (row.auto_amount_estimated != null && Number(row.auto_amount_estimated) > 0) return Number(row.auto_amount_estimated)
-  return Number(row.amount_suggested || 0)
+function executionAmount(row: ActionRow) {
+  return Number(row.auto_amount_estimated || 0)
 }
 
-function executionAccount(row: InvestRow) {
-  const subtitle = String(row.display_subtitle || '').toUpperCase()
+function executionAccount(row: ActionRow) {
+  const autoScope = normalizeScope(row.auto_account_scope)
+  const signalScope = normalizeScope(row.account_type)
   const currency = String(row.currency || '').toUpperCase()
 
-  if (subtitle.includes('PEA')) return 'PEA'
-  if (subtitle.includes('IBKR')) return 'CTO IBKR'
+  if (autoScope === 'PEA' || signalScope === 'PEA') return 'PEA'
+  if (row.auto_broker) return `${signalScope} ${row.auto_broker}`
   if (currency === 'USD') return 'CTO IBKR'
-  return 'Compte à confirmer'
+
+  return signalScope === 'UNKNOWN' ? 'Compte à confirmer' : signalScope
 }
 
-function orderType(row: InvestRow) {
+function orderType(row: ActionRow) {
+  if (row.auto_order_type) return row.auto_order_type
   const currency = String(row.currency || '').toUpperCase()
   if (currency === 'USD') return 'Limit GTC'
   return 'Limit jour'
-}
-
-function learningClass(signal?: string | null) {
-  const s = String(signal || '').toUpperCase()
-
-  if (s.includes('POSITIVE')) return 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-  if (s.includes('NEGATIVE')) return 'border-red-300/30 bg-red-400/10 text-red-200'
-  if (s.includes('LOW')) return 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-  if (s.includes('NO')) return 'border-white/10 bg-white/5 text-slate-300'
-
-  return 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
-}
-
-function adaptiveDecisionClass(decision?: string | null) {
-  const d = String(decision || '').toUpperCase()
-
-  if (d === 'BUY_READY') return 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-  if (d === 'WATCH') return 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
-  if (d === 'BLOCKED_DATA') return 'border-red-300/30 bg-red-400/10 text-red-200'
-
-  return 'border-amber-300/30 bg-amber-400/10 text-amber-200'
-}
-
-function adaptiveDecisionLabel(decision?: string | null) {
-  const d = String(decision || '').toUpperCase()
-
-  if (d === 'BUY_READY') return 'BUY READY'
-  if (d === 'WATCH') return 'WATCH'
-  if (d === 'BLOCKED_DATA') return 'DATA BLOCK'
-  return 'WAIT'
 }
 
 function extractAutoLimit(row: AutoExecutionRow) {
@@ -385,15 +411,14 @@ function extractAutoBlockReason(row: AutoExecutionRow) {
 export default function ActionsPage() {
   const supabase = useMemo(() => createClient(), [])
 
-  const [rows, setRows] = useState<InvestRow[]>([])
-  const [adaptiveRows, setAdaptiveRows] = useState<AdaptiveRow[]>([])
+  const [rows, setRows] = useState<ActionRow[]>([])
   const [autoRows, setAutoRows] = useState<AutoExecutionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [creatingAll, setCreatingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState<InvestRow | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<ActionRow | null>(null)
   const [creatingTicker, setCreatingTicker] = useState<string | null>(null)
   const [orderCreation, setOrderCreation] = useState<OrderCreationState | null>(null)
 
@@ -403,71 +428,58 @@ export default function ActionsPage() {
 
     setError(null)
 
-    const [investResult, adaptiveResult, autoResult] = await Promise.all([
-      supabase.from(INVEST_VIEW).select('*'),
-      supabase.from(ADAPTIVE_VIEW).select('*'),
+    const [signalResult, autoResult] = await Promise.all([
+      supabase.from(SIGNAL_VIEW).select('*'),
       supabase.from(AUTO_EXECUTION_VIEW).select('*'),
     ])
 
-    if (investResult.error) {
-      setError(investResult.error.message)
+    if (signalResult.error) {
+      setError(signalResult.error.message)
       setRows([])
-    } else {
-      const baseRows = (investResult.data || []) as InvestRow[]
-      const adaptive = (adaptiveResult.data || []) as AdaptiveRow[]
-      const auto = (autoResult.data || []) as AutoExecutionRow[]
-
-      setAdaptiveRows(adaptive)
-      setAutoRows(auto)
-
-      const adaptiveMap = new Map<string, AdaptiveRow>()
-      adaptive.forEach((row) => {
-        adaptiveMap.set(normalizeTicker(row.ticker), row)
-      })
-
-      const autoMap = new Map<string, AutoExecutionRow>()
-      auto.forEach((row) => {
-        autoMap.set(normalizeTicker(row.ticker), row)
-      })
-
-      const mergedRows = baseRows.map((row) => {
-        const adaptiveRow = adaptiveMap.get(normalizeTicker(row.ticker))
-        const autoRow = autoMap.get(normalizeTicker(row.ticker))
-
-        return {
-          ...row,
-          adaptive_nexial_score: adaptiveRow?.adaptive_nexial_score ?? null,
-          learning_signal: adaptiveRow?.learning_signal ?? null,
-          adaptive_reason: adaptiveRow?.adaptive_reason ?? null,
-          adaptive_decision: adaptiveRow?.adaptive_decision ?? null,
-          adaptive_rank: adaptiveRow?.adaptive_rank ?? null,
-
-          auto_is_order_ready: autoRow?.is_order_ready ?? null,
-          auto_limit_price: autoRow ? extractAutoLimit(autoRow) : null,
-          auto_quantity: autoRow ? extractAutoQuantity(autoRow) : null,
-          auto_amount_estimated: autoRow ? extractAutoAmount(autoRow) : null,
-          auto_execution_probability: autoRow?.execution_probability ?? null,
-          auto_block_reason: autoRow ? extractAutoBlockReason(autoRow) : null,
-          auto_source: 'AUTO_EXECUTION_SUGGESTION',
-        }
-      })
-
-      setRows(mergedRows)
+      setAutoRows([])
+      setLoading(false)
+      setRefreshing(false)
+      return
     }
 
-    if (adaptiveResult.error && !investResult.error) {
-      setError(adaptiveResult.error.message)
-    }
+    const signals = (signalResult.data || []) as SignalRow[]
+    const auto = (autoResult.data || []) as AutoExecutionRow[]
 
-    if (autoResult.error && !investResult.error && !adaptiveResult.error) {
+    if (autoResult.error) {
       setError(autoResult.error.message)
     }
 
+    setAutoRows(auto)
+
+    const autoMap = new Map<string, AutoExecutionRow>()
+    auto.forEach((row) => {
+      autoMap.set(normalizeTicker(row.ticker), row)
+    })
+
+    const mergedRows: ActionRow[] = signals.map((row) => {
+      const autoRow = autoMap.get(normalizeTicker(row.ticker))
+
+      return {
+        ...row,
+        auto_is_order_ready: autoRow?.is_order_ready ?? null,
+        auto_limit_price: autoRow ? extractAutoLimit(autoRow) : null,
+        auto_quantity: autoRow ? extractAutoQuantity(autoRow) : null,
+        auto_amount_estimated: autoRow ? extractAutoAmount(autoRow) : null,
+        auto_execution_probability: autoRow?.execution_probability ?? null,
+        auto_block_reason: autoRow ? extractAutoBlockReason(autoRow) : null,
+        auto_source: autoRow ? AUTO_EXECUTION_VIEW : null,
+        auto_order_type: autoRow?.suggested_order_type ?? null,
+        auto_broker: autoRow?.broker ?? null,
+        auto_account_scope: autoRow?.account_scope ?? null,
+      }
+    })
+
+    setRows(mergedRows)
     setLoading(false)
     setRefreshing(false)
   }
 
-  async function createOrder(row: InvestRow) {
+  async function createOrder(row: ActionRow) {
     const ticker = normalizeTicker(row.ticker)
 
     setOrderCreation(null)
@@ -519,7 +531,7 @@ export default function ActionsPage() {
     return true
   }
 
-  async function createAllOrders(items: InvestRow[]) {
+  async function createAllOrders(items: ActionRow[]) {
     if (items.length === 0) return
 
     setCreatingAll(true)
@@ -562,8 +574,13 @@ export default function ActionsPage() {
 
   useEffect(() => {
     load(false)
-  }, [])
 
+    const interval = setInterval(() => {
+      load(true)
+    }, AUTO_REFRESH_MS)
+
+    return () => clearInterval(interval)
+}, [supabase])
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => orderRank(b) - orderRank(a))
   }, [rows])
@@ -576,26 +593,40 @@ export default function ActionsPage() {
     return sortedRows.filter((row) => !isActionable(row))
   }, [sortedRows])
 
+  const hotRows = useMemo(() => {
+    return sortedRows
+      .filter((row) => opportunityStatus(row) === 'HOT_PULLBACK')
+      .slice(0, 3)
+  }, [sortedRows])
+
+  const watchRows = useMemo(() => {
+    return sortedRows
+      .filter((row) => opportunityStatus(row) === 'WATCH_PULLBACK')
+      .slice(0, 6)
+  }, [sortedRows])
+
   const executionHealth = useMemo<ExecutionHealth>(() => {
     return {
       totalRows: sortedRows.length,
+      executableSignals: sortedRows.filter((row) => opportunityStatus(row) === 'EXECUTABLE').length,
       actionable: actionableRows.length,
-      adaptiveBuyReady: adaptiveRows.filter((row) => row.adaptive_decision === 'BUY_READY').length,
-      adaptiveWatch: adaptiveRows.filter((row) => row.adaptive_decision === 'WATCH').length,
-      adaptiveBlocked: adaptiveRows.filter((row) => row.adaptive_decision === 'BLOCKED_DATA').length,
+      hot: sortedRows.filter((row) => opportunityStatus(row) === 'HOT_PULLBACK').length,
+      watch: sortedRows.filter((row) => opportunityStatus(row) === 'WATCH_PULLBACK').length,
+      tooEarly: sortedRows.filter((row) => opportunityStatus(row) === 'TOO_EARLY').length,
+      deepPullback: sortedRows.filter((row) => opportunityStatus(row) === 'DEEP_PULLBACK').length,
+      blockedData: sortedRows.filter((row) => opportunityStatus(row) === 'BLOCKED_DATA').length,
       blockedNoZone: blockedRows.filter((row) => !hasValidZone(row)).length,
       blockedNoPrice: blockedRows.filter((row) => !hasValidPrice(row)).length,
-      blockedQuantity: blockedRows.filter((row) => !hasValidQuantity(row) || !isAutoOrderReady(row)).length,
-      blockedData: blockedRows.filter((row) => !isPriceOk(row)).length,
+      blockedQuantity: blockedRows.filter((row) => !hasValidQuantity(row)).length,
       blockedAuto: blockedRows.filter((row) => !isAutoOrderReady(row)).length,
-      staleRows: sortedRows.filter((row) => !isFresh(row.updated_at)).length,
-      blockedDecision: blockedRows.filter((row) => !isDecisionReady(row)).length,
+      blockedDecision: blockedRows.filter((row) => !isPhaseBuyCompatible(row)).length,
+      staleRows: sortedRows.filter((row) => !isFresh(row.price_timestamp)).length,
     }
-  }, [sortedRows, actionableRows, blockedRows, adaptiveRows])
+  }, [sortedRows, actionableRows, blockedRows])
 
   const latestUpdate = useMemo(() => {
     const dates = sortedRows
-      .map((row) => row.updated_at)
+      .map((row) => row.price_timestamp)
       .filter(Boolean)
       .map((value) => new Date(value as string))
       .filter((date) => !Number.isNaN(date.getTime()))
@@ -608,21 +639,19 @@ export default function ActionsPage() {
     return actionableRows.reduce((sum, row) => sum + Number(executionAmount(row) || 0), 0)
   }, [actionableRows])
 
-  const avgAdaptiveScore = useMemo(() => {
-    if (adaptiveRows.length === 0) return 0
+  const avgScore = useMemo(() => {
+    if (sortedRows.length === 0) return 0
 
     return Math.round(
-      adaptiveRows.reduce((sum, row) => sum + Number(row.adaptive_nexial_score || 0), 0) /
-        adaptiveRows.length
+      sortedRows.reduce((sum, row) => sum + Number(score(row) || 0), 0) / sortedRows.length
     )
-  }, [adaptiveRows])
+  }, [sortedRows])
 
   const bestOrder = actionableRows[0] || null
   const hasAction = actionableRows.length > 0
   const dataAlerts =
     executionHealth.blockedData +
-    executionHealth.blockedNoPrice +
-    executionHealth.staleRows
+    executionHealth.blockedNoPrice
 
   if (loading) {
     return <LoadingState />
@@ -643,8 +672,10 @@ export default function ActionsPage() {
           dataAlerts={dataAlerts}
           refreshing={refreshing}
           creatingAll={creatingAll}
-          avgAdaptiveScore={avgAdaptiveScore}
+          avgScore={avgScore}
           autoSuggestions={autoRows.length}
+          hotCount={executionHealth.hot}
+          watchCount={executionHealth.watch}
           onRefresh={() => load(true)}
           onCreateAll={() => createAllOrders(actionableRows)}
           onOpenDetails={() => setDetailsOpen(true)}
@@ -663,6 +694,8 @@ export default function ActionsPage() {
           <NoActionState
             blockedCount={blockedRows.length}
             dataAlerts={dataAlerts}
+            hotRows={hotRows}
+            watchRows={watchRows}
             onOpenDetails={() => setDetailsOpen(true)}
           />
         )}
@@ -673,7 +706,7 @@ export default function ActionsPage() {
       {detailsOpen && (
         <SystemDetailsModal
           health={executionHealth}
-          rows={blockedRows.slice(0, 10)}
+          rows={blockedRows.slice(0, 12)}
           onClose={() => setDetailsOpen(false)}
         />
       )}
@@ -704,8 +737,7 @@ function LoadingState() {
             </div>
             <h1 className="text-4xl font-semibold tracking-tight">Chargement du cockpit d’exécution...</h1>
             <p className="mt-3 text-sm text-slate-400">
-              Lecture de <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{INVEST_VIEW}</code> +{' '}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{ADAPTIVE_VIEW}</code> +{' '}
+              Lecture de <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{SIGNAL_VIEW}</code> +{' '}
               <code className="rounded bg-white/10 px-1.5 py-0.5 text-cyan-200">{AUTO_EXECUTION_VIEW}</code>
             </p>
           </div>
@@ -771,6 +803,7 @@ function OrderCreationBanner({
     </section>
   )
 }
+
 function PremiumDecisionHero({
   hasAction,
   actionCount,
@@ -780,8 +813,10 @@ function PremiumDecisionHero({
   dataAlerts,
   refreshing,
   creatingAll,
-  avgAdaptiveScore,
+  avgScore,
   autoSuggestions,
+  hotCount,
+  watchCount,
   onRefresh,
   onCreateAll,
   onOpenDetails,
@@ -789,13 +824,15 @@ function PremiumDecisionHero({
   hasAction: boolean
   actionCount: number
   totalAmount: number
-  bestOrder: InvestRow | null
+  bestOrder: ActionRow | null
   latestUpdate: string | null
   dataAlerts: number
   refreshing: boolean
   creatingAll: boolean
-  avgAdaptiveScore: number
+  avgScore: number
   autoSuggestions: number
+  hotCount: number
+  watchCount: number
   onRefresh: () => void
   onCreateAll: () => void
   onOpenDetails: () => void
@@ -814,7 +851,7 @@ function PremiumDecisionHero({
             }`}
           >
             {hasAction ? <Sparkles size={14} /> : <TimerReset size={14} />}
-            Décision Nexial
+            Actions Engine
           </div>
 
           <h1
@@ -822,13 +859,13 @@ function PremiumDecisionHero({
               hasAction ? 'text-emerald-300' : 'text-amber-300'
             }`}
           >
-            {hasAction ? 'Acheter maintenant' : 'Attendre'}
+            {hasAction ? 'Créer les ordres' : 'Attendre'}
           </h1>
 
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
             {hasAction
-              ? `${actionCount} ordre(s) prêt(s), validé(s) par le moteur d’exécution. Aucun ordre marché. Prix limite uniquement.`
-              : 'Aucune opportunité ne respecte toutes les règles. Le meilleur ordre aujourd’hui est de ne rien faire.'}
+              ? `${actionCount} ordre(s) prêt(s), validé(s) par le moteur. Prix limite uniquement, aucun achat marché.`
+              : 'Aucune opportunité n’est dans sa zone d’achat. Les signaux proches restent en surveillance, sans création d’ordre.'}
           </p>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-3">
@@ -842,7 +879,7 @@ function PremiumDecisionHero({
             <DecisionMetric
               label="Ordres prêts"
               value={String(actionCount)}
-              helper="top 3 maximum"
+              helper={`Hot ${hotCount} · Watch ${watchCount}`}
               icon={<ClipboardCheck size={18} />}
               tone={hasAction ? 'positive' : 'neutral'}
             />
@@ -909,21 +946,21 @@ function PremiumDecisionHero({
 
           {bestOrder ? (
             <div className="space-y-3">
-              <PriorityLine label="Nom" value={bestOrder.asset_name} />
+              <PriorityLine label="Nom" value={bestOrder.asset_name || bestOrder.ticker} />
               <PriorityLine label="Compte" value={executionAccount(bestOrder)} />
               <PriorityLine label="Prix limite" value={money(orderLimitPrice(bestOrder), bestOrder.currency || 'EUR')} />
               <PriorityLine label="Quantité" value={num(executionQuantity(bestOrder), 0)} />
               <PriorityLine label="Montant" value={money(executionAmount(bestOrder), bestOrder.currency || 'EUR')} />
-              <PriorityLine label="Score" value={`${num(adaptiveScore(bestOrder), 0)}/100`} />
+              <PriorityLine label="Score" value={`${num(score(bestOrder), 0)}/100`} />
             </div>
           ) : (
             <div className="rounded-2xl border border-white/10 bg-black/10 p-4 text-sm leading-6 text-slate-300">
-              Nexial ne propose aucun ordre lorsque le prix, la zone, la quantité ou la décision ne sont pas alignés.
+              Nexial ne crée aucun ordre hors zone. Les opportunités proches sont surveillées dans Watchlist.
             </div>
           )}
 
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <CompactMetric label="Score moyen" value={`${avgAdaptiveScore}/100`} />
+            <CompactMetric label="Score moyen" value={`${avgScore}/100`} />
             <CompactMetric label="Suggestions" value={String(autoSuggestions)} />
           </div>
         </aside>
@@ -940,11 +977,11 @@ function ExecutableOrders({
   onCreateOrder,
   onCreateAll,
 }: {
-  rows: InvestRow[]
+  rows: ActionRow[]
   creatingTicker: string | null
   creatingAll: boolean
-  onOpen: (row: InvestRow) => void
-  onCreateOrder: (row: InvestRow) => void
+  onOpen: (row: ActionRow) => void
+  onCreateOrder: (row: ActionRow) => void
   onCreateAll: () => void
 }) {
   return (
@@ -955,7 +992,7 @@ function ExecutableOrders({
             <Sparkles size={18} className="text-emerald-300" /> Ordres validés
           </div>
           <p className="mt-1 text-sm text-slate-400">
-            Le système affiche uniquement les actions réellement exécutables.
+            Uniquement les signaux EXECUTABLE : prix dans zone, data OK, ordre auto prêt.
           </p>
         </div>
 
@@ -984,7 +1021,6 @@ function ExecutableOrders({
     </section>
   )
 }
-
 function OrderCard({
   item,
   index,
@@ -992,52 +1028,34 @@ function OrderCard({
   onOpen,
   onCreateOrder,
 }: {
-  item: InvestRow
+  item: ActionRow
   index: number
   creating: boolean
   onOpen: () => void
   onCreateOrder: () => void
 }) {
-  const delta = scoreDelta(item)
+  const status = opportunityStatus(item)
 
   return (
     <article className="rounded-[1.5rem] border border-emerald-300/20 bg-emerald-400/[0.08] p-5 shadow-[0_0_70px_rgba(16,185,129,0.08)]">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-emerald-100">#{index + 1}</span>
-            <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">BUY</span>
-            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${adaptiveDecisionClass(item.adaptive_decision)}`}>
-              {adaptiveDecisionLabel(item.adaptive_decision)}
+            <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-emerald-100">
+              #{index + 1}
             </span>
+            <StatusBadge status={status} />
+            <ScopeBadge value={normalizeScope(item.account_type)} />
             <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-xs font-semibold text-cyan-100">
               AUTO READY
             </span>
           </div>
+
           <h3 className="mt-3 truncate text-3xl font-semibold text-white">{item.ticker}</h3>
-          <p className="mt-1 truncate text-sm text-slate-300">{item.asset_name}</p>
+          <p className="mt-1 truncate text-sm text-slate-300">{item.asset_name || item.ticker}</p>
         </div>
 
-        <ScoreBadge value={adaptiveScore(item)} label="Score" />
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${learningClass(item.learning_signal)}`}>
-          {item.learning_signal || 'NO_LEARNING'}
-        </span>
-
-        {delta != null && (
-          <span
-            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-              delta >= 0
-                ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-                : 'border-red-300/30 bg-red-400/10 text-red-200'
-            }`}
-          >
-            Delta {delta >= 0 ? '+' : ''}
-            {delta.toFixed(1)}
-          </span>
-        )}
+        <ScoreBadge value={score(item)} label="Score" />
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
@@ -1049,12 +1067,16 @@ function OrderCard({
 
       <div className="mt-5 rounded-2xl border border-white/10 bg-black/10 p-4">
         <div className="grid gap-3 text-sm">
-          <Line label="Prix actuel" value={money(item.latest_close_price, item.currency || 'EUR')} />
+          <Line label="Prix actuel" value={money(item.latest_price, item.currency || 'EUR')} />
           <Line label="Zone validée" value={zoneLabel(item)} />
           <Line label="Type ordre" value={orderType(item)} />
           <Line label="Distance zone" value={pct(distanceToZone(item))} />
           <Line label="Probabilité" value={`${num(item.auto_execution_probability, 0)}/100`} />
         </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-sm leading-6 text-emerald-100">
+        {item.nexial_reason || item.thesis || 'Prix en zone validée. Création possible uniquement en ordre limite.'}
       </div>
 
       <div className="mt-5 flex gap-3">
@@ -1068,8 +1090,9 @@ function OrderCard({
 
         <button
           onClick={onOpen}
-          className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
         >
+          <Eye size={15} />
           Audit
         </button>
       </div>
@@ -1080,31 +1103,47 @@ function OrderCard({
 function NoActionState({
   blockedCount,
   dataAlerts,
+  hotRows,
+  watchRows,
   onOpenDetails,
 }: {
   blockedCount: number
   dataAlerts: number
+  hotRows: ActionRow[]
+  watchRows: ActionRow[]
   onOpenDetails: () => void
 }) {
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-[#101827]/95 p-8 text-center shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
-      <div className="mx-auto max-w-2xl">
+    <section className="rounded-[1.75rem] border border-white/10 bg-[#101827]/95 p-8 shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
+      <div className="mx-auto max-w-5xl">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-400/10 text-amber-300">
           <TimerReset size={26} />
         </div>
 
-        <p className="mt-6 text-sm uppercase tracking-[0.28em] text-slate-500">Discipline active</p>
-        <h2 className="mt-3 text-4xl font-semibold text-white">Aucun ordre à placer</h2>
+        <p className="mt-6 text-center text-sm uppercase tracking-[0.28em] text-slate-500">
+          Discipline active
+        </p>
 
-        <p className="mt-4 text-base leading-7 text-slate-300">
+        <h2 className="mt-3 text-center text-4xl font-semibold text-white">
+          Aucun ordre à placer
+        </h2>
+
+        <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-7 text-slate-300">
           {blockedCount > 0
             ? `${blockedCount} idée(s) sont suivies mais bloquées par les règles Nexial.`
             : 'Aucune idée exploitable n’est disponible actuellement.'}
         </p>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-6 text-slate-300">
+        <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center text-sm leading-6 text-slate-300">
           Nexial protège le capital : pas de breakout, pas de marché, pas d’ordre sans zone, pas d’achat si la donnée prix est douteuse.
         </div>
+
+        {(hotRows.length > 0 || watchRows.length > 0) && (
+          <div className="mt-8 grid gap-4 lg:grid-cols-2">
+            <NearSignalPanel title="Hot pullback" rows={hotRows} tone="warning" />
+            <NearSignalPanel title="Watch pullback" rows={watchRows.slice(0, 3)} tone="neutral" />
+          </div>
+        )}
 
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <button
@@ -1118,12 +1157,62 @@ function NoActionState({
             Voir pourquoi
           </button>
 
-          <Link href="/watchlist" className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-6 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15">
+          <Link
+            href="/watchlist"
+            className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-6 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
+          >
             Voir Watchlist
           </Link>
         </div>
       </div>
     </section>
+  )
+}
+
+function NearSignalPanel({
+  title,
+  rows,
+  tone,
+}: {
+  title: string
+  rows: ActionRow[]
+  tone: 'warning' | 'neutral'
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-black/10 p-5">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <p className={`text-sm font-semibold ${tone === 'warning' ? 'text-amber-300' : 'text-cyan-300'}`}>
+          {title}
+        </p>
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">
+          {rows.length} actif(s)
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun signal proche dans cette catégorie.</p>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div key={`${row.id}-${row.ticker}-near`} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-white">{row.ticker}</p>
+                  <p className="text-sm text-slate-400">{row.asset_name || row.ticker}</p>
+                </div>
+                <StatusBadge status={opportunityStatus(row)} />
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                <SmallInfo label="Prix" value={money(row.latest_price, row.currency || 'EUR')} />
+                <SmallInfo label="Zone" value={zoneLabel(row)} />
+                <SmallInfo label="Distance" value={pct(distanceToZone(row))} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1135,10 +1224,15 @@ function ExecutionControlPanel({ health, onOpenDetails }: { health: ExecutionHea
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <ShieldCheck size={18} className="text-cyan-300" /> Audit exécution
           </div>
-          <p className="mt-1 text-sm text-slate-400">Panneau secondaire. Les signaux bloqués ne deviennent jamais des ordres utilisateur.</p>
+          <p className="mt-1 text-sm text-slate-400">
+            Panneau secondaire. Les signaux bloqués ne deviennent jamais des ordres utilisateur.
+          </p>
         </div>
 
-        <button onClick={onOpenDetails} className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10">
+        <button
+          onClick={onOpenDetails}
+          className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+        >
           Voir détails
         </button>
       </div>
@@ -1146,14 +1240,14 @@ function ExecutionControlPanel({ health, onOpenDetails }: { health: ExecutionHea
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-10">
         <Metric label="Signaux" value={String(health.totalRows)} />
         <Metric label="Prêts" value={String(health.actionable)} positive={health.actionable > 0} />
-        <Metric label="BUY" value={String(health.adaptiveBuyReady)} positive={health.adaptiveBuyReady > 0} />
-        <Metric label="WATCH" value={String(health.adaptiveWatch)} />
-        <Metric label="DATA" value={String(health.adaptiveBlocked)} warning={health.adaptiveBlocked > 0} />
+        <Metric label="En zone" value={String(health.executableSignals)} positive={health.executableSignals > 0} />
+        <Metric label="Hot" value={String(health.hot)} warning={health.hot > 0} />
+        <Metric label="Watch" value={String(health.watch)} />
+        <Metric label="Trop tôt" value={String(health.tooEarly)} />
+        <Metric label="Sous zone" value={String(health.deepPullback)} warning={health.deepPullback > 0} />
+        <Metric label="Data" value={String(health.blockedData)} warning={health.blockedData > 0} />
         <Metric label="Auto" value={String(health.blockedAuto)} warning={health.blockedAuto > 0} />
-        <Metric label="Zone" value={String(health.blockedNoZone)} warning={health.blockedNoZone > 0} />
-        <Metric label="Prix" value={String(health.blockedNoPrice)} warning={health.blockedNoPrice > 0} />
-        <Metric label="Qté" value={String(health.blockedQuantity)} warning={health.blockedQuantity > 0} />
-        <Metric label="Fresh" value={String(health.blockedData + health.staleRows)} warning={health.blockedData + health.staleRows > 0} />
+        <Metric label="Fresh" value={String(health.staleRows)} warning={health.staleRows > 0} />
       </div>
     </section>
   )
@@ -1165,7 +1259,7 @@ function SystemDetailsModal({
   onClose,
 }: {
   health: ExecutionHealth
-  rows: InvestRow[]
+  rows: ActionRow[]
   onClose: () => void
 }) {
   return (
@@ -1180,7 +1274,10 @@ function SystemDetailsModal({
             </p>
           </div>
 
-          <button onClick={onClose} className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200 transition hover:bg-white/10">
+          <button
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200 transition hover:bg-white/10"
+          >
             <X size={18} />
           </button>
         </div>
@@ -1188,7 +1285,7 @@ function SystemDetailsModal({
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Signaux lus" value={String(health.totalRows)} />
           <Metric label="Actionnables" value={String(health.actionable)} positive={health.actionable > 0} />
-          <Metric label="Adaptive BUY" value={String(health.adaptiveBuyReady)} positive={health.adaptiveBuyReady > 0} />
+          <Metric label="En zone" value={String(health.executableSignals)} positive={health.executableSignals > 0} />
           <Metric label="Auto bloqués" value={String(health.blockedAuto)} warning={health.blockedAuto > 0} />
           <Metric label="Data prix" value={String(health.blockedData + health.staleRows)} warning={health.blockedData + health.staleRows > 0} />
         </div>
@@ -1204,7 +1301,7 @@ function SystemDetailsModal({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-white">{row.ticker}</p>
-                    <p className="text-sm text-slate-400">{row.asset_name}</p>
+                    <p className="text-sm text-slate-400">{row.asset_name || row.ticker}</p>
                   </div>
 
                   <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-100">
@@ -1213,9 +1310,9 @@ function SystemDetailsModal({
                 </div>
 
                 <div className="mt-4 grid gap-3 text-sm sm:grid-cols-5">
-                  <BlockedMetric label="Prix" value={money(row.latest_close_price, row.currency || 'EUR')} />
+                  <BlockedMetric label="Prix" value={money(row.latest_price, row.currency || 'EUR')} />
                   <BlockedMetric label="Zone" value={zoneLabel(row)} />
-                  <BlockedMetric label="Quantité Invest" value={num(row.suggested_quantity)} />
+                  <BlockedMetric label="Distance" value={pct(distanceToZone(row))} />
                   <BlockedMetric label="Quantité Auto" value={num(row.auto_quantity, 0)} />
                   <BlockedMetric label="Auto statut" value={row.auto_block_reason || '—'} />
                 </div>
@@ -1234,12 +1331,12 @@ function OrderDrawer({
   onClose,
   onCreateOrder,
 }: {
-  item: InvestRow
+  item: ActionRow
   creating: boolean
   onClose: () => void
   onCreateOrder: () => void
 }) {
-  const delta = scoreDelta(item)
+  const status = opportunityStatus(item)
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm">
@@ -1248,9 +1345,11 @@ function OrderDrawer({
       <aside className="relative h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-[#07111f] p-6 text-white shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">Ordre prêt à créer</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">
+              Ordre prêt à créer
+            </p>
             <h2 className="mt-3 text-4xl font-semibold tracking-tight">{item.ticker}</h2>
-            <p className="mt-1 text-slate-400">{item.asset_name}</p>
+            <p className="mt-1 text-slate-400">{item.asset_name || item.ticker}</p>
           </div>
 
           <button onClick={onClose} className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-300 transition hover:bg-white/10 hover:text-white">
@@ -1264,9 +1363,11 @@ function OrderDrawer({
               <p className="text-sm text-emerald-200">Action</p>
               <p className="mt-1 text-3xl font-semibold text-white">BUY LIMIT</p>
             </div>
-            <span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">Auto ready</span>
+            <StatusBadge status={status} />
           </div>
-          <p className="mt-4 text-sm leading-6 text-slate-200">{item.reason || 'Ordre validé par le moteur Nexial.'}</p>
+          <p className="mt-4 text-sm leading-6 text-slate-200">
+            {item.nexial_reason || item.thesis || 'Ordre validé par le moteur Nexial.'}
+          </p>
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -1276,32 +1377,26 @@ function OrderDrawer({
           <DrawerMetric label="Prix limite" value={money(orderLimitPrice(item), item.currency || 'EUR')} />
           <DrawerMetric label="Montant" value={money(executionAmount(item), item.currency || 'EUR')} />
           <DrawerMetric label="Devise" value={item.currency || 'EUR'} />
-          <DrawerMetric label="Prix actuel" value={money(item.latest_close_price, item.currency || 'EUR')} />
+          <DrawerMetric label="Prix actuel" value={money(item.latest_price, item.currency || 'EUR')} />
           <DrawerMetric label="Zone" value={zoneLabel(item)} />
-          <DrawerMetric label="Score base" value={num(item.score, 0)} />
-          <DrawerMetric label="Score adaptatif" value={num(item.adaptive_nexial_score, 0)} />
-          <DrawerMetric label="Delta learning" value={delta == null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`} />
-          <DrawerMetric label="Learning" value={item.learning_signal || 'NO_LEARNING'} />
+          <DrawerMetric label="Score" value={num(score(item), 0)} />
+          <DrawerMetric label="Probabilité" value={`${num(item.auto_execution_probability, 0)}/100`} />
+          <DrawerMetric label="Source" value={item.auto_source || '—'} />
+          <DrawerMetric label="Maj" value={formatDate(item.price_timestamp)} />
         </div>
 
         <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
           <p className="text-sm font-semibold text-white">Contrôles avant création ordre</p>
           <div className="mt-4 space-y-3">
-            <CheckLine label="Prix fiable" ok={isPriceOk(item)} />
+            <CheckLine label="Signal en zone EXECUTABLE" ok={opportunityStatus(item) === 'EXECUTABLE'} />
+            <CheckLine label="Prix fiable" ok={priceIsOk(item)} />
             <CheckLine label="Prix disponible" ok={hasValidPrice(item)} />
             <CheckLine label="Zone valide" ok={hasValidZone(item)} />
             <CheckLine label="Quantité entière exécutable" ok={executionQuantity(item) > 0} />
             <CheckLine label="Montant exploitable" ok={executionAmount(item) > 0} />
-            <CheckLine label="Décision BUY validée" ok={isDecisionReady(item)} />
+            <CheckLine label="Phase compatible achat" ok={isPhaseBuyCompatible(item)} />
             <CheckLine label="Auto execution ready" ok={isAutoOrderReady(item)} />
           </div>
-        </div>
-
-        <div className="mt-5 rounded-[1.5rem] border border-cyan-300/20 bg-cyan-300/10 p-5">
-          <p className="text-sm font-semibold text-cyan-100">Lecture adaptive</p>
-          <p className="mt-3 text-sm leading-6 text-slate-200">
-            {item.adaptive_reason || 'Historique insuffisant : moteur standard conservé.'}
-          </p>
         </div>
 
         <div className="mt-5 flex gap-3">
@@ -1384,6 +1479,15 @@ function OrderMetric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function SmallInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/10 p-3">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-xs font-semibold text-white">{value}</p>
+    </div>
+  )
+}
+
 function Line({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -1393,7 +1497,17 @@ function Line({ label, value }: { label: string; value: string }) {
   )
 }
 
-function Metric({ label, value, positive = false, warning = false }: { label: string; value: string; positive?: boolean; warning?: boolean }) {
+function Metric({
+  label,
+  value,
+  positive = false,
+  warning = false,
+}: {
+  label: string
+  value: string
+  positive?: boolean
+  warning?: boolean
+}) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
       <p className="text-sm text-slate-400">{label}</p>
@@ -1434,13 +1548,49 @@ function CheckLine({ label, ok }: { label: string; ok: boolean }) {
 }
 
 function ScoreBadge({ value, label = 'Score' }: { value?: number | null; label?: string }) {
-  const score = Number(value || 0)
+  const currentScore = Number(value || 0)
   const className =
-    score >= 90
+    currentScore >= 90
       ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
-      : score >= 75
+      : currentScore >= 75
         ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
         : 'border-amber-300/30 bg-amber-400/10 text-amber-200'
 
-  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{label} {num(score, 0)}</span>
+  return (
+    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>
+      {label} {num(currentScore, 0)}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: OpportunityStatus }) {
+  const className =
+    status === 'EXECUTABLE'
+      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
+      : status === 'HOT_PULLBACK'
+        ? 'border-amber-300/30 bg-amber-400/10 text-amber-200'
+        : status === 'WATCH_PULLBACK'
+          ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
+          : status === 'DEEP_PULLBACK'
+            ? 'border-purple-300/30 bg-purple-400/10 text-purple-200'
+            : status === 'TOO_EARLY'
+              ? 'border-red-300/30 bg-red-400/10 text-red-200'
+              : 'border-slate-300/20 bg-slate-400/10 text-slate-300'
+
+  return (
+    <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>
+      {status.replace('_', ' ')}
+    </span>
+  )
+}
+
+function ScopeBadge({ value }: { value: string }) {
+  const className =
+    value === 'PEA'
+      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200'
+      : value === 'CTO'
+        ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200'
+        : 'border-white/10 bg-white/10 text-slate-300'
+
+  return <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{value}</span>
 }
