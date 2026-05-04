@@ -10,7 +10,6 @@ import {
   ChevronDown,
   CircleDollarSign,
   Database,
-  Eye,
   Filter,
   Grid3X3,
   LineChart,
@@ -21,7 +20,6 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
-  TimerReset,
   TrendingUp,
   Wallet,
   X,
@@ -212,7 +210,7 @@ function zoneLabel(row: WatchlistRow) {
 }
 
 function opportunityStatus(row: WatchlistRow): OpportunityStatus {
-  if (!priceIsOk(row) || !hasValidPrice(row) || !hasValidZone(row) || !isFresh(row.price_timestamp)) {
+  if (!priceIsOk(row) || !hasValidPrice(row) || !hasValidZone(row)) {
     return 'BLOCKED_DATA'
   }
 
@@ -626,6 +624,7 @@ export default function WatchlistPage() {
     </main>
   )
 }
+
 function Hero({
   title,
   text,
