@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 
 const VIEW = 'vw_nexial_signal_v1'
+const AUTO_REFRESH_MS = 60000
 
 type WatchlistRow = {
   id: string
@@ -359,8 +360,8 @@ export default function WatchlistPage() {
   const [selectedRow, setSelectedRow] = useState<WatchlistRow | null>(null)
 
   async function load(isRefresh = false) {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
+    if (!isRefresh) setLoading(true)
+    else setRefreshing(true)
 
     setError(null)
 
@@ -373,13 +374,19 @@ export default function WatchlistPage() {
       setRows((data || []) as WatchlistRow[])
     }
 
-    setLoading(false)
+    if (!isRefresh) setLoading(false)
     setRefreshing(false)
   }
 
   useEffect(() => {
     load(false)
-  }, [])
+
+    const interval = setInterval(() => {
+      load(true)
+    }, AUTO_REFRESH_MS)
+
+    return () => clearInterval(interval)
+  }, [supabase])
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()

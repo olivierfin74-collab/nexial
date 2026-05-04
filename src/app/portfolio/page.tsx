@@ -114,7 +114,6 @@ type Position = {
   account_weight_pct: number | null
   data_quality: string | null
   updated_at: string | null
-
   execution_source?: string | null
   execution_last_limit_price?: number | null
   execution_last_confirmed_at?: string | null
@@ -245,6 +244,7 @@ function rawPct(value?: number | null, decimals = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
   return `${Number(value).toFixed(decimals)} %`
 }
+
 function formatDate(value?: string | null) {
   if (!value) return '—'
 
@@ -277,11 +277,7 @@ function compareValues(a: unknown, b: unknown, direction: SortDirection) {
 function isDataOk(status?: string | null) {
   const value = String(status || '').toUpperCase()
 
-  return (
-    value === 'OK' ||
-    value.includes('STALE') ||
-    value.includes('FALLBACK')
-  )
+  return value === 'OK' || value.includes('STALE') || value.includes('FALLBACK')
 }
 
 function normalizeAccountType(value?: string | null) {
@@ -390,12 +386,7 @@ function executionIdentity(row: ExecutionPosition) {
 function inferAssetBucket(row: ExecutionPosition) {
   const name = `${row.asset_name || ''} ${row.ticker || ''}`.toUpperCase()
 
-  if (
-    name.includes('ETF') ||
-    name.includes('NASDAQ') ||
-    name.includes('MSCI') ||
-    name.includes('AMUNDI')
-  ) {
+  if (name.includes('ETF') || name.includes('NASDAQ') || name.includes('MSCI') || name.includes('AMUNDI')) {
     return 'ETF'
   }
 
@@ -406,14 +397,10 @@ function executionToPosition(row: ExecutionPosition): Position {
   const accountType = normalizeAccountType(row.account_scope)
   const bucket = inferAssetBucket(row)
   const priceQuality = row.price_is_reliable ? 'OK' : row.price_status || 'STALE'
-  const value =
-    row.current_value ??
-    (row.quantity != null && row.latest_price != null ? row.quantity * row.latest_price : null)
+  const value = row.current_value ?? (row.quantity != null && row.latest_price != null ? row.quantity * row.latest_price : null)
   const pnl =
     row.pnl_amount ??
-    (value != null && row.quantity != null && row.avg_price != null
-      ? value - row.quantity * row.avg_price
-      : null)
+    (value != null && row.quantity != null && row.avg_price != null ? value - row.quantity * row.avg_price : null)
 
   return {
     position_id: row.id,
@@ -491,29 +478,31 @@ function mergePortfolioRows(baseRows: Position[], executionRows: ExecutionPositi
     }
 
     map.set(key, {
-  ...existing,
-
-  // 🔥 PRIORITÉ EXECUTION (CRITIQUE)
-  pru: executionRow.avg_price ?? existing.pru,
-  quantity: executionRow.quantity ?? existing.quantity,
-  value_eur:
-    executionRow.current_value ??
-    (executionRow.quantity && executionRow.latest_price
-      ? executionRow.quantity * executionRow.latest_price
-      : existing.value_eur),
-
-  pnl_eur:
-    executionRow.pnl_amount ??
-    (executionRow.quantity && executionRow.avg_price && executionRow.latest_price
-      ? executionRow.quantity * (executionRow.latest_price - executionRow.avg_price)
-      : existing.pnl_eur),
-
-  pnl_pct: executionRow.pnl_pct ?? existing.pnl_pct,
-
-  execution_source: executionRow.last_execution_source,
-  execution_last_limit_price: executionRow.last_limit_price,
-  execution_last_confirmed_at: executionRow.last_confirmed_at,
-})
+      ...existing,
+      pru: executionRow.avg_price ?? existing.pru,
+      quantity: executionRow.quantity ?? existing.quantity,
+      live_price: executionRow.latest_price ?? existing.live_price,
+      broker_price: executionRow.latest_price ?? existing.broker_price,
+      value_native: executionRow.current_value ?? existing.value_native,
+      value_eur:
+        executionRow.current_value ??
+        (executionRow.quantity != null && executionRow.latest_price != null
+          ? executionRow.quantity * executionRow.latest_price
+          : existing.value_eur),
+      pnl_native: executionRow.pnl_amount ?? existing.pnl_native,
+      pnl_eur:
+        executionRow.pnl_amount ??
+        (executionRow.quantity != null && executionRow.avg_price != null && executionRow.latest_price != null
+          ? executionRow.quantity * (executionRow.latest_price - executionRow.avg_price)
+          : existing.pnl_eur),
+      pnl_pct: executionRow.pnl_pct ?? existing.pnl_pct,
+      data_quality: executionRow.price_is_reliable ? 'OK' : executionRow.price_status ?? existing.data_quality,
+      updated_at: executionRow.updated_at ?? existing.updated_at,
+      execution_source: executionRow.last_execution_source,
+      execution_last_limit_price: executionRow.last_limit_price,
+      execution_last_confirmed_at: executionRow.last_confirmed_at,
+      execution_position: true,
+    })
   })
 
   return recalculateWeights(Array.from(map.values()))
@@ -539,40 +528,47 @@ export default function PortfolioPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('LIST')
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null)
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      setError(null)
+  async function loadPortfolio(silent = false) {
+    if (!silent) setLoading(true)
+    setError(null)
 
-      const [portfolioResult, executionResult] = await Promise.all([
-        supabase.from(PORTFOLIO_VIEW).select(PORTFOLIO_SELECT),
-        supabase.from(EXECUTION_PORTFOLIO_VIEW).select(EXECUTION_PORTFOLIO_SELECT),
-      ])
+    const [portfolioResult, executionResult] = await Promise.all([
+      supabase.from(PORTFOLIO_VIEW).select(PORTFOLIO_SELECT),
+      supabase.from(EXECUTION_PORTFOLIO_VIEW).select(EXECUTION_PORTFOLIO_SELECT),
+    ])
 
-      if (portfolioResult.error) {
-        console.error('Portfolio load error:', portfolioResult.error.message)
-        setError(portfolioResult.error.message)
-        setRows([])
-        setLoading(false)
-        return
-      }
-
-      const baseRows = (portfolioResult.data || []) as Position[]
-
-      if (executionResult.error) {
-        console.error('Execution portfolio load error:', executionResult.error.message)
-        setError(executionResult.error.message)
-        setRows(recalculateWeights(baseRows))
-        setLoading(false)
-        return
-      }
-
-      const executionRows = (executionResult.data || []) as ExecutionPosition[]
-      setRows(mergePortfolioRows(baseRows, executionRows))
-      setLoading(false)
+    if (portfolioResult.error) {
+      console.error('Portfolio load error:', portfolioResult.error.message)
+      setError(portfolioResult.error.message)
+      setRows([])
+      if (!silent) setLoading(false)
+      return
     }
 
-    load()
+    const baseRows = (portfolioResult.data || []) as Position[]
+
+    if (executionResult.error) {
+      console.error('Execution portfolio load error:', executionResult.error.message)
+      setError(executionResult.error.message)
+      setRows(recalculateWeights(baseRows))
+      if (!silent) setLoading(false)
+      return
+    }
+
+    const executionRows = (executionResult.data || []) as ExecutionPosition[]
+    setRows(mergePortfolioRows(baseRows, executionRows))
+
+    if (!silent) setLoading(false)
+  }
+
+  useEffect(() => {
+    loadPortfolio(false)
+
+    const interval = setInterval(() => {
+      loadPortfolio(true)
+    }, 60000)
+
+    return () => clearInterval(interval)
   }, [supabase])
 
   const typeOptions = useMemo(() => uniqueOptions(rows.map((row) => row.account_type)), [rows])
@@ -622,21 +618,10 @@ export default function PortfolioPage() {
 
       return true
     })
-  }, [
-    rows,
-    quickFilter,
-    selectedType,
-    selectedBroker,
-    selectedAccount,
-    selectedBucket,
-    selectedQuality,
-    search,
-  ])
+  }, [rows, quickFilter, selectedType, selectedBroker, selectedAccount, selectedBucket, selectedQuality, search])
 
   const sortedRows = useMemo(() => {
-    return [...filteredRows].sort((a, b) =>
-      compareValues(a[sortKey], b[sortKey], sortDirection)
-    )
+    return [...filteredRows].sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDirection))
   }, [filteredRows, sortKey, sortDirection])
 
   const totals = useMemo(() => {
@@ -646,32 +631,20 @@ export default function PortfolioPage() {
     const pnlPct = cost !== 0 ? (pnl / cost) * 100 : null
 
     const alerts = filteredRows.filter((row) => {
-  const status = String(row.data_quality || '').toUpperCase()
+      const status = String(row.data_quality || '').toUpperCase()
+      return !status || status.includes('ERROR') || status.includes('MISSING')
+    }).length
 
-  return (
-    !status ||
-    status.includes('ERROR') ||
-    status.includes('MISSING')
-  )
-}).length
-
-const oldData = 0
-
+    const oldData = 0
     const maxWeight = Math.max(...filteredRows.map((row) => Number(row.portfolio_weight_pct || 0)), 0)
     const topPosition = filteredRows.find((row) => Number(row.portfolio_weight_pct || 0) === maxWeight)
     const reinforce = filteredRows.filter((row) => getNexialAction(row).label === 'RENFORCER').length
     const reduce = filteredRows.filter((row) => getNexialAction(row).label === 'ALLÉGER').length
     const watch = filteredRows.filter((row) => getNexialAction(row).label === 'SURVEILLER').length
     const executionPositions = filteredRows.filter((row) => {
-  const source = String(row.execution_source || row.price_source || '').toUpperCase()
-
-  return (
-    row.execution_position === true ||
-    source.includes('DCA') ||
-    source.includes('EXECUTION') ||
-    source.includes('AUTO')
-  )
-}).length
+      const source = String(row.execution_source || row.price_source || '').toUpperCase()
+      return row.execution_position === true || source.includes('DCA') || source.includes('EXECUTION') || source.includes('AUTO')
+    }).length
     const qualityRatio = filteredRows.length > 0 ? ((filteredRows.length - alerts - oldData) / filteredRows.length) * 100 : 100
 
     return { value, pnl, pnlPct, alerts, maxWeight, topPosition, oldData, reinforce, reduce, watch, executionPositions, qualityRatio }
@@ -907,19 +880,16 @@ const oldData = 0
               <AccountListBlock key={group.key} group={group} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} onOpen={setSelectedPosition} />
             ))
           ) : (
-            accountGroups.map((group) => (
-              <AccountCardBlock key={group.key} group={group} onOpen={setSelectedPosition} />
-            ))
+            accountGroups.map((group) => <AccountCardBlock key={group.key} group={group} onOpen={setSelectedPosition} />)
           )}
         </section>
       </div>
 
-      {selectedPosition && (
-        <PositionDrawer row={selectedPosition} onClose={() => setSelectedPosition(null)} />
-      )}
+      {selectedPosition && <PositionDrawer row={selectedPosition} onClose={() => setSelectedPosition(null)} />}
     </main>
   )
 }
+
 function StatusPill({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-300 backdrop-blur">
@@ -1156,7 +1126,9 @@ function AccountHeader({ group }: { group: AccountGroup }) {
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">{group.broker}</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">{group.accountName}</span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">{group.positions.length} lignes · {compactEur(group.value)} · {pct(group.pnlPct)}</p>
+          <p className="mt-1 text-sm text-slate-400">
+            {group.positions.length} lignes · {compactEur(group.value)} · {pct(group.pnlPct)}
+          </p>
         </div>
       </div>
 
@@ -1188,10 +1160,18 @@ function AccountListBlock({
       <AccountHeader group={group} />
 
       <div className="hidden border-b border-white/10 bg-black/10 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 xl:grid xl:grid-cols-[1.35fr_0.7fr_0.75fr_0.75fr_0.7fr_0.75fr_0.8fr_0.9fr_0.65fr] xl:items-center xl:gap-3">
-        <button onClick={() => onSort('asset_name')} className="text-left transition hover:text-cyan-300">Actif {sortKey === 'asset_name' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}</button>
-        <button onClick={() => onSort('value_eur')} className="text-right transition hover:text-cyan-300">Valeur {sortKey === 'value_eur' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}</button>
-        <button onClick={() => onSort('pnl_pct')} className="text-right transition hover:text-cyan-300">Perf {sortKey === 'pnl_pct' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}</button>
-        <button onClick={() => onSort('portfolio_weight_pct')} className="text-right transition hover:text-cyan-300">Poids {sortKey === 'portfolio_weight_pct' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}</button>
+        <button onClick={() => onSort('asset_name')} className="text-left transition hover:text-cyan-300">
+          Actif {sortKey === 'asset_name' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+        </button>
+        <button onClick={() => onSort('value_eur')} className="text-right transition hover:text-cyan-300">
+          Valeur {sortKey === 'value_eur' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+        </button>
+        <button onClick={() => onSort('pnl_pct')} className="text-right transition hover:text-cyan-300">
+          Perf {sortKey === 'pnl_pct' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+        </button>
+        <button onClick={() => onSort('portfolio_weight_pct')} className="text-right transition hover:text-cyan-300">
+          Poids {sortKey === 'portfolio_weight_pct' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+        </button>
         <div className="text-right">P&L</div>
         <div className="text-right">PRU</div>
         <div className="text-right">Cours</div>
@@ -1257,11 +1237,8 @@ function AccountCardBlock({ group, onOpen }: { group: AccountGroup; onOpen: (row
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#101827]/95 shadow-[0_24px_90px_rgba(0,0,0,0.25)]">
       <AccountHeader group={group} />
-
       <div className="grid gap-4 p-5 xl:grid-cols-2 2xl:grid-cols-3">
-        {group.positions.map((row) => (
-          <PositionCard key={row.position_id || `${row.account_id}-${row.ticker}`} row={row} onOpen={() => onOpen(row)} />
-        ))}
+        {group.positions.map((row) => <PositionCard key={row.position_id || `${row.account_id}-${row.ticker}`} row={row} onOpen={() => onOpen(row)} />)}
       </div>
     </section>
   )
