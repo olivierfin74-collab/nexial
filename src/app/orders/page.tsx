@@ -549,12 +549,29 @@ export default function OrdersPage() {
   }, [sortedRows])
 
   const activeRows = useMemo(() => {
-    return sortedRows.filter((row) => !isClosed(row))
-  }, [sortedRows])
+  return sortedRows.filter((row) => {
+    const lifecycle = orderLifecycle(row)
 
-  const closedRows = useMemo(() => {
-    return sortedRows.filter(isClosed)
-  }, [sortedRows])
+    return (
+      lifecycle === 'READY' ||
+      lifecycle === 'PLACED' ||
+      lifecycle === 'TOUCHED' ||
+      lifecycle === 'TO_CONFIRM'
+    )
+  })
+}, [sortedRows])
+
+const closedRows = useMemo(() => {
+  return sortedRows.filter((row) => {
+    const lifecycle = orderLifecycle(row)
+
+    return (
+      lifecycle === 'CONFIRMED' ||
+      lifecycle === 'CANCELLED' ||
+      lifecycle === 'REPLACED'
+    )
+  })
+}, [sortedRows])
 
   if (loading) {
     return <LoadingState />
