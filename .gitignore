@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Backups & dumps locaux
+*.zip
+*.tar.gz
+*-audit*
+*-backup*
+
+# Sandbox abandonnée
+/nexial-app/
