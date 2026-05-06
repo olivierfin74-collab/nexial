@@ -8,7 +8,7 @@ type OnboardingGateProps = {
   children: ReactNode
 }
 
-const PUBLIC_PATHS = ['/login', '/signup', '/auth', '/reset-password']
+const PUBLIC_PATHS = ['/login', '/auth']
 const ONBOARDING_PATH = '/onboarding'
 
 function isPublicPath(pathname: string) {

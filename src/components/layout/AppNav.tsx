@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   Activity,
+  Bell,
   BriefcaseBusiness,
   Code2,
   Landmark,
@@ -58,6 +59,7 @@ type UserNotice = {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/aujourdhui', label: "Aujourd'hui", mode: 'DAILY', description: 'Signaux du jour', icon: <Sparkles size={15} /> },
+  { href: '/opportunites', label: 'Opportunités', mode: 'ALERTS', description: 'Alertes actives en attente', icon: <Bell size={15} /> },
   { href: '/', label: 'Dashboard', mode: 'DECISION', description: 'Décision immédiate', icon: <LayoutDashboard size={15} /> },
   { href: '/portfolio', label: 'Portfolio', mode: 'PORTFOLIO', description: 'Capital réel', icon: <BriefcaseBusiness size={15} /> },
   { href: '/watchlist', label: 'Watchlist', mode: 'OPPORTUNITY', description: 'Radar opportunités', icon: <Radar size={15} /> },

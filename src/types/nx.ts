@@ -57,3 +57,61 @@ export interface SignalDashboardParams {
   p_in_portfolio_only?: boolean
   p_min_score?: number | null
 }
+
+// ============================================================================
+// Alerts (RPC fn_get_my_active_alerts)
+// ============================================================================
+
+export type AlertKind =
+  | 'BUY_ZONE_ENTERED'
+  | 'HOT_PULLBACK_ENTERED'
+  | 'WATCH_PULLBACK_ENTERED'
+
+export type AlertStatus =
+  | 'NEW'
+  | 'SEEN'
+  | 'DISMISSED'
+  | 'DONE'
+  | 'EXPIRED'
+
+/** Expected DB values: 'still_relevant' | 'fading' | 'expired_window' (kept permissive for forward compat). */
+export type RelevanceStatus = string
+
+export interface AlertRow {
+  id: string
+  ticker: string
+  alert_kind: AlertKind
+  status: AlertStatus
+
+  // Snapshot AT creation (figé)
+  signal_when_created: SignalClassification | null
+  score_when_created: number | null
+  price_at_creation: number | null
+  drawdown_at_creation: number | null
+  z1_at_creation: number | null
+  z2_at_creation: number | null
+  z3_at_creation: number | null
+
+  // Snapshot NOW (live)
+  signal_now: SignalClassification | null
+  score_now: number | null
+  price_now: number | null
+  drawdown_now_pct: number | null
+
+  // Évolution depuis l'alerte
+  price_change_since_alert_pct: number | null
+  score_change_since_alert: number | null
+  relevance_status: RelevanceStatus | null
+
+  // Métadonnées temporelles
+  age_hours: number | null
+  expires_in_hours: number | null
+
+  // Position utilisateur
+  in_portfolio: boolean
+  held_quantity: number | null
+
+  // Timestamps
+  created_at: string
+  seen_at: string | null
+}

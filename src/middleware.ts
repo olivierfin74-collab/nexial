@@ -32,13 +32,10 @@ export async function middleware(request: NextRequest) {
 
   const isProtected =
     request.nextUrl.pathname.startsWith("/app") ||
-    request.nextUrl.pathname.startsWith("/invest");
+    request.nextUrl.pathname.startsWith("/invest") ||
+    request.nextUrl.pathname.startsWith("/opportunites");
 
-  const isAuthPage =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/signup") ||
-    request.nextUrl.pathname.startsWith("/reset-password") ||
-    request.nextUrl.pathname.startsWith("/update-password");
+  const isAuthPage = request.nextUrl.pathname.startsWith("/login");
 
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
@@ -60,9 +57,7 @@ export const config = {
   matcher: [
     "/app/:path*",
     "/invest/:path*",
+    "/opportunites/:path*",
     "/login",
-    "/signup",
-    "/reset-password",
-    "/update-password",
   ],
 };
