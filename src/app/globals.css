@@ -24,3 +24,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@layer base {
+  :root {
+    /* ADR-10 v2 Light Editorial — color tokens */
+    --canvas: #FBF9F4;
+    --surface: #FFFFFF;
+    --forest-green: #2D5F3F;
+    --forest-green-light: #3D7050;
+    --burgundy: #7A3838;
+    --burgundy-light: #944848;
+    --pour-bg: #E8EFE5;
+    --contre-bg: #F2EBDD;
+    --alert-amber: #FDF4E3;
+    --ink-primary: #1A1A1A;
+    --ink-secondary: #6B6B6B;
+    --ink-muted: #9B9B9B;
+    --border-subtle: rgba(0, 0, 0, 0.06);
+
+    /* Editorial fonts (scoped, namespace distinct des tokens Tailwind) */
+    --font-editorial-serif: var(--font-fraunces);
+    --font-editorial-sans: var(--font-inter);
+    --font-editorial-mono: var(--font-jetbrains-mono);
+  }
+}

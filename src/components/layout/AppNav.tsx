@@ -17,6 +17,7 @@ import {
   RefreshCcw,
   Settings,
   ShieldCheck,
+  Sparkles,
   UserCircle,
   X,
 } from 'lucide-react'
@@ -56,6 +57,7 @@ type UserNotice = {
 } | null
 
 const NAV_ITEMS: NavItem[] = [
+  { href: '/aujourdhui', label: "Aujourd'hui", mode: 'DAILY', description: 'Signaux du jour', icon: <Sparkles size={15} /> },
   { href: '/', label: 'Dashboard', mode: 'DECISION', description: 'Décision immédiate', icon: <LayoutDashboard size={15} /> },
   { href: '/portfolio', label: 'Portfolio', mode: 'PORTFOLIO', description: 'Capital réel', icon: <BriefcaseBusiness size={15} /> },
   { href: '/watchlist', label: 'Watchlist', mode: 'OPPORTUNITY', description: 'Radar opportunités', icon: <Radar size={15} /> },
