@@ -43,7 +43,7 @@ next-env.d.ts
 # Backups & dumps locaux
 *.zip
 *.tar.gz
-*-audit*
+nexial-audit*
 *-backup*
 
 # Sandbox abandonnée
