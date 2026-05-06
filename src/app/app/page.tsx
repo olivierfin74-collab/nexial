@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import LogoutButton from "./logout-button";
 
 export default async function AppPage() {
   const supabase = await createClient();
@@ -96,24 +95,18 @@ export default async function AppPage() {
         </header>
 
         <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Navigation
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold text-slate-950">
-                Modules Nexial
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                Chaque module doit répondre à une question concrète :
-                où est le capital, quel est le risque, quoi renforcer, quoi
-                attendre, quoi exécuter.
-              </p>
-            </div>
-
-            <div className="shrink-0">
-              <LogoutButton />
-            </div>
+          <div>
+            <p className="text-sm font-medium text-slate-500">
+              Navigation
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">
+              Modules Nexial
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+              Chaque module doit répondre à une question concrète :
+              où est le capital, quel est le risque, quoi renforcer, quoi
+              attendre, quoi exécuter.
+            </p>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

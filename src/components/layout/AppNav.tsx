@@ -1,13 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useUser } from '@/hooks/useUser'
+import type { UserRole as NxUserRole, UserProfile } from '@/types/nx'
 import {
   Activity,
   Bell,
   BriefcaseBusiness,
+  ChevronDown,
   Code2,
   Landmark,
   LayoutDashboard,
@@ -131,6 +134,14 @@ function roleClass(role?: UserRole) {
   return 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
 }
 
+// ADR-10 v2 light pills on dark nav background — premium contrast for nx.user_role enum.
+function nxRoleClass(role: NxUserRole | undefined): string {
+  if (role === 'admin') return 'border-[var(--forest-green-light)] bg-[var(--pour-bg)] text-[var(--forest-green)]'
+  if (role === 'beta') return 'border-[#C68F1A] bg-[var(--alert-amber)] text-[#8B6914]'
+  if (role === 'paid') return 'border-[var(--burgundy-light)] bg-[var(--contre-bg)] text-[var(--burgundy)]'
+  return 'border-slate-400/30 bg-slate-400/10 text-slate-200'
+}
+
 function formatDate(value?: string | null) {
   if (!value) return '—'
   const date = new Date(value)
@@ -151,6 +162,9 @@ export default function AppNav({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), [])
   const currentItem = getCurrentItem(pathname)
 
+  // nx profile (display_name + role) takes priority over legacy userInfo when available.
+  const { profile } = useUser()
+
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [onboardingInfo, setOnboardingInfo] = useState<OnboardingInfo>(null)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -158,6 +172,8 @@ export default function AppNav({ children }: { children: ReactNode }) {
   const [signingOut, setSigningOut] = useState(false)
   const [resettingOnboarding, setResettingOnboarding] = useState(false)
   const [notice, setNotice] = useState<UserNotice>(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement | null>(null)
 
   async function loadUser() {
     setLoadingUser(true)
@@ -201,6 +217,25 @@ export default function AppNav({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadUser()
   }, [pathname])
+
+  // Close avatar dropdown on outside click or Escape.
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [dropdownOpen])
 
   async function signOut() {
     setSigningOut(true)
@@ -284,23 +319,27 @@ export default function AppNav({ children }: { children: ReactNode }) {
             })}
           </nav>
 
-          <div className="hidden min-w-[305px] items-center justify-end gap-3 md:flex">
+          <div ref={dropdownRef} className="relative hidden shrink-0 md:block">
             <button
               type="button"
-              onClick={() => setPreferencesOpen(true)}
-              className="group flex max-w-[230px] items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left transition hover:border-cyan-300/30 hover:bg-white/[0.07]"
+              onClick={() => setDropdownOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={dropdownOpen}
+              className="group flex max-w-[260px] items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left transition hover:border-cyan-300/30 hover:bg-white/[0.07]"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
                 <UserCircle size={18} />
               </div>
-
               <div className="min-w-0">
                 <p className="truncate text-xs font-semibold text-white">
-                  {loadingUser ? 'Chargement...' : userInfo?.pseudo || 'Non connecté'}
+                  {profile?.display_name ?? (loadingUser ? 'Chargement...' : userInfo?.pseudo || 'Non connecté')}
                 </p>
-
                 <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-slate-500">
-                  {userInfo ? (
+                  {profile ? (
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${nxRoleClass(profile.role)}`}>
+                      {profile.role.toUpperCase()}
+                    </span>
+                  ) : userInfo ? (
                     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${roleClass(userInfo.role)}`}>
                       {userInfo.roleLabel}
                     </span>
@@ -309,26 +348,59 @@ export default function AppNav({ children }: { children: ReactNode }) {
                   )}
                 </p>
               </div>
+              <ChevronDown
+                size={14}
+                className={`shrink-0 text-slate-400 transition-transform duration-150 ${dropdownOpen ? 'rotate-180' : ''}`}
+              />
             </button>
 
-            <button
-              type="button"
-              onClick={() => setPreferencesOpen(true)}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:border-cyan-300/30 hover:bg-white/[0.08] hover:text-white"
-              title="Préférences"
-            >
-              <Settings size={17} />
-            </button>
-
-            <button
-              type="button"
-              onClick={signOut}
-              disabled={signingOut || !userInfo}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-300/20 bg-red-400/10 text-red-100 transition hover:bg-red-400/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Déconnexion"
-            >
-              <LogOut size={17} />
-            </button>
+            {dropdownOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-[60] mt-2 w-56 overflow-hidden"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 8,
+                  padding: 8,
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)',
+                }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setPreferencesOpen(true)
+                    setDropdownOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-[var(--canvas)]"
+                  style={{
+                    color: 'var(--ink-primary)',
+                    fontFamily: 'var(--font-editorial-sans)',
+                  }}
+                >
+                  <Settings size={14} style={{ color: 'var(--ink-muted)' }} />
+                  Préférences
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setDropdownOpen(false)
+                    void signOut()
+                  }}
+                  disabled={signingOut}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-[var(--contre-bg)] hover:text-[var(--burgundy)] disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{
+                    color: 'var(--ink-primary)',
+                    fontFamily: 'var(--font-editorial-sans)',
+                  }}
+                >
+                  <LogOut size={14} />
+                  {signingOut ? 'Déconnexion…' : 'Déconnexion'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -361,20 +433,22 @@ export default function AppNav({ children }: { children: ReactNode }) {
           <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.035] p-3">
             <button type="button" onClick={() => setPreferencesOpen(true)} className="min-w-0 text-left">
               <p className="truncate text-sm font-semibold text-white">
-                {userInfo?.pseudo || 'Non connecté'}
+                {profile?.display_name ?? userInfo?.pseudo ?? 'Non connecté'}
               </p>
               <p className="text-xs text-slate-500">
-                {currentItem.mode} · {userInfo?.roleLabel || 'SESSION INACTIVE'}
+                {currentItem.mode} · {profile ? profile.role.toUpperCase() : userInfo?.roleLabel || 'SESSION INACTIVE'}
               </p>
             </button>
 
             <button
               type="button"
               onClick={signOut}
-              disabled={signingOut || !userInfo}
-              className="rounded-xl border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs font-semibold text-red-100 disabled:opacity-40"
+              disabled={signingOut}
+              title="Déconnexion"
+              aria-label="Déconnexion"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-transparent text-[var(--ink-secondary)] transition-colors duration-150 hover:bg-[var(--contre-bg)] hover:text-[var(--burgundy)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Déconnexion
+              <LogOut size={14} />
             </button>
           </div>
         </div>
@@ -385,6 +459,7 @@ export default function AppNav({ children }: { children: ReactNode }) {
       {preferencesOpen && (
         <UserPreferencesModal
           userInfo={userInfo}
+          profile={profile}
           onboardingInfo={onboardingInfo}
           currentMode={currentItem.mode}
           currentDescription={currentItem.description}
@@ -403,6 +478,7 @@ export default function AppNav({ children }: { children: ReactNode }) {
 
 function UserPreferencesModal({
   userInfo,
+  profile,
   onboardingInfo,
   currentMode,
   currentDescription,
@@ -415,6 +491,7 @@ function UserPreferencesModal({
   signingOut,
 }: {
   userInfo: UserInfo | null
+  profile: UserProfile | null
   onboardingInfo: OnboardingInfo
   currentMode: string
   currentDescription: string
@@ -435,7 +512,7 @@ function UserPreferencesModal({
               Préférences utilisateur
             </p>
             <h2 className="mt-3 text-3xl font-semibold">
-              {loadingUser ? 'Chargement...' : userInfo?.pseudo || 'Session inactive'}
+              {profile?.display_name ?? profile?.username ?? (loadingUser ? 'Chargement...' : userInfo?.pseudo || 'Session inactive')}
             </h2>
             <p className="mt-2 text-sm text-slate-400">
               Profil, statut, onboarding et métadonnées pour sécuriser les tests.
@@ -464,10 +541,10 @@ function UserPreferencesModal({
         )}
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <PreferenceCard label="Pseudo" value={userInfo?.pseudo || '—'} />
-          <PreferenceCard label="Rôle" value={userInfo?.roleLabel || '—'} tone={userInfo ? 'positive' : 'neutral'} />
-          <PreferenceCard label="Email" value={userInfo?.email || '—'} />
-          <PreferenceCard label="User ID" value={shortId(userInfo?.id)} />
+          <PreferenceCard label="Pseudo" value={profile?.username || profile?.display_name || userInfo?.pseudo || 'Anonyme'} />
+          <PreferenceCard label="Rôle" value={profile ? profile.role.toUpperCase() : userInfo?.roleLabel || '—'} tone={profile || userInfo ? 'positive' : 'neutral'} />
+          <PreferenceCard label="Email" value={profile?.email || userInfo?.email || '—'} />
+          <PreferenceCard label="User ID" value={shortId(profile?.id || userInfo?.id)} />
           <PreferenceCard label="Mode actuel" value={currentMode} />
           <PreferenceCard label="Page actuelle" value={currentDescription} />
         </div>

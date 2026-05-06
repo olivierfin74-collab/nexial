@@ -77,6 +77,21 @@ export type AlertStatus =
 /** Expected DB values: 'still_relevant' | 'fading' | 'expired_window' (kept permissive for forward compat). */
 export type RelevanceStatus = string
 
+// ============================================================================
+// User profile (RPC public.fn_get_my_profile, table public.profiles)
+// ============================================================================
+
+export type UserRole = 'admin' | 'beta' | 'paid' | 'free'
+
+export interface UserProfile {
+  id: string
+  email: string
+  username: string | null
+  display_name: string | null
+  role: UserRole
+  created_at: string
+}
+
 export interface AlertRow {
   id: string
   ticker: string

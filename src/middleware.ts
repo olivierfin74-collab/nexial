@@ -35,7 +35,10 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/invest") ||
     request.nextUrl.pathname.startsWith("/opportunites");
 
-  const isAuthPage = request.nextUrl.pathname.startsWith("/login");
+  const isAuthPage =
+    request.nextUrl.pathname.startsWith("/login") ||
+    request.nextUrl.pathname.startsWith("/reset-password") ||
+    request.nextUrl.pathname.startsWith("/update-password");
 
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
@@ -59,5 +62,7 @@ export const config = {
     "/invest/:path*",
     "/opportunites/:path*",
     "/login",
+    "/reset-password",
+    "/update-password",
   ],
 };
