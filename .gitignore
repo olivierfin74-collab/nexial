@@ -48,3 +48,6 @@ nexial-audit*
 
 # Sandbox abandonnée
 /nexial-app/
+
+# Claude Code local settings (user-specific permissions cache)
+.claude/
