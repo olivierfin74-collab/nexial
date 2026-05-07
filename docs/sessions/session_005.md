@@ -2,37 +2,44 @@
 
 **Date** : 2026-05-06
 **Status** : completed
-**Duration** : 660 minutes
+**Duration** : 690 minutes
 
 ---
 
 ## 📝 Résumé
 
-Session 005 — Marathon strategique ~9h. 3 livrables majeurs :
+Session 005 — Marathon stratégique 12h+. 3 livrables techniques majeurs + 3 ADRs structurants :
 
-1. PHASE A v2 EN PROD (commit ~minuit) :
-   - Bascule Magic Link → email+password classique (suite ADR-13 Session 004 bug UX cross-browser)
-   - Systeme profile applicatif avec username + display_name + role admin/beta/paid/free
-   - Migration DB public.profiles etendue (RLS users_read_own + admins_read_all)
-   - RPC fn_get_my_profile() + trigger handle_new_user signup
+1. PHASE A v2 EN PROD (commit 2287ee7 puis amendement avec dropdown signOut + cleanup) :
+   - Bascule Magic Link → email+password classique
+   - Système profile applicatif avec username + role admin/beta/paid/free
+   - Migration DB public.profiles + RLS + RPC fn_get_my_profile + trigger handle_new_user
    - Hook useUser enrichi (profile, isAdmin)
-   - UI dropdown menu signOut dans AppNav (avec Preferences point d'entree)
-   - Composant Preferences utilisateur migre vers fn_get_my_profile
-   - Cleanup doublon : suppression src/app/app/logout-button.tsx legacy
-   - Hash commit prod : a verifier dans terminal Olivier
+   - UI dropdown menu signOut dans AppNav
+   - Composant Preferences migre vers fn_get_my_profile
+   - Cleanup doublon : suppression bouton legacy /app
+   - 10 fichiers, +819/-239 lignes
 
 2. PIVOT STRATEGIQUE MAJEUR (ADR-14) :
-   - Abandon vision commerciale (50-200 utilisateurs payants 19-49 euros/mois)
-   - Focus : Nexial = outil PERSONNEL ultra-performant pour piloter MES investissements
-   - Architecture 5 piliers preservee (DCA + CTO + PEA + Alert + Consolidation)
-   - Roadmap 6 sessions avant 1er juin 2026 (reprise job)
-   - Option commercialiser future preservee mais non prioritaire
+   - Abandon vision commerciale → outil PERSONNEL ultra-performant
+   - Architecture 5 piliers preservee
+   - Roadmap 6 sessions avant 1er juin 2026
+   - Option commercialisation future preservee mais non prioritaire
 
 3. PLAN MIGRATION COUTS API (ADR-15) :
-   - Audit revele cron toutes 5 min coupe → ~16k API calls/mois
-   - Plan migration Twelve Data Pro $79/mois → Yahoo Finance gratuit (yfinance + screener)
-   - Timeline alignee fin abonnement (mai 2026) → 1er juin 2026 = 100% gratuit
+   - Audit revele cron 5min coupable ($79/mois Twelve Data Pro)
+   - Plan migration Yahoo Finance gratuit
+   - Timeline alignee fin abonnement (mai 2026) → 1er juin = 100% gratuit
    - Economie ~$1000/an + capacite ajoutee (detection baisse brutale)
+
+4. ARCHITECTURE CIBLE COMPLETE (ADR-16, le plus important) :
+   - 4 comptes brokers (PEA Boursorama, CTO TR, CTO IBKR principal, IBKR Sub-account)
+   - CTO Boursorama A FERMER
+   - 4 watchlists (PEA Long, CTO Long partagée TR/IBKR, TRADE exclusive Sub-account, DCA)
+   - Nav 5 zones (Pilotage, Action, Surveillance, Intelligence, Admin caché)
+   - Trade Plan unifie via Bracket Orders IBKR (1 validation = 0 friction après)
+   - Sub-account IBKR = laboratoire informant compte principal
+   - Roadmap raffinée 9 sessions (Sessions 006-014+)
 
 ---
 
@@ -40,20 +47,12 @@ Session 005 — Marathon strategique ~9h. 3 livrables majeurs :
 
 | Item | Détail |
 |---|---|
-|  | public.profiles + username UNIQUE, display_name, role nx.user_role default free. RLS 3 policies. Profile Olivier admin. Trigger handle_new_user. RPC fn_get_my_profile(). |
-|  | src/app/login/page.tsx — 2 inputs email+password + signInWithPassword + lien "Mot de passe oublie ?" → /reset-password. Design ADR-10 v2 strict. |
-|  | src/app/reset-password/page.tsx CREEE — input email + resetPasswordForEmail avec redirectTo /update-password. |
-|  | src/app/update-password/page.tsx CREEE — 2 inputs nouveau password + confirm, validation min 8 chars + identiques, updateUser({ password }). |
-|  | src/hooks/useUser.ts — fetch profile via fn_get_my_profile au mount + onAuthStateChange. Return { user, profile, loading, signOut, isAdmin }. |
-|  | src/types/nx.ts — UserRole enum + UserProfile interface. |
-|  | src/components/layout/AppNav.tsx — clic avatar → dropdown menu Preferences + Deconnexion. Click outside ferme. Indicateur fleche bas. |
-|  | Affichage PSEUDO/ROLE/EMAIL/USER ID lit desormais depuis profile. Plus de finet.o legacy. |
-|  | src/app/app/logout-button.tsx SUPPRIME. Bouton "Se deconnecter" legacy retire de page /app. Source unique = dropdown header. |
-|  | src/middleware.ts isAuthPage inclut /reset-password + /update-password. PUBLIC_PATHS = [/login, /reset-password, /update-password, /auth]. |
-|  | 10 fichiers (+819/-239), 1 supprime, 2 crees, 7 modifies. Push GitHub OK. Vercel auto-deploy. 4 routes prod HTTP 200/307. |
-|  | ID 019e0170-0f2a-7a20-9cc9-b2b72aa4a4c5 — Nexial = outil PERSONNEL, abandon vision commerciale, roadmap 6 sessions avant 1er juin. |
-|  | ID 019e0170-f16d-78f4-ae51-0da92073a90e — Twelve Data Pro $79/mois → Yahoo Finance gratuit. Timeline mai-juin 2026. |
-|  | Memoire #1 simplifiee (Olivier industriel horloger reprend job 1er juin). Memoire #23 pivot strategique perso. |
+|  | Commit Phase A v2 en prod : bascule email+password + profile + dropdown + cleanup. Hash commit ~Thu May 7 00:14:00 2026. |
+|  | public.profiles étendue (username, display_name, role nx.user_role) + RLS 3 policies + RPC fn_get_my_profile + trigger handle_new_user. |
+|  | ID 019e0170-0f2a-7a20-9cc9-b2b72aa4a4c5 — Nexial = outil PERSONNEL. |
+|  | ID 019e0170-f16d-78f4-ae51-0da92073a90e — Twelve Data → Yahoo gratuit. |
+|  | ID 019e018c-2fb0-73ed-9b9c-137f68fe4b93 — 4 comptes + 4 watchlists + nav 5 zones + Trade Plan unifié. |
+|  | #1 contexte Olivier simplifié, #2 architecture brokers, #3 architecture nav, #16 4 validation levels, #23 pivot perso. |
 
 ---
 
@@ -61,79 +60,40 @@ Session 005 — Marathon strategique ~9h. 3 livrables majeurs :
 
 ```json
 {
-  "db": {
-    "rpcs_list": [
-      "fn_get_signal_dashboard (anon+auth)",
-      "fn_get_my_active_alerts (auth RLS)",
-      "fn_get_my_profile (auth)"
-    ],
-    "views_total": 250,
-    "tables_total": 117,
-    "rpcs_consumed_by_frontend": 3
-  },
   "auth": {
-    "provider": "email_password",
-    "role_enum": "nx.user_role (admin/beta/paid/free)",
     "olivier_role": "admin",
-    "profile_table": "public.profiles",
-    "trigger_signup": "handle_new_user active",
-    "rpc_get_profile": "public.fn_get_my_profile()",
+    "profile_system": "fn_get_my_profile + trigger active",
     "olivier_username": "olivier"
   },
-  "repo": {
-    "branch": "main",
-    "working_tree": "clean",
-    "phase_a_v2_pushed": true,
-    "commits_session_005": 1
+  "roadmap": {
+    "next_session": "Session 006 CLEAN",
+    "job_resume_date": "2026-06-01",
+    "sessions_before_june": 9
   },
   "cost_api": {
-    "cancel_target": "fin mai 2026",
     "main_provider": "Twelve Data Pro $79",
-    "migration_plan": "ADR-15",
-    "target_monthly": "$0",
-    "current_monthly": "$89"
+    "current_monthly": "$89",
+    "target_june_2026": "$0",
+    "migration_plan_adr": "019e0170-f16d-78f4-ae51-0da92073a90e"
   },
   "frontend": {
     "url_prod": "https://nexial-chi.vercel.app",
-    "auth_method": "email_password",
-    "profile_system": "active",
-    "pages_live_prod": [
-      "aujourdhui",
-      "login",
-      "opportunites",
-      "app",
-      "reset-password",
-      "update-password"
-    ]
-  },
-  "strategy": {
-    "mode": "personal_tool",
-    "adr_14_pivot": "019e0170-0f2a-7a20-9cc9-b2b72aa4a4c5",
-    "job_resume_date": "2026-06-01",
-    "adr_15_cost_migration": "019e0170-f16d-78f4-ae51-0da92073a90e",
-    "commercial_optional_future": true,
-    "roadmap_sessions_before_june_1st": 6
+    "auth_method": "email_password_complete",
+    "pages_live_prod": 6
   },
   "cron_jobs": {
-    "fx_refresh": {
-      "status": "OK",
-      "schedule": "0 19 * * *"
-    },
-    "alerts_pipeline_daily": {
-      "status": "OK",
-      "schedule": "0 19 * * 1-5"
-    },
-    "sync_session_to_github": {
-      "status": "OK",
-      "schedule": "on-demand"
-    },
-    "update_market_data_5min": {
-      "status": "ACTIVE_TO_BE_CHANGED",
-      "schedule": "*/5 * * * *",
-      "cost_impact": "~16k API calls/mois Twelve Data Pro"
-    }
+    "cost_impact": "~$50/mois economisable immediatement",
+    "update_market_data_5min": "TO_BE_RESCHEDULED_SESSION_006"
   },
-  "adrs_total": 15,
+  "adrs_total": 16,
+  "architecture": {
+    "nav_zones": 5,
+    "brokers_count": 4,
+    "watchlists_count": 4,
+    "adr_14_pivot_perso": "019e0170-0f2a-7a20-9cc9-b2b72aa4a4c5",
+    "adr_15_cost_migration": "019e0170-f16d-78f4-ae51-0da92073a90e",
+    "adr_16_target_architecture": "019e018c-2fb0-73ed-9b9c-137f68fe4b93"
+  },
   "tech_debt_open": 11
 }
 ```
@@ -145,7 +105,6 @@ Session 005 — Marathon strategique ~9h. 3 livrables majeurs :
 1. **** → fix : 
 2. **** → fix : 
 3. **** → fix : 
-4. **** → fix : 
 
 ---
 
@@ -160,72 +119,87 @@ Session 005 — Marathon strategique ~9h. 3 livrables majeurs :
 ## 📋 Pending Items pour la session suivante
 
 - [P0 immediate] 
-- [P1 urgent (semaine 12 mai)] 
+- [P0 cette semaine] 
 - [P1] 
-- [P1 (semaine 19 mai)] 
+- [P0 immediate] 
+- [P1] 
+- [P1] 
 - [P2] 
 - [P2] 
-- [P2 (avant 1er juin)] 
-- [P0 fin mai] 
-- [P3 (Session 007)] 
+- [P2] 
+- [P2] 
 - [P3] 
-- [P3 Session 009] 
+- [P3 (Sessions 014+)] 
+- [P3] 
 
 ---
 
 ## 🚀 Brief pour la session suivante
 
 
-# Session 006 — Brief propose
+# Session 006 — CLEAN (1.5h)
 
-## Cap strategique
+## Cap stratégique
 
-Apres pivot Session 005 (Nexial = outil personnel), Session 006 ouvre la phase d'execution operationnelle pour preparer l'autonomie complete avant 1er juin 2026.
+Avant tout implémentation des nouvelles fonctionnalités (Telegram, Yahoo scout, Trade Plans), le système doit être PROPRE. Session 006 = CLEAN pur, pas de feature.
 
-## Priorite ABSOLUE — Capter les opportunites type AMD +16%
+## Pré-requis lecture
 
-Olivier a constate Session 005 qu'il loupe des opportunites faute de surveillance. Telegram alert reactivation = priorite #1 absolue. Sans ca, Nexial echoue dans son use case principal.
+Au démarrage Session 006 :
+- Lire ADR-14 (pivot perso), ADR-15 (migration coûts), ADR-16 (architecture cible)
+- Verifier que Vercel prod /aujourdhui répond OK
+- Olivier confirme date renouvellement Twelve Data + reminder iPhone créé
 
-## Etape 1 — Verification context (5 min au demarrage)
+## Etape 1 — Audit dépendances (15 min)
 
-- Lire ADR-14 et ADR-15 (graves Session 005)
-- Verifier que Vercel prod repond toujours OK
-- Olivier verifie date renouvellement Twelve Data dashboard + cree reminder iPhone
+Identifier objets safe-to-drop :
+- Lister 23 tables flagged _deprecated_*
+- Audit downstream dependencies (zéro vue/fonction/route consomme)
+- Confirmer absence d'utilisation dans frontend Next.js
+- Lister Edge Functions inactives
 
-## Etape 2 — Telegram alerts reactivation (45 min)
+## Etape 2 — Reschedule cron coûteux (5 min)
 
-L'Edge Function send-watchlist-alert existe (Session 001). A reactiver :
-- Verifier secret TELEGRAM_BOT_TOKEN + chat_id Olivier dans Edge Function env
-- Verifier trigger sur insert nx.investment_alerts (ou creer si manquant)
-- Format message : ticker + signal + zone + drawdown + lien direct app
-- Test : insert manuel 1 alerte → reception Telegram iPhone validee
+ACTION CRITIQUE pour économies immédiates :
 
-## Etape 3 — POC Yahoo scout day_losers (45 min)
+```sql
+SELECT cron.unschedule('update-market-data-every-5min');
+SELECT cron.schedule(
+  'update-market-data-eod',
+  '0 21 * * 1-5',
+  $$ SELECT nx.fn_invoke_update_market_data('pg_cron'); $$
+);
+```
 
-Premier POC migration coute api :
-- Creer Edge Function yahoo-scout-losers (Deno + fetch Yahoo screener API)
-- Endpoint : query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_losers
-- Filtres Nexial : drawdown < -X%, market cap > 5B$, secteurs tech/healthcare/finance
-- Action : si match nouveau ticker hors watchlist → alerte "OPPORTUNITY DETECTED"
-- Test sur 1 cycle, validation manuelle resultats
+Économie immédiate : ~$50/mois sur Twelve Data Pro (passage sous quota Pro).
 
-## Etape 4 — Test E2E + commit (15 min)
+## Etape 3 — DROP des tables sûres (30 min)
 
-- Trigger manuel Telegram alert → reception iPhone
-- Trigger manuel yahoo-scout-losers → resultats Postgres + Telegram
-- Si tout OK : commit "feat(alerts+scout): Telegram reactivation + Yahoo scout day_losers POC"
+Migration `cleanup_session_006_deprecated_tables` :
+- DROP des 23 tables _deprecated_* validées
+- Préserver l'ENUM nx.user_role (déjà utilisé)
+- Préserver toutes les tables core nx.*
 
-## Phase optionnelle si energie
+## Etape 4 — Cleanup env vars Vercel (10 min)
 
-### Modal Valider Ordre proto (1h)
-Si energie restante : commencer la Modal complete avec sizing + slider allocation. Sinon Session 007.
+- Identifier doublons SUPABASE_URL vs NEXT_PUBLIC_SUPABASE_URL
+- Identifier doublons SUPABASE_ANON_KEY vs NEXT_PUBLIC_SUPABASE_ANON_KEY
+- Cleanup côté dashboard Vercel
 
-## Pre-requis avant demarrage
+## Etape 5 — Commit + push (10 min)
 
-- Vercel prod OK (curl https://nexial-chi.vercel.app/aujourdhui)
-- Twelve Data dashboard accessible (date renouvellement)
-- iPhone Olivier disponible pour test Telegram
-- Lire ADR-14 et ADR-15 (Cap strategique + plan migration couts)
+- Pas de modif frontend (juste DB + cron)
+- Commit message : "chore(cleanup): session 006 — drop deprecated tables + reschedule cron EOD"
+
+## Etape 6 — Validation (10 min)
+
+- Vercel prod toujours HTTP 200 (smoke test 4 routes)
+- /aujourdhui charge toujours 18 SignalCards
+- /opportunites charge toujours 22 alertes
+
+## Sortie Session 006
+
+Système propre + économie $50/mois activée + base saine pour Session 007 MEASURE.
 
 
 ---
