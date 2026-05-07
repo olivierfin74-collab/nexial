@@ -6,10 +6,47 @@
 }
 
 @theme inline {
+  /* Geist legacy — préservés pour compat */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Palette ADR-10 v2 — exposée comme utilities Tailwind v4 (Session 009) */
+  --color-canvas: var(--canvas);
+  --color-bg-surface: var(--surface);
+  --color-bg-pour: var(--pour-bg);
+  --color-bg-contre: var(--contre-bg);
+  --color-bg-alert: var(--alert-amber);
+
+  --color-ink-primary: var(--ink-primary);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-tertiary: var(--ink-tertiary);
+  --color-ink-quaternary: var(--ink-quaternary);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-forest-green: var(--forest-green);
+  --color-forest-green-light: var(--forest-green-light);
+  --color-forest-green-pale: var(--forest-green-pale);
+  --color-forest-deep: var(--forest-deep);
+
+  --color-burgundy: var(--burgundy);
+  --color-burgundy-light: var(--burgundy-light);
+  --color-amber: var(--amber);
+  --color-gold: var(--gold);
+  --color-msci-gray: var(--msci-gray);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-hair: var(--border-hair);
+
+  /* Fonts ADR-10 v2 */
+  --font-display: var(--font-editorial-serif);
+  --font-editorial-sans: var(--font-editorial-sans);
+  --font-editorial-mono: var(--font-editorial-mono);
+
+  /* Letter spacings */
+  --tracking-display: -0.02em;
+  --tracking-eyebrow: 0.12em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,5 +83,15 @@ body {
     --font-editorial-serif: var(--font-fraunces);
     --font-editorial-sans: var(--font-inter);
     --font-editorial-mono: var(--font-jetbrains-mono);
+
+    /* ADR-10 v2 — tokens additionnels Session 009 */
+    --ink-tertiary: #8B8B8B;
+    --ink-quaternary: #B8B0A0;
+    --forest-deep: #1F4530;
+    --forest-green-pale: #A8C4B0;
+    --amber: #B8860B;
+    --gold: #A0843D;
+    --border-hair: #D9D2C2;
+    --msci-gray: #9B9B9B;
   }
 }
