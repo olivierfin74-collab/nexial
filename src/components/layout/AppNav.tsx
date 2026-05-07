@@ -204,13 +204,17 @@ export default function AppNav({ children }: { children: ReactNode }) {
       appMetadata,
     })
 
-    const { data } = await supabase
-      .from('user_onboarding_state_v1')
-      .select('onboarding_status, investment_mode, monthly_amount, account_scope, completed_at')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    setOnboardingInfo((data as OnboardingInfo) || null)
+    // Table public.user_onboarding_state_v1 absente en DB → fetch désactivé
+    // pour éviter un 404 réseau au mount sur toutes les pages. Le modal
+    // préférences gère déjà le cas null via fallback "non initialisé" / "—".
+    // const { data } = await supabase
+    //   .from('user_onboarding_state_v1')
+    //   .select('onboarding_status, investment_mode, monthly_amount, account_scope, completed_at')
+    //   .eq('user_id', user.id)
+    //   .maybeSingle()
+    //
+    // setOnboardingInfo((data as OnboardingInfo) || null)
+    setOnboardingInfo(null)
     setLoadingUser(false)
   }
 
