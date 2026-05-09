@@ -5,6 +5,7 @@ import {
   Award, LayoutGrid, List, Filter, Clock, CheckCircle2, XCircle,
   TrendingUp, TrendingDown, AlertCircle, Search,
 } from "lucide-react";
+import { useProposalActions } from "@/lib/hooks/useProposalActions";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -125,10 +126,13 @@ const ASSET_DETAIL = {
   momentumScore: 18, volumeScore: 50, structureScore: 42, fundamentalScore: 78,
   paliers: [
     { rank: 1, role: "Probabiliste", price: 446.21, dist: -1.56, size: 40,
+      proposal_id: null,
       desc: "Première entrée probable, exécution sans agressivité" },
     { rank: 2, role: "Opportuniste", price: 432.09, dist: -4.67, size: 35,
+      proposal_id: null,
       desc: "Vraie zone asymétrique sur capitulation modérée" },
     { rank: 3, role: "Panic flush", price: 410.92, dist: -9.34, size: 25,
+      proposal_id: null,
       desc: "Excès rare marché, faible probabilité mais forte asymétrie" },
   ],
   thesis: "Compounder qualité ultra-premium en repli. Chirurgie robotique structurellement en croissance. Repli de -25% depuis le sommet 52s offre une fenêtre d'accumulation graduée.",
@@ -1404,34 +1408,48 @@ const TechIndicators = ({ asset }) => {
   );
 };
 
-const DetailActions = () => (
-  <section style={{ margin: "28px 20px 32px" }}>
-    <button style={{
-      width: "100%", padding: "16px", backgroundColor: T.inkPrimary,
-      color: T.inkOnDark, border: "none", borderRadius: 12,
-      fontFamily: FONT_SANS, fontSize: 14, fontWeight: 600,
-      letterSpacing: "0.01em", cursor: "pointer",
-      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-    }}>
-      Valider les 3 ordres
-      <ArrowUpRight size={15} strokeWidth={2.2} />
-    </button>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-      <button style={{
-        padding: "14px", backgroundColor: T.bgSurface, color: T.inkPrimary,
-        border: `1.5px solid ${T.inkPrimary}`, borderRadius: 10,
-        fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, cursor: "pointer",
-      }}>Modifier</button>
-      <button style={{
-        padding: "14px", backgroundColor: T.bgSurface, color: T.inkPrimary,
-        border: `1.5px solid ${T.inkPrimary}`, borderRadius: 10,
-        fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, cursor: "pointer",
-      }}>Reporter</button>
-    </div>
-  </section>
-);
+const DetailActions = ({ paliers, ticker, currency, onConfirmAll, onModifyClick }) => {
+  const validCount = paliers.filter((p) => p.proposal_id).length;
+  return (
+    <section style={{ margin: "28px 20px 32px" }}>
+      <button
+        onClick={onConfirmAll}
+        data-button-id="MOB-AST-002"
+        style={{
+          width: "100%", padding: "16px", backgroundColor: T.inkPrimary,
+          color: T.inkOnDark, border: "none", borderRadius: 12,
+          fontFamily: FONT_SANS, fontSize: 14, fontWeight: 600,
+          letterSpacing: "0.01em", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}
+      >
+        Valider les {validCount} ordres
+        <ArrowUpRight size={15} strokeWidth={2.2} />
+      </button>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+        <button
+          onClick={onModifyClick}
+          data-button-id="MOB-AST-003"
+          style={{
+            padding: "14px", backgroundColor: T.bgSurface, color: T.inkPrimary,
+            border: `1.5px solid ${T.inkPrimary}`, borderRadius: 10,
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >Modifier</button>
+        <button
+          data-button-id="MOB-AST-004"
+          style={{
+            padding: "14px", backgroundColor: T.bgSurface, color: T.inkPrimary,
+            border: `1.5px solid ${T.inkPrimary}`, borderRadius: 10,
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >Reporter</button>
+      </div>
+    </section>
+  );
+};
 
-const AssetDetailPage = ({ ticker, onBack }) => {
+const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
   const asset = ASSET_DETAIL;
   return (
     <>
@@ -1441,7 +1459,13 @@ const AssetDetailPage = ({ ticker, onBack }) => {
       <PourContre asset={asset} />
       <OrderPlanCard asset={asset} />
       <TechIndicators asset={asset} />
-      <DetailActions />
+      <DetailActions
+        paliers={asset.paliers}
+        ticker={asset.ticker}
+        currency={asset.currency}
+        onConfirmAll={() => onConfirmAll(asset)}
+        onModifyClick={() => onModifyClick(asset)}
+      />
     </>
   );
 };
@@ -1455,6 +1479,56 @@ export default function NexialApp() {
   const showDetail = (ticker) => setDetailTicker(ticker);
   const closeDetail = () => setDetailTicker(null);
 
+  const { openConfirm, openEdit, ProposalActionModals } = useProposalActions({
+    surface: "mobile",
+  });
+
+  const handleConfirmAll = (asset) => {
+    const proposals = asset.paliers
+      .filter((p) => p.proposal_id)
+      .map((p) => ({
+        proposal_id: p.proposal_id,
+        ticker: asset.ticker,
+        proposed_price: p.price,
+        proposed_quantity: 1,
+        proposed_currency: asset.currency,
+        rank: p.rank,
+      }));
+    if (proposals.length === 0) {
+      console.warn("[Nexial] Aucun palier avec proposal_id valide");
+      return;
+    }
+    openConfirm(proposals, {
+      source_button_id: "MOB-AST-002",
+      source_page: "asset_detail",
+    });
+  };
+
+  const handleModifyClick = (asset) => {
+    const firstWithId = asset.paliers.find((p) => p.proposal_id);
+    if (!firstWithId) {
+      console.warn("[Nexial] Aucun palier avec proposal_id valide");
+      return;
+    }
+    openEdit(
+      {
+        proposal_id: firstWithId.proposal_id,
+        ticker: asset.ticker,
+        proposed_price: firstWithId.price,
+        proposed_quantity: 1,
+        proposed_currency: asset.currency,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        user_price: null,
+        user_quantity: null,
+        user_note: null,
+      },
+      {
+        source_button_id: "MOB-AST-003",
+        source_page: "asset_detail",
+      }
+    );
+  };
+
   return (
     <div style={{
       minHeight: "100vh", backgroundColor: T.bgCanvas,
@@ -1467,7 +1541,12 @@ export default function NexialApp() {
       }}>
         <main style={{ flex: 1 }}>
           {detailTicker ? (
-            <AssetDetailPage ticker={detailTicker} onBack={closeDetail} />
+            <AssetDetailPage
+              ticker={detailTicker}
+              onBack={closeDetail}
+              onConfirmAll={handleConfirmAll}
+              onModifyClick={handleModifyClick}
+            />
           ) : currentPage === "dashboard" ? (
             <DashboardPage onAssetClick={showDetail} />
           ) : currentPage === "today" ? (
@@ -1484,6 +1563,7 @@ export default function NexialApp() {
           <BottomNav currentPage={currentPage} onNavigate={setCurrentPage} />
         )}
       </div>
+      <ProposalActionModals />
     </div>
   );
 }
