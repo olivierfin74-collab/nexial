@@ -490,3 +490,75 @@ Objectif : tout le monitoring devient interactif. Seul l'utilisateur Olivier (ga
 ## 7. Journal des mises à jour
 
 - 2026-05-09 — Inventaire initial (Phase A) : 147 éléments classifiés, 36 duplicatas mobile↔desktop, 12 RPC backend à créer.
+- 2026-05-09 — Phase A.5 : décisions sur les 4 anomalies §6 inscrites en §8 (anomaly resolutions). Tickers canonique = nx.assets.ticker (sans suffixe Yahoo) confirmé par lookup DB ; absence des 3 boutons admin Dev confirmée par grep (5 matches tous textuels passifs).
+
+---
+
+## 8. Anomaly resolutions (Phase A.5 — 2026-05-09)
+
+Tranches sur les 4 anomalies bloquantes relevées en §6, validées avec lookups DB et grep JSX.
+
+### 8.1 Tickers divergents OR (mobile) vs OR.PA (desktop) — RÉSOLU
+
+**Vérification DB** (`nx.assets` lookup) :
+
+| ticker | exchange_mic | currency | data_source_symbol_yahoo | name |
+|--------|--------------|----------|--------------------------|------|
+| OR  | XPAR | EUR | OR.PA | L'Oréal |
+| AI  | XPAR | EUR | AI.PA | Air Liquide |
+| ASML | XAMS | EUR | ASML.AS | ASML Holding |
+| ISRG | XNAS | USD | ISRG | Intuitive Surgical |
+| NVDA | XNAS | USD | NVDA | Nvidia |
+
+**Décision** : ticker canonique = `nx.assets.ticker` (sans suffixe Yahoo).
+- Le ticker en base est `OR`, pas `OR.PA`. `OR.PA` est strictement le symbol Yahoo (data source), stocké dans `data_source_symbol_yahoo`.
+- Unicité inter-marché garantie par `(ticker, exchange_mic)` — c'est la clé business.
+- Le pattern ADR-21 résolu utilise déjà `fn_resolve_yahoo_to_asset` pour résoudre dans l'autre sens (Yahoo → asset_id).
+- Le mobile est conforme au modèle DB. Le desktop a un mock incorrect.
+
+**Conséquence Sprint 1** :
+- Tous les payloads RPC manipulent `ticker` (canonique) ou `asset_id` (UUID), jamais le symbol Yahoo.
+- Les RPC résolvent l'asset par `(ticker, exchange_mic)` ou `asset_id`.
+- Si le front envoie `OR.PA` au backend : bug front à corriger, pas une convention à supporter.
+- Fix accompagnant pendant le câblage : remplacer `OR.PA` → `OR` et `AI.PA` → `AI` dans `nexial-desktop-complete.jsx` (mock data inline).
+
+### 8.2 Mock positions ALSTI (mobile) vs NVDA (desktop) — AUCUNE ACTION
+
+Décision : ne rien faire. Disparaît automatiquement au câblage live via `vw_positions` (Sprint 1+). Note d'archive uniquement.
+
+### 8.3 onAccountClick mobile orphelin — DÉPLACÉ EN SPRINT 4
+
+**Décision** : conserver la prop, câbler en Sprint 4 (UI/Affordances).
+- **Action cible** : click sur row compte (`MOB-TAB-006/007/008`) → navigation vers Portefeuille avec filtre `account` pré-sélectionné sur le compte cliqué.
+- Réutilise les filter chips existants (`MOB-PRT-003 → 006`).
+- Pas de nouveau backend nécessaire.
+- Spec UI : passer la prop `onAccountClick` depuis `DashboardPage` à `YourMoney`, handler navigation client-side avec setAccount(account_id) puis setCurrentPage("portfolio").
+
+### 8.4 3 boutons admin absents du JSX desktop — DÉPLACÉ EN SPRINT 3
+
+**Vérification grep** sur `nexial-desktop-complete.jsx` (5 matches sur `audit RLS|cutover|rollback|Lancer audit|Cutover maintenant|Rollback TD`) :
+
+| Ligne | Contenu | Type |
+|-------|---------|------|
+| L316  | data structure timeline event "Cutover EODHD All-In-One..." | passif |
+| L503  | data field mock `cutoverDate: "25 mai 2026"` | passif |
+| L3124 | caption "Snapshot rollback disponible dans nx_backup..." | informatif |
+| L3155 | eyebrow "Cutover prévu" | titre section |
+| L3159 | affichage `{e.cutoverDate}` | passif |
+
+Aucun `<button>`, aucun `onClick` à proximité. Absence des 3 boutons admin confirmée.
+
+**Décision** : ajouter les 3 boutons au JSX pendant le Sprint 3 SYSTEM, avec les IDs déjà spécifiés en §4.7 :
+- `DESK-DEV-034` — bouton "Lancer audit RLS" (section VI Sécurité Supabase)
+- `DESK-DEV-036` — bouton "Cutover maintenant" (section VII Migration EODHD)
+- `DESK-DEV-037` — bouton "Rollback TD Pro" (section VII Migration EODHD)
+
+Specs RPC backend correspondantes déjà listées en §2.1 (`fn_audit_rls`, `fn_eodhd_cutover`, `fn_eodhd_rollback`).
+
+---
+
+## 9. Compteurs après Phase A.5 (inchangés vs §1)
+
+Les décisions ci-dessus n'ajoutent **aucun nouvel élément interactif** au comptage Phase A. Les 3 boutons admin manquants étaient déjà comptés en §1 comme `🟡 MOCK 🛡️ SYSTEM` (DESK-DEV-034/036/037), avec note explicite "bouton actuellement absent du JSX, mais sémantiquement attendu". Ils seront créés au moment du Sprint 3.
+
+Compteurs Phase A toujours valides : **147 total / 41 backend bindings / 30+19+6 par criticité / 36 duplicatas mobile↔desktop**.
