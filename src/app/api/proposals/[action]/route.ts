@@ -15,7 +15,10 @@ const getSupabaseAdmin = () => {
   if (!url || !key) {
     throw new Error("Missing Supabase env vars");
   }
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    db: { schema: "nx" },
+  });
 };
 
 // ═══════════════════════════════════════════════════════════════════
