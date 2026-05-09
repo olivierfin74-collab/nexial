@@ -273,6 +273,13 @@ export default function AppNav({ children }: { children: ReactNode }) {
     router.push('/onboarding')
   }
 
+  // Mobile route bypass : pas de top header AppNav sur /mobile (mobile validé
+  // a sa propre TopNav + BottomNav). Early-return placé après tous les hooks
+  // pour préserver l'ordre des hooks lors des navigations entre /mobile et /.
+  if (pathname?.startsWith('/mobile')) {
+    return <>{children}</>
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden text-white">
       <header className="sticky top-0 z-50 border-b border-white/5 bg-[linear-gradient(180deg,rgba(7,17,31,0.97)_0%,rgba(7,17,31,0.82)_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl">
