@@ -273,10 +273,10 @@ export default function AppNav({ children }: { children: ReactNode }) {
     router.push('/onboarding')
   }
 
-  // Mobile route bypass : pas de top header AppNav sur /mobile (mobile validé
-  // a sa propre TopNav + BottomNav). Early-return placé après tous les hooks
-  // pour préserver l'ordre des hooks lors des navigations entre /mobile et /.
-  if (pathname?.startsWith('/mobile')) {
+  // Mobile + Desktop route bypass : pas de top header AppNav sur /mobile et
+  // /desktop (chaque proto a sa propre TopNav/BottomNav). Early-return placé
+  // après tous les hooks pour préserver l'ordre des hooks lors des navigations.
+  if (pathname?.startsWith('/mobile') || pathname?.startsWith('/desktop')) {
     return <>{children}</>
   }
 
