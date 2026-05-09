@@ -51,3 +51,7 @@ nexial-audit*
 
 # Claude Code local settings (user-specific permissions cache)
 .claude/
+
+# Supabase CLI cache (linked project metadata, version cache)
+supabase/.temp
+supabase/.branches
