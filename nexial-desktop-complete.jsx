@@ -6,17 +6,18 @@ import {
 } from "lucide-react";
 
 /* ============================================================
-   NEXIAL DESKTOP — PROTO COMPLET (5 pages + détail asset)
+   NEXIAL DESKTOP — PROTO COMPLET V2 (5 pages + détail asset + dev/admin)
    Premium institutionnel éditorial · ADR-8 LOCKED v2 · Langage v3 validé
    9 mai 2026 · Olivier
    
    Pages :
     1. Tableau    — vue résumé desktop, KPIs + comptes + movers
-    2. Aujourd'hui — cockpit éditorial long-format (proto v3 validé)
+    2. Aujourd'hui — cockpit éditorial long-format
     3. Ordres     — paper trading, paliers étagés par ticker
     4. Portefeuille — tableau dense / cartes avec sparklines inline
     5. Watchlist  — scanner premium avec scores et états
     + Détail asset — fiche d'analyse 2 colonnes magazine
+    + Dev/Admin   — monitoring opérationnel (caché, lien footer)
    ============================================================ */
 
 /* ---------- Tokens v2 contraste renforcé (alignés mobile validé) ---------- */
@@ -435,6 +436,74 @@ const MOCK = {
       { title: "MSCI World +0.3%", subtitle: "Breadth en contraction", color: "neutral" },
     ]},
   ],
+  // ========================================
+  // DEV/ADMIN — Monitoring opérationnel (mock)
+  // ========================================
+  dev: {
+    pipeline: {
+      engine: "V3.7",
+      regime: "BULL_LIGHT × 0.85",
+      lastDailyRun: "9 mai · 22:30 UTC",
+      nextRun: "10 mai · 22:30 UTC",
+      status: "OK",
+    },
+    crons: [
+      { name: "pipeline_daily_v37", schedule: "0 22 * * *", lastRun: "9 mai 22:30", status: "OK", durationMs: 4820 },
+      { name: "fx_rates_eod", schedule: "0 21 * * *", lastRun: "9 mai 21:01", status: "OK", durationMs: 1240 },
+      { name: "telegram_dispatch", schedule: "*/15 * * * *", lastRun: "9 mai 23:30", status: "OK", durationMs: 380 },
+      { name: "alert_outcomes_j1", schedule: "0 23 * * *", lastRun: "9 mai 23:01", status: "OK", durationMs: 920 },
+      { name: "alert_outcomes_j5", schedule: "0 23 * * *", lastRun: "9 mai 23:02", status: "OK", durationMs: 1180 },
+      { name: "yahoo_scout_flash", schedule: "*/5 * * * *", lastRun: "9 mai 23:35", status: "OK", durationMs: 220 },
+      { name: "engine_metrics_daily", schedule: "30 23 * * *", lastRun: "9 mai 23:30", status: "OK", durationMs: 640 },
+      { name: "session_snapshot_auto", schedule: "0 4 * * *", lastRun: "9 mai 04:00", status: "OK", durationMs: 8200 },
+      { name: "broker_sync_pea", schedule: "0 19 * * 1-5", lastRun: "8 mai 19:00", status: "OK", durationMs: 1820 },
+      { name: "broker_sync_ibkr", schedule: "*/30 * * * *", lastRun: "9 mai 23:30", status: "OK", durationMs: 480 },
+      { name: "broker_sync_tr", schedule: "0 19 * * 1-5", lastRun: "8 mai 19:01", status: "OK", durationMs: 740 },
+      { name: "rls_audit_check", schedule: "0 6 * * *", lastRun: "9 mai 06:00", status: "OK", durationMs: 320 },
+      { name: "engine_compare_v3_v35", schedule: "30 23 * * *", lastRun: "9 mai 23:30", status: "OK", durationMs: 2100 },
+      { name: "agent_findings_archive", schedule: "0 5 * * 0", lastRun: "5 mai 05:00", status: "OK", durationMs: 1480 },
+    ],
+    telegram: {
+      dispatchedToday: 5,
+      lastDispatched: "9 mai 23:30",
+      chatId: "73537xxx76",
+      botActive: true,
+      recent: [
+        { time: "23:30", ticker: "MELI", kind: "FLASH_DROP", delivered: true },
+        { time: "21:48", ticker: "CRWD", kind: "OVERBOUGHT", delivered: true },
+        { time: "20:15", ticker: "NVDA", kind: "OVERBOUGHT", delivered: true },
+        { time: "18:55", ticker: "PANX", kind: "OVERBOUGHT", delivered: true },
+        { time: "18:20", ticker: "AI", kind: "BUY_ZONE", delivered: true },
+      ],
+    },
+    alertsToday: {
+      generated: 18,
+      sent: 5,
+      dismissed: 13,
+      pendingJ1: 9,
+      pendingJ5: 9,
+    },
+    accountsModes: [
+      { name: "PEA Boursobank", mode: "MANUAL_ONLY", lastSync: "8 mai 19:00", status: "OK" },
+      { name: "CTO IBKR principal", mode: "SEMI_AUTO", lastSync: "9 mai 23:30", status: "OK" },
+      { name: "CTO IBKR sub-account", mode: "FULL_AUTO", lastSync: "9 mai 23:30", status: "PAPER" },
+      { name: "CTO Trade Republic", mode: "MANUAL_ONLY", lastSync: "8 mai 19:01", status: "OK" },
+    ],
+    security: {
+      rlsEnabled: 61,
+      rlsTotal: 61,
+      lastAudit: "9 mai 13:35",
+      bypassRoles: ["postgres", "service_role"],
+      blockedRoles: ["authenticated", "anon"],
+    },
+    eodhdMigration: {
+      provider: "TD Pro → EODHD All-In-One",
+      status: "shadow_mode",
+      progress: 60,
+      cutoverDate: "25 mai 2026",
+      monthlySavings: "$58/mo",
+    },
+  },
 };
 
 /* ============================================================
@@ -2645,7 +2714,499 @@ const AssetDetailPage = ({ ticker, onBack }) => {
 };
 
 /* ============================================================
-   APP ROOT (navigable entre 5 pages + détail asset)
+   PAGE — DEV/ADMIN (monitoring opérationnel, accès caché via footer)
+   ============================================================ */
+const DevHeader = () => (
+  <header style={{
+    paddingTop: 36, paddingBottom: 24,
+    borderBottom: `1px solid ${T.borderUltra}`,
+  }}>
+    <Eyebrow color={T.burgundy}>{MOCK.date.full} · zone admin</Eyebrow>
+    <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginTop: 10 }}>
+      <h1 style={{
+        margin: 0,
+        fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 400,
+        color: T.inkPrimary, lineHeight: 1.05,
+        letterSpacing: "-0.024em",
+      }}>Dev / Admin</h1>
+      <span style={{
+        fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 18,
+        color: T.inkSecondary, fontWeight: 400, letterSpacing: "-0.005em",
+      }}>
+        monitoring opérationnel ·{" "}
+        <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>tous systèmes OK</em>
+      </span>
+    </div>
+  </header>
+);
+
+const DevPipelineKPIs = () => {
+  const p = MOCK.dev.pipeline;
+  return (
+    <section style={{
+      paddingTop: 28, paddingBottom: 28,
+      borderBottom: `1px solid ${T.borderUltra}`,
+    }}>
+      <div style={{
+        position: "relative",
+        backgroundColor: T.bgPour,
+        border: `1px solid rgba(31,74,46,0.15)`,
+        borderRadius: 14,
+        padding: "20px 24px 20px 28px",
+      }}>
+        <div style={{
+          position: "absolute", left: 0, top: 0, bottom: 0, width: 4,
+          backgroundColor: T.forestGreen, borderRadius: "14px 0 0 14px",
+        }} />
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 24, alignItems: "baseline",
+        }}>
+          <div>
+            <Eyebrow color={T.forestGreen}>Engine</Eyebrow>
+            <div style={{
+              marginTop: 8, fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 400,
+              color: T.inkPrimary, letterSpacing: "-0.022em", lineHeight: 1,
+            }}>{p.engine}</div>
+          </div>
+          <div>
+            <Eyebrow color={T.forestGreen}>Régime</Eyebrow>
+            <div style={{
+              marginTop: 8, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+              color: T.amber, letterSpacing: "-0.020em", lineHeight: 1,
+            }}>{p.regime.split(' × ')[0]}</div>
+            <div style={{
+              marginTop: 4, fontFamily: FONT_MONO, fontSize: 11,
+              color: T.inkSecondary, fontWeight: 700,
+            }}>× {p.regime.split(' × ')[1]}</div>
+          </div>
+          <div>
+            <Eyebrow color={T.forestGreen}>Dernier daily</Eyebrow>
+            <div style={{
+              marginTop: 8, fontFamily: FONT_MONO, fontSize: 14, fontWeight: 700,
+              color: T.inkPrimary, lineHeight: 1.3,
+            }}>{p.lastDailyRun}</div>
+          </div>
+          <div>
+            <Eyebrow color={T.forestGreen}>Statut global</Eyebrow>
+            <div style={{
+              marginTop: 8, display: "flex", alignItems: "center", gap: 8,
+              fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+              color: T.forestGreen, letterSpacing: "-0.020em", lineHeight: 1,
+            }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: "50%",
+                backgroundColor: T.forestGreen, flexShrink: 0,
+              }} />
+              {p.status}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const DevCronsTable = () => {
+  const crons = MOCK.dev.crons;
+  return (
+    <section style={{
+      paddingTop: 32, paddingBottom: 32,
+      borderBottom: `1px solid ${T.borderUltra}`,
+    }}>
+      <div style={{ marginBottom: 18 }}>
+        <Eyebrow>I · Crons & Pipelines</Eyebrow>
+        <h2 style={{
+          margin: "8px 0 0 0",
+          fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 400,
+          color: T.inkPrimary, letterSpacing: "-0.020em", lineHeight: 1.15,
+        }}>
+          <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>14 jobs cron</em>
+          {" "}actifs · tous OK.
+        </h2>
+      </div>
+
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1.6fr 1fr 1fr 80px 80px",
+        gap: 12, alignItems: "center",
+        padding: "10px 16px",
+        borderBottom: `1px solid ${T.borderHair}`,
+      }}>
+        {["Job", "Schedule", "Last run", "Durée", "Statut"].map((h, i) => (
+          <span key={i} style={{
+            fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
+            letterSpacing: "0.10em", textTransform: "uppercase",
+            color: T.inkTertiary,
+            textAlign: ["Durée", "Statut"].includes(h) ? "right" : "left",
+          }}>{h}</span>
+        ))}
+      </div>
+      {crons.map((c, i) => (
+        <div key={c.name} style={{
+          display: "grid",
+          gridTemplateColumns: "1.6fr 1fr 1fr 80px 80px",
+          gap: 12, alignItems: "center",
+          padding: "10px 16px",
+          borderBottom: `1px solid ${T.borderUltra}`,
+        }}>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700,
+            color: T.inkPrimary, letterSpacing: "0.01em",
+          }}>{c.name}</span>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 11, color: T.inkTertiary,
+            fontWeight: 600,
+          }}>{c.schedule}</span>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 11, color: T.inkSecondary,
+            fontWeight: 600,
+          }}>{c.lastRun}</span>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 11, color: T.inkSecondary,
+            fontWeight: 700, textAlign: "right",
+          }}>{c.durationMs}ms</span>
+          <div style={{ textAlign: "right" }}>
+            <MetricChip variant="positive">{c.status}</MetricChip>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+};
+
+const DevTelegramPanel = () => {
+  const tg = MOCK.dev.telegram;
+  return (
+    <section style={{
+      paddingTop: 32, paddingBottom: 32,
+      borderBottom: `1px solid ${T.borderUltra}`,
+    }}>
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24,
+      }}>
+        <div>
+          <Eyebrow>II · Telegram</Eyebrow>
+          <h2 style={{
+            margin: "8px 0 16px 0",
+            fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+            color: T.inkPrimary, letterSpacing: "-0.018em", lineHeight: 1.15,
+          }}>
+            <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{tg.dispatchedToday} alertes</em>
+            {" "}envoyées aujourd'hui.
+          </h2>
+          <div style={{
+            padding: "16px 18px", backgroundColor: T.bgPour,
+            border: `1px solid rgba(31,74,46,0.15)`, borderRadius: 12,
+          }}>
+            <div style={{
+              display: "flex", justifyContent: "space-between", padding: "6px 0",
+              borderBottom: `1px solid rgba(0,0,0,0.06)`,
+            }}>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Bot actif</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>OUI</span>
+            </div>
+            <div style={{
+              display: "flex", justifyContent: "space-between", padding: "6px 0",
+              borderBottom: `1px solid rgba(0,0,0,0.06)`,
+            }}>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Chat ID</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700 }}>{tg.chatId}</span>
+            </div>
+            <div style={{
+              display: "flex", justifyContent: "space-between", padding: "6px 0",
+            }}>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Dernier envoi</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700 }}>{tg.lastDispatched}</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <Eyebrow color={T.inkTertiary}>Dernières alertes envoyées</Eyebrow>
+          <div style={{ marginTop: 12 }}>
+            {tg.recent.map((r, i) => (
+              <div key={i} style={{
+                display: "grid", gridTemplateColumns: "60px 70px 1fr auto",
+                gap: 12, alignItems: "center", padding: "10px 0",
+                borderBottom: `1px solid ${T.borderUltra}`,
+                borderTop: i === 0 ? `1px solid ${T.borderUltra}` : "none",
+              }}>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.inkTertiary, fontWeight: 700 }}>{r.time}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700 }}>{r.ticker}</span>
+                <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkSecondary, fontWeight: 500 }}>{r.kind.replace(/_/g, " ").toLowerCase()}</span>
+                <CheckCircle2 size={13} color={T.forestGreen} strokeWidth={2.2} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const DevAlertsToday = () => {
+  const a = MOCK.dev.alertsToday;
+  return (
+    <section style={{
+      paddingTop: 32, paddingBottom: 32,
+      borderBottom: `1px solid ${T.borderUltra}`,
+    }}>
+      <div style={{ marginBottom: 18 }}>
+        <Eyebrow>III · Alertes du jour</Eyebrow>
+        <h2 style={{
+          margin: "8px 0 0 0",
+          fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+          color: T.inkPrimary, letterSpacing: "-0.018em", lineHeight: 1.15,
+        }}>
+          <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{a.generated} alertes</em>
+          {" "}générées · {a.sent} envoyées · {a.dismissed} dismissed.
+        </h2>
+      </div>
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12,
+      }}>
+        {[
+          { label: "Générées", value: a.generated, color: T.inkPrimary, bg: T.bgSubtle, accent: T.inkSecondary },
+          { label: "Envoyées", value: a.sent, color: T.forestGreen, bg: T.bgPour, accent: T.forestGreen },
+          { label: "Dismissed", value: a.dismissed, color: T.amber, bg: T.bgAlert, accent: T.amber },
+          { label: "J+1 pending", value: a.pendingJ1, color: T.inkPrimary, bg: T.bgSubtle, accent: T.gold },
+          { label: "J+5 pending", value: a.pendingJ5, color: T.inkPrimary, bg: T.bgSubtle, accent: T.gold },
+        ].map((m, i) => (
+          <div key={i} style={{
+            position: "relative",
+            padding: "14px 16px 14px 18px",
+            backgroundColor: m.bg,
+            border: `1px solid ${T.borderUltra}`,
+            borderRadius: 10, overflow: "hidden",
+          }}>
+            <div style={{
+              position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
+              backgroundColor: m.accent,
+            }} />
+            <div style={{
+              fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
+              color: T.inkTertiary, letterSpacing: "0.10em", textTransform: "uppercase",
+            }}>{m.label}</div>
+            <div style={{
+              marginTop: 6, fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 400,
+              color: m.color, letterSpacing: "-0.022em", lineHeight: 1,
+            }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const DevAccountsModes = () => (
+  <section style={{
+    paddingTop: 32, paddingBottom: 32,
+    borderBottom: `1px solid ${T.borderUltra}`,
+  }}>
+    <div style={{ marginBottom: 18 }}>
+      <Eyebrow>IV · Comptes brokers</Eyebrow>
+      <h2 style={{
+        margin: "8px 0 0 0",
+        fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+        color: T.inkPrimary, letterSpacing: "-0.018em", lineHeight: 1.15,
+      }}>
+        <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>4 comptes</em>
+        {" "}avec niveaux d'autonomie progressifs.
+      </h2>
+    </div>
+    <div style={{
+      display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12,
+    }}>
+      {MOCK.dev.accountsModes.map((acc, i) => {
+        const modeColor = acc.mode === "FULL_AUTO" ? T.forestGreen :
+                         acc.mode === "SEMI_AUTO" ? T.gold : T.inkSecondary;
+        const modeBg = acc.mode === "FULL_AUTO" ? T.bgPour :
+                      acc.mode === "SEMI_AUTO" ? "rgba(125,102,40,0.06)" : T.bgSubtle;
+        return (
+          <div key={acc.name} style={{
+            position: "relative",
+            padding: "14px 18px 14px 20px",
+            backgroundColor: modeBg,
+            border: `1px solid ${T.borderUltra}`,
+            borderRadius: 10, overflow: "hidden",
+          }}>
+            <div style={{
+              position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
+              backgroundColor: modeColor,
+            }} />
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "baseline",
+              marginBottom: 6,
+            }}>
+              <span style={{
+                fontFamily: FONT_SANS, fontSize: 13, fontWeight: 700,
+                color: T.inkPrimary,
+              }}>{acc.name}</span>
+              <span style={{
+                fontFamily: FONT_MONO, fontSize: 10, fontWeight: 700,
+                color: modeColor, letterSpacing: "0.08em",
+                padding: "2px 7px", backgroundColor: T.bgSurface,
+                borderRadius: 4, border: `1px solid ${modeColor}40`,
+              }}>{acc.mode}</span>
+            </div>
+            <div style={{
+              display: "flex", justifyContent: "space-between",
+              fontFamily: FONT_MONO, fontSize: 11, color: T.inkSecondary, fontWeight: 600,
+            }}>
+              <span>last sync: {acc.lastSync}</span>
+              <span style={{ color: acc.status === "OK" ? T.forestGreen : T.amber, fontWeight: 700 }}>{acc.status}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+);
+
+const DevSecurityPanel = () => {
+  const s = MOCK.dev.security;
+  return (
+    <section style={{
+      paddingTop: 32, paddingBottom: 32,
+      borderBottom: `1px solid ${T.borderUltra}`,
+    }}>
+      <div style={{ marginBottom: 18 }}>
+        <Eyebrow>V · Sécurité Supabase</Eyebrow>
+        <h2 style={{
+          margin: "8px 0 0 0",
+          fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+          color: T.inkPrimary, letterSpacing: "-0.018em", lineHeight: 1.15,
+        }}>
+          <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>61 / 61 tables</em>
+          {" "}protégées · audit du 9 mai.
+        </h2>
+      </div>
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12,
+      }}>
+        <div style={{
+          padding: "16px 18px", backgroundColor: T.bgPour,
+          border: `1px solid rgba(31,74,46,0.15)`, borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <CheckCircle2 size={13} color={T.forestGreen} strokeWidth={2.2} />
+            <Eyebrow color={T.forestGreen}>Bypass RLS (autorisés)</Eyebrow>
+          </div>
+          {s.bypassRoles.map((r) => (
+            <div key={r} style={{
+              padding: "6px 0", borderBottom: `1px solid rgba(0,0,0,0.06)`,
+              fontFamily: FONT_MONO, fontSize: 12, color: T.forestGreen, fontWeight: 700,
+            }}>{r}</div>
+          ))}
+        </div>
+        <div style={{
+          padding: "16px 18px", backgroundColor: T.bgContre,
+          border: `1px solid rgba(95,34,34,0.15)`, borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <XCircle size={13} color={T.burgundy} strokeWidth={2.2} />
+            <Eyebrow color={T.burgundy}>Bloqués (deny-all)</Eyebrow>
+          </div>
+          {s.blockedRoles.map((r) => (
+            <div key={r} style={{
+              padding: "6px 0", borderBottom: `1px solid rgba(0,0,0,0.06)`,
+              fontFamily: FONT_MONO, fontSize: 12, color: T.burgundy, fontWeight: 700,
+            }}>{r}</div>
+          ))}
+        </div>
+      </div>
+      <div style={{
+        marginTop: 12, padding: "10px 14px",
+        fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 13.5,
+        color: T.inkSecondary, lineHeight: 1.5, letterSpacing: "-0.005em",
+      }}>
+        « Dernier audit : {s.lastAudit}. Snapshot rollback disponible dans nx_backup.session_snapshots. »
+      </div>
+    </section>
+  );
+};
+
+const DevEodhdPanel = () => {
+  const e = MOCK.dev.eodhdMigration;
+  return (
+    <section style={{ paddingTop: 32, paddingBottom: 40 }}>
+      <div style={{ marginBottom: 18 }}>
+        <Eyebrow>VI · Migration data provider</Eyebrow>
+        <h2 style={{
+          margin: "8px 0 0 0",
+          fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+          color: T.inkPrimary, letterSpacing: "-0.018em", lineHeight: 1.15,
+        }}>
+          {e.provider} ·{" "}
+          <em style={{ color: T.gold, fontStyle: "italic", fontWeight: 400 }}>shadow mode</em>
+          {" "}({e.progress}%).
+        </h2>
+      </div>
+      <div style={{
+        padding: "20px 24px", backgroundColor: "rgba(125,102,40,0.06)",
+        border: `1px solid rgba(125,102,40,0.18)`, borderRadius: 12,
+      }}>
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24,
+          marginBottom: 16,
+        }}>
+          <div>
+            <Eyebrow color={T.gold}>Cutover prévu</Eyebrow>
+            <div style={{
+              marginTop: 6, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+              color: T.inkPrimary, letterSpacing: "-0.020em", lineHeight: 1,
+            }}>{e.cutoverDate}</div>
+          </div>
+          <div>
+            <Eyebrow color={T.gold}>Économie mensuelle</Eyebrow>
+            <div style={{
+              marginTop: 6, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+              color: T.forestGreen, letterSpacing: "-0.020em", lineHeight: 1,
+            }}>{e.monthlySavings}</div>
+          </div>
+          <div>
+            <Eyebrow color={T.gold}>Statut</Eyebrow>
+            <div style={{
+              marginTop: 6, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
+              color: T.gold, letterSpacing: "-0.020em", lineHeight: 1,
+              textTransform: "capitalize",
+            }}>{e.status.replace(/_/g, " ")}</div>
+          </div>
+        </div>
+        <div style={{
+          height: 6, backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 3,
+          overflow: "hidden",
+        }}>
+          <div style={{
+            width: `${e.progress}%`, height: "100%",
+            backgroundColor: T.gold,
+            transition: "width 600ms ease-out",
+          }} />
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const DevAdminPage = () => (
+  <main style={{
+    maxWidth: CONTAINER_MAX, margin: "0 auto",
+    padding: `0 ${CONTAINER_PAD}px`,
+  }}>
+    <DevHeader />
+    <DevPipelineKPIs />
+    <DevCronsTable />
+    <DevTelegramPanel />
+    <DevAlertsToday />
+    <DevAccountsModes />
+    <DevSecurityPanel />
+    <DevEodhdPanel />
+  </main>
+);
+
+/* ============================================================
+   APP ROOT (navigable entre 5 pages + détail asset + dev/admin)
    ============================================================ */
 export default function NexialDesktopComplete() {
   const [currentPage, setCurrentPage] = useState("today");
@@ -2660,8 +3221,12 @@ export default function NexialDesktopComplete() {
     if (currentPage === "today") return <AujourdhuiPage />;
     if (currentPage === "orders") return <OrdresPage />;
     if (currentPage === "portfolio") return <PortefeuillePage onAssetClick={showDetail} />;
-    return <WatchlistPage onAssetClick={showDetail} />;
+    if (currentPage === "watchlist") return <WatchlistPage onAssetClick={showDetail} />;
+    return <DevAdminPage />;
   };
+
+  // Onglet TopNav actif : si on est sur dev ou détail asset, ne rien activer dans TopNav
+  const topNavActive = currentPage === "dev" || detailTicker ? null : currentPage;
 
   return (
     <div style={{
@@ -2670,7 +3235,7 @@ export default function NexialDesktopComplete() {
       WebkitFontSmoothing: "antialiased",
       MozOsxFontSmoothing: "grayscale",
     }}>
-      <TopNav active={detailTicker ? "watchlist" : currentPage} onNavigate={navigate} />
+      <TopNav active={topNavActive} onNavigate={navigate} />
       {renderPage()}
       <footer style={{
         marginTop: 12,
@@ -2681,6 +3246,19 @@ export default function NexialDesktopComplete() {
         borderTop: `2px solid ${T.forestGreen}`,
       }}>
         Nexial · Olivier · investissement de conviction · horizon 10–15 ans
+        {" · "}
+        <button
+          onClick={() => navigate("dev")}
+          style={{
+            background: "transparent", border: "none", padding: 0,
+            cursor: "pointer", fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 12.5,
+            color: currentPage === "dev" ? T.burgundy : T.inkQuaternary,
+            letterSpacing: "-0.005em",
+            textDecoration: currentPage === "dev" ? "underline" : "none",
+          }}
+        >
+          Dev
+        </button>
       </footer>
     </div>
   );
