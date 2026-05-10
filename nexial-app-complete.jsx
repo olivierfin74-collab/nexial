@@ -115,38 +115,136 @@ const WATCHLIST = [
   { ticker: "MSFT", name: "Microsoft", state: "NEUTRAL", score: 11, quality: "ULTRA_PREMIUM", sector: "Technology", price: 420.86, isHeld: true },
 ];
 
-const ASSET_DETAIL = {
-  ticker: "ISRG", name: "Intuitive Surgical", sector: "Healthcare",
-  exchange: "NASDAQ", currency: "USD", currentPrice: 453.27,
-  scoreCombined: 53, qualityClass: "ULTRA_PREMIUM",
-  state: "WATCH_BORDERLINE", marketRegime: "BULL", isHeld: false,
-  chg1d: 0.37, chg5d: -1.00, chg10d: -3.76,
-  dist52wHigh: -24.94, dist52wLow: 5.94,
-  rsi14: 51, bollingerPctB: 27, atr14: 14.11,
-  momentumScore: 18, volumeScore: 50, structureScore: 42, fundamentalScore: 78,
-  paliers: [
-    { rank: 1, role: "Probabiliste", price: 446.21, dist: -1.56, size: 40,
-      proposal_id: null,
-      desc: "Première entrée probable, exécution sans agressivité" },
-    { rank: 2, role: "Opportuniste", price: 432.09, dist: -4.67, size: 35,
-      proposal_id: null,
-      desc: "Vraie zone asymétrique sur capitulation modérée" },
-    { rank: 3, role: "Panic flush", price: 410.92, dist: -9.34, size: 25,
-      proposal_id: null,
-      desc: "Excès rare marché, faible probabilité mais forte asymétrie" },
-  ],
-  thesis: "Compounder qualité ultra-premium en repli. Chirurgie robotique structurellement en croissance. Repli de -25% depuis le sommet 52s offre une fenêtre d'accumulation graduée.",
-  pour: [
-    "Quality class ULTRA_PREMIUM (top 5% univers Nexial)",
-    "Score fondamental 78 — santé financière exceptionnelle",
-    "Repli -25% depuis 52w high : fenêtre rare d'accumulation",
-  ],
-  contre: [
-    "Score combiné 53 reste modéré — pas de signal d'achat franc",
-    "Bollinger 27% indique mid-range, pas de capitulation visible",
-    "RSI 51 neutre — manque de sur-vente confirmée",
-  ],
+const TICKER_NAMES = {
+  ISRG: "Intuitive Surgical", MC: "LVMH", OR: "L'Oréal",
+  AI: "Air Liquide", ASML: "ASML", RMS: "Hermès",
+  SU: "Schneider Electric", PANX: "Pantheon", WPEA: "Amundi PEA World",
+  ALSTI: "Stif", NVDA: "Nvidia", META: "Meta",
+  CRWD: "CrowdStrike", SNOW: "Snowflake", MELI: "MercadoLibre",
+  TTE: "TotalEnergies", RF: "Eurofins",
 };
+
+const ASSET_DETAILS = {
+  ISRG: {
+    ticker: "ISRG", name: "Intuitive Surgical", sector: "Healthcare",
+    exchange: "NASDAQ", currency: "USD", currentPrice: 453.27,
+    scoreCombined: 53, qualityClass: "ULTRA_PREMIUM",
+    state: "WATCH_BORDERLINE", marketRegime: "BULL", isHeld: false,
+    chg1d: 0.37, chg5d: -1.00, chg10d: -3.76,
+    dist52wHigh: -24.94, dist52wLow: 5.94,
+    rsi14: 51, bollingerPctB: 27, atr14: 14.11,
+    momentumScore: 18, volumeScore: 50, structureScore: 42, fundamentalScore: 78,
+    paliers: [
+      { rank: 1, role: "Probabiliste", price: 446.21, dist: -1.56, size: 40,
+        proposal_id: null,
+        desc: "Première entrée probable, exécution sans agressivité" },
+      { rank: 2, role: "Opportuniste", price: 432.09, dist: -4.67, size: 35,
+        proposal_id: null,
+        desc: "Vraie zone asymétrique sur capitulation modérée" },
+      { rank: 3, role: "Panic flush", price: 410.92, dist: -9.34, size: 25,
+        proposal_id: null,
+        desc: "Excès rare marché, faible probabilité mais forte asymétrie" },
+    ],
+    thesis: "Compounder qualité ultra-premium en repli. Chirurgie robotique structurellement en croissance. Repli de -25% depuis le sommet 52s offre une fenêtre d'accumulation graduée.",
+    pour: [
+      "Quality class ULTRA_PREMIUM (top 5% univers Nexial)",
+      "Score fondamental 78 — santé financière exceptionnelle",
+      "Repli -25% depuis 52w high : fenêtre rare d'accumulation",
+    ],
+    contre: [
+      "Score combiné 53 reste modéré — pas de signal d'achat franc",
+      "Bollinger 27% indique mid-range, pas de capitulation visible",
+      "RSI 51 neutre — manque de sur-vente confirmée",
+    ],
+  },
+  MC: {
+    ticker: "MC", name: "LVMH", sector: "Luxe",
+    exchange: "Euronext Paris", currency: "EUR", currentPrice: 612.40,
+    scoreCombined: 71, qualityClass: "ULTRA_PREMIUM",
+    state: "BUY_ZONE_PROBA", marketRegime: "BULL", isHeld: true,
+    chg1d: -0.85, chg5d: -3.20, chg10d: -7.45,
+    dist52wHigh: -18.30, dist52wLow: 12.10,
+    rsi14: 38, bollingerPctB: 18, atr14: 9.85,
+    momentumScore: 32, volumeScore: 65, structureScore: 58, fundamentalScore: 88,
+    paliers: [
+      { rank: 1, role: "Probabiliste", price: 605.00, dist: -1.21, size: 40,
+        proposal_id: null,
+        desc: "Renforcement sur faiblesse modérée du compounder européen" },
+      { rank: 2, role: "Opportuniste", price: 588.50, dist: -3.90, size: 35,
+        proposal_id: null,
+        desc: "Asymétrie favorable sur pullback Chine/luxe" },
+      { rank: 3, role: "Panic flush", price: 565.00, dist: -7.74, size: 25,
+        proposal_id: null,
+        desc: "Capitulation rare sur le leader mondial du luxe" },
+    ],
+    thesis: "Pullback historique sur le compounder européen le plus solide. Marques iconiques, pricing power, expansion Asie intacte malgré ralentissement Chine.",
+    pour: [
+      "Score fondamental 88 — bilan irréprochable, marges record",
+      "Quality class ULTRA_PREMIUM, pricing power durable",
+      "RSI 38 + Bollinger 18% : zone de sur-vente claire",
+    ],
+    contre: [
+      "Exposition Chine 35% — vent contraire macro persistant",
+      "Multiple PE 22x reste élevé vs moyenne historique 18x",
+      "Pas encore de bottom technique confirmé sur le daily",
+    ],
+  },
+  OR: {
+    ticker: "OR", name: "L'Oréal", sector: "Cosmétiques",
+    exchange: "Euronext Paris", currency: "EUR", currentPrice: 378.55,
+    scoreCombined: 64, qualityClass: "PREMIUM",
+    state: "WATCH_BUY_ZONE", marketRegime: "BULL", isHeld: true,
+    chg1d: 0.12, chg5d: -2.10, chg10d: -5.30,
+    dist52wHigh: -15.20, dist52wLow: 8.40,
+    rsi14: 44, bollingerPctB: 32, atr14: 6.20,
+    momentumScore: 28, volumeScore: 52, structureScore: 48, fundamentalScore: 82,
+    paliers: [
+      { rank: 1, role: "Probabiliste", price: 372.00, dist: -1.73, size: 40,
+        proposal_id: null,
+        desc: "Entrée graduée sur consolidation saine" },
+      { rank: 2, role: "Opportuniste", price: 360.00, dist: -4.90, size: 35,
+        proposal_id: null,
+        desc: "Vraie zone d'achat sur faiblesse temporaire" },
+      { rank: 3, role: "Panic flush", price: 345.00, dist: -8.86, size: 25,
+        proposal_id: null,
+        desc: "Excès rare, probabilité faible mais asymétrie forte" },
+    ],
+    thesis: "Leader mondial cosmétique avec exposition équilibrée toutes zones géographiques. Modèle défensif avec croissance organique régulière 6-8% par an.",
+    pour: [
+      "Score fondamental 82 — résilience prouvée toutes conditions",
+      "Diversification géographique exceptionnelle (pas de risque pays)",
+      "Track record dividende 30+ ans, ratio dette saine",
+    ],
+    contre: [
+      "Score combiné 64 sans signal d'achat franc à ce stade",
+      "Pas de catalyseur identifié court terme pour outperformance",
+      "RSI 44 et Bollinger 32% : zone neutre, attendre meilleur point",
+    ],
+  },
+};
+
+const buildFallbackAsset = (ticker) => ({
+  ticker,
+  isFallback: true,
+  name: TICKER_NAMES[ticker] ?? ticker,
+  sector: "—",
+  exchange: "—",
+  currency: "EUR",
+  currentPrice: 0,
+  scoreCombined: 0,
+  qualityClass: "—",
+  state: "—",
+  marketRegime: "—",
+  isHeld: false,
+  chg1d: 0, chg5d: 0, chg10d: 0,
+  dist52wHigh: 0, dist52wLow: 0,
+  rsi14: 0, bollingerPctB: 0, atr14: 0,
+  momentumScore: 0, volumeScore: 0, structureScore: 0, fundamentalScore: 0,
+  paliers: [],
+  thesis: "Fiche détaillée non disponible en démo. Live data en cours de branchement pour cet actif.",
+  pour: [],
+  contre: [],
+});
 
 // ============================================================
 // HELPERS
@@ -1195,6 +1293,8 @@ const WatchlistPage = ({ onAssetClick }) => {
 // ============================================================
 const DetailHeader = ({ asset, onBack }) => {
   const positive = asset.chg1d >= 0;
+  const isFallback = asset.isFallback === true;
+  const priceFormatted = asset.currency === "USD" ? `$${fmtUsd(asset.currentPrice)}` : asset.currency === "EUR" ? `${fmtEur(asset.currentPrice)} €` : `${asset.currentPrice}`;
   return (
     <header style={{ padding: "16px 20px 0" }}>
       <button onClick={onBack} style={{
@@ -1221,9 +1321,9 @@ const DetailHeader = ({ asset, onBack }) => {
           <span style={{
             fontFamily: FONT_MONO, fontSize: 24, fontWeight: 700,
             color: T.inkPrimary, letterSpacing: "-0.02em",
-          }}>${fmtUsd(asset.currentPrice)}</span>
+          }}>{isFallback ? "—" : priceFormatted}</span>
           <MetricChip variant={positive ? "positive" : "negative"}>
-            {positive ? "+" : ""}{asset.chg1d.toFixed(2)}%
+            {isFallback ? "—" : `${positive ? "+" : ""}${asset.chg1d.toFixed(2)}%`}
           </MetricChip>
           <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, fontWeight: 500 }}>
             aujourd'hui
@@ -1450,7 +1550,7 @@ const DetailActions = ({ paliers, ticker, currency, onConfirmAll, onModifyClick 
 };
 
 const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
-  const asset = ASSET_DETAIL;
+  const asset = ASSET_DETAILS[ticker] ?? buildFallbackAsset(ticker);
   return (
     <>
       <DetailHeader asset={asset} onBack={onBack} />
