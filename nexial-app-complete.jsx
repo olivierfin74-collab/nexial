@@ -8,6 +8,9 @@ import {
 import { useProposalActions } from "@/lib/hooks/useProposalActions";
 import { useActiveOrders } from "@/lib/hooks/useActiveOrders";
 import { useTodayDashboard } from "@/lib/hooks/useTodayDashboard";
+import { usePortfolio } from "@/lib/hooks/usePortfolio";
+import { useWatchlist } from "@/lib/hooks/useWatchlist";
+import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -1221,20 +1224,33 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
 
 const PortfolioPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
-  const [account, setAccount] = useState("all");
-  const filtered = useMemo(() => {
-    if (account === "all") return POSITIONS;
-    return POSITIONS.filter(p => p.account === account);
-  }, [account]);
+  const [accountFilterId, setAccountFilterId] = useState(null);
+  const { positions, summary, loading, error } = usePortfolio({ accountFilter: accountFilterId });
 
-  const totalValue = filtered.reduce((sum, p) => sum + p.value, 0);
+  // Adapter Supabase row -> PositionRow expected shape
+  const adaptedPositions = useMemo(() => {
+    return (positions || []).map((p) => ({
+      ticker: p.ticker,
+      name: p.asset_name,
+      account: p.account_name,
+      account_id: p.account_id,
+      value: Number(p.market_value_eur ?? 0),
+      pnlPct: Number(p.unrealized_pnl_pct ?? 0),
+    }));
+  }, [positions]);
+
+  const totalValue = adaptedPositions.reduce((sum, p) => sum + p.value, 0);
+  const accountsForChips = summary?.by_account ?? [];
+  const filterLabel = accountFilterId
+    ? (accountsForChips.find((a) => a.account_id === accountFilterId)?.account_name || "")
+    : "";
 
   return (
     <>
       <PageHeader
         eyebrow="Portefeuille"
-        title={`€${fmtEur(totalValue)}`}
-        subtitle={`${filtered.length} positions${account !== "all" ? ` · ${account}` : ""}`}
+        title={loading ? "Chargement…" : `€${fmtEur(totalValue)}`}
+        subtitle={`${adaptedPositions.length} position${adaptedPositions.length > 1 ? "s" : ""}${filterLabel ? ` · ${filterLabel}` : ""}`}
         action={
           <SegmentedControl
             options={[
@@ -1247,21 +1263,36 @@ const PortfolioPage = ({ onAssetClick }) => {
         }
       />
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
-        <FilterChip active={account === "all"} onClick={() => setAccount("all")}>Tous</FilterChip>
-        {ACCOUNTS.map(a => (
-          <FilterChip key={a.name} active={account === a.name} onClick={() => setAccount(a.name)}>
-            {a.name}
+        <FilterChip active={accountFilterId === null} onClick={() => setAccountFilterId(null)}>
+          Tous
+        </FilterChip>
+        {accountsForChips.map((a) => (
+          <FilterChip
+            key={a.account_id}
+            active={accountFilterId === a.account_id}
+            onClick={() => setAccountFilterId(a.account_id)}
+            count={a.positions_count}>
+            {a.account_name}
           </FilterChip>
         ))}
       </div>
-      {viewMode === "list" ? (
+      {error && (
+        <div style={{ padding: "12px 20px", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Erreur de chargement — réessai automatique dans 60s.
+        </div>
+      )}
+      {!loading && !error && adaptedPositions.length === 0 ? (
+        <div style={{ padding: "32px 20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Aucune position{filterLabel ? ` sur ${filterLabel}` : ""}.
+        </div>
+      ) : viewMode === "list" ? (
         <div style={{
           margin: "0 20px", backgroundColor: T.bgSurface,
           border: `1px solid ${T.borderSubtle}`, borderRadius: 12, overflow: "hidden",
         }}>
-          {filtered.map((p, i) => (
-            <PositionRow key={i} position={p} viewMode="list"
-              isLast={i === filtered.length - 1}
+          {adaptedPositions.map((p, i) => (
+            <PositionRow key={p.ticker + ":" + p.account_id} position={p} viewMode="list"
+              isLast={i === adaptedPositions.length - 1}
               onClick={() => onAssetClick(p.ticker)} />
           ))}
         </div>
@@ -1270,8 +1301,8 @@ const PortfolioPage = ({ onAssetClick }) => {
           margin: "0 20px", display: "grid",
           gridTemplateColumns: "1fr 1fr", gap: 10,
         }}>
-          {filtered.map((p, i) => (
-            <PositionRow key={i} position={p} viewMode="card"
+          {adaptedPositions.map((p) => (
+            <PositionRow key={p.ticker + ":" + p.account_id} position={p} viewMode="card"
               onClick={() => onAssetClick(p.ticker)} />
           ))}
         </div>
@@ -1380,23 +1411,44 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
 const WatchlistPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [filter, setFilter] = useState("all");
-  const filtered = useMemo(() => {
-    if (filter === "opportunities") return WATCHLIST.filter(w => w.state === "OPPORTUNITY_LIGHT" || w.state === "WATCH_BORDERLINE");
-    if (filter === "held") return WATCHLIST.filter(w => w.isHeld);
-    if (filter === "ultra") return WATCHLIST.filter(w => w.quality === "ULTRA_PREMIUM");
-    return WATCHLIST;
-  }, [filter]);
+  const { items, loading, error } = useWatchlist();
 
-  const oppCount = WATCHLIST.filter(w => w.state === "OPPORTUNITY_LIGHT" || w.state === "WATCH_BORDERLINE").length;
-  const heldCount = WATCHLIST.filter(w => w.isHeld).length;
-  const ultraCount = WATCHLIST.filter(w => w.quality === "ULTRA_PREMIUM").length;
+  // Adapter Supabase row -> WatchlistRow expected shape
+  const adaptedItems = useMemo(() => {
+    return (items || []).map((it) => ({
+      ticker: it.ticker,
+      name: it.asset_name || it.ticker,
+      state: it.signal || "UNKNOWN",
+      score: Number(it.opportunity_score ?? 0),
+      quality: it.in_portfolio ? "DETENU" : "WATCHED",
+      sector: "",
+      price: Number(it.current_price ?? 0),
+      isHeld: it.in_portfolio === true,
+      currency: it.currency || "USD",
+    }));
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    if (filter === "opportunities") return adaptedItems.filter((w) =>
+      w.state === "BUY_ZONE" || w.state === "HOT_PULLBACK");
+    if (filter === "held") return adaptedItems.filter((w) => w.isHeld);
+    if (filter === "watch") return adaptedItems.filter((w) =>
+      w.state === "WATCH_PULLBACK" || w.state === "WATCH_BORDERLINE");
+    return adaptedItems;
+  }, [adaptedItems, filter]);
+
+  const oppCount = adaptedItems.filter((w) =>
+    w.state === "BUY_ZONE" || w.state === "HOT_PULLBACK").length;
+  const heldCount = adaptedItems.filter((w) => w.isHeld).length;
+  const watchCount = adaptedItems.filter((w) =>
+    w.state === "WATCH_PULLBACK" || w.state === "WATCH_BORDERLINE").length;
 
   return (
     <>
       <PageHeader
         eyebrow="Watchlist"
-        title={`${WATCHLIST.length} actifs surveillés`}
-        subtitle="Univers de qualité supérieure"
+        title={loading ? "Chargement…" : `${adaptedItems.length} actifs surveillés`}
+        subtitle="Univers Nexial"
         action={
           <SegmentedControl
             options={[
@@ -1409,7 +1461,7 @@ const WatchlistPage = ({ onAssetClick }) => {
         }
       />
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
-        <FilterChip active={filter === "all"} onClick={() => setFilter("all")} count={WATCHLIST.length}>
+        <FilterChip active={filter === "all"} onClick={() => setFilter("all")} count={adaptedItems.length}>
           Tous
         </FilterChip>
         <FilterChip active={filter === "opportunities"} onClick={() => setFilter("opportunities")} count={oppCount}>
@@ -1418,10 +1470,15 @@ const WatchlistPage = ({ onAssetClick }) => {
         <FilterChip active={filter === "held"} onClick={() => setFilter("held")} count={heldCount}>
           Détenus
         </FilterChip>
-        <FilterChip active={filter === "ultra"} onClick={() => setFilter("ultra")} count={ultraCount}>
-          Ultra premium
+        <FilterChip active={filter === "watch"} onClick={() => setFilter("watch")} count={watchCount}>
+          Surveillance
         </FilterChip>
       </div>
+      {error && (
+        <div style={{ padding: "12px 20px", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Erreur de chargement — réessai automatique dans 60s.
+        </div>
+      )}
       {viewMode === "list" ? (
         <div style={{
           margin: "0 20px", backgroundColor: T.bgSurface,
@@ -1431,7 +1488,7 @@ const WatchlistPage = ({ onAssetClick }) => {
             <EmptyState icon={Eye} title="Rien à surveiller" message="Aucun actif ne correspond à ce filtre." />
           ) : (
             filtered.map((w, i) => (
-              <WatchlistRow key={i} item={w} viewMode="list"
+              <WatchlistRow key={w.ticker} item={w} viewMode="list"
                 isLast={i === filtered.length - 1}
                 onClick={() => onAssetClick(w.ticker)} />
             ))
@@ -1442,8 +1499,8 @@ const WatchlistPage = ({ onAssetClick }) => {
           margin: "0 20px", display: "grid",
           gridTemplateColumns: "1fr 1fr", gap: 10,
         }}>
-          {filtered.map((w, i) => (
-            <WatchlistRow key={i} item={w} viewMode="card"
+          {filtered.map((w) => (
+            <WatchlistRow key={w.ticker} item={w} viewMode="card"
               onClick={() => onAssetClick(w.ticker)} />
           ))}
         </div>
@@ -1715,7 +1772,106 @@ const DetailActions = ({ paliers, ticker, currency, onConfirmAll, onModifyClick 
 };
 
 const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
-  const asset = ASSET_DETAILS[ticker] ?? buildFallbackAsset(ticker);
+  const { asset: liveAsset, loading } = useAssetDetail(ticker);
+
+  // Adapter Supabase live row -> asset shape consommé par les sous-composants existants
+  const asset = useMemo(() => {
+    // Priority 1: si on a un mock détaillé pour ce ticker, on l'utilise (ISRG/MC/OR avec paliers narratifs)
+    if (ASSET_DETAILS[ticker]) {
+      const mock = ASSET_DETAILS[ticker];
+      // Si on a aussi du live data, on overlay le current_price + perfs + zones
+      if (liveAsset) {
+        const proposals = liveAsset.active_proposals || [];
+        const enrichedPaliers = mock.paliers.map((p, idx) => ({
+          ...p,
+          proposal_id: proposals[idx]?.proposal_id || p.proposal_id,
+        }));
+        return {
+          ...mock,
+          currentPrice: Number(liveAsset.current_price ?? mock.currentPrice),
+          chg1d: Number(liveAsset.perf_1d_pct ?? mock.chg1d),
+          chg5d: Number(liveAsset.perf_1w_pct ?? mock.chg5d),
+          chg10d: Number(liveAsset.perf_1m_pct ?? mock.chg10d),
+          dist52wHigh: Number(liveAsset.drawdown_from_high_pct ?? mock.dist52wHigh),
+          isHeld: liveAsset.in_portfolio === true,
+          paliers: enrichedPaliers,
+        };
+      }
+      return mock;
+    }
+
+    // Priority 2: live data brut, on construit le shape attendu
+    if (liveAsset && liveAsset.ticker) {
+      const proposals = liveAsset.active_proposals || [];
+      const adaptedPaliers = proposals.map((p, idx) => ({
+        rank: idx + 1,
+        role: idx === 0 ? "Probabiliste" : idx === 1 ? "Opportuniste" : "Panic flush",
+        price: Number(p.proposed_price),
+        dist: Number(liveAsset.current_price && p.proposed_price
+          ? ((p.proposed_price - liveAsset.current_price) / liveAsset.current_price * 100)
+          : 0),
+        size: Math.round(100 / proposals.length),
+        proposal_id: p.proposal_id,
+        desc: p.rationale ? (p.rationale.length > 80 ? p.rationale.slice(0, 80) + "…" : p.rationale) : "",
+      }));
+
+      const signalToState = {
+        BUY_ZONE: "BUY_ZONE_PROBA",
+        HOT_PULLBACK: "BUY_ZONE_PROBA",
+        WATCH_PULLBACK: "WATCH_BUY_ZONE",
+        WATCH_BORDERLINE: "WATCH_BORDERLINE",
+        TOO_EXPENSIVE: "WATCH_BORDERLINE",
+      };
+
+      return {
+        ticker: liveAsset.ticker,
+        name: liveAsset.asset_name || liveAsset.ticker,
+        sector: liveAsset.sector || "—",
+        exchange: liveAsset.exchange_region || "—",
+        currency: liveAsset.currency,
+        currentPrice: Number(liveAsset.current_price ?? 0),
+        scoreCombined: Math.round(Number(liveAsset.opportunity_score ?? 0)),
+        qualityClass: "—",
+        state: signalToState[liveAsset.signal] || liveAsset.signal || "—",
+        marketRegime: "—",
+        isHeld: liveAsset.in_portfolio === true,
+        chg1d: Number(liveAsset.perf_1d_pct ?? 0),
+        chg5d: Number(liveAsset.perf_1w_pct ?? 0),
+        chg10d: Number(liveAsset.perf_1m_pct ?? 0),
+        dist52wHigh: Number(liveAsset.drawdown_from_high_pct ?? 0),
+        dist52wLow: 0,
+        rsi14: 0,
+        bollingerPctB: 0,
+        atr14: 0,
+        momentumScore: 0,
+        volumeScore: 0,
+        structureScore: 0,
+        fundamentalScore: 0,
+        paliers: adaptedPaliers,
+        thesis: liveAsset.signal === "BUY_ZONE"
+          ? `Signal Nexial BUY_ZONE détecté. Score ${Math.round(Number(liveAsset.opportunity_score ?? 0))}/100. Drawdown ${Number(liveAsset.drawdown_from_high_pct ?? 0).toFixed(1)}% depuis sommet 52s.`
+          : liveAsset.signal === "HOT_PULLBACK"
+          ? `Pullback sur signal Nexial HOT_PULLBACK. Score ${Math.round(Number(liveAsset.opportunity_score ?? 0))}/100. Surveillance active.`
+          : liveAsset.signal === "TOO_EXPENSIVE"
+          ? `Actif actuellement TOO_EXPENSIVE selon Nexial. Attendre repli pour renforcement.`
+          : `Actif suivi par Nexial. Signal: ${liveAsset.signal || "—"}.`,
+        pour: [
+          liveAsset.in_portfolio ? `Position détenue : ${Number(liveAsset.held_quantity ?? 0)} unités, PnL ${Number(liveAsset.pnl_pct ?? 0).toFixed(1)}%` : null,
+          liveAsset.opportunity_score && liveAsset.opportunity_score >= 70 ? `Score Nexial ${Math.round(Number(liveAsset.opportunity_score))}/100 — opportunité significative` : null,
+          liveAsset.drawdown_from_high_pct && liveAsset.drawdown_from_high_pct < -10 ? `Repli ${Number(liveAsset.drawdown_from_high_pct).toFixed(1)}% offre une fenêtre d'achat` : null,
+        ].filter(Boolean),
+        contre: [
+          liveAsset.signal === "TOO_EXPENSIVE" ? "Signal TOO_EXPENSIVE — pas de fenêtre d'entrée actuellement" : null,
+          liveAsset.opportunity_score && liveAsset.opportunity_score < 40 ? `Score Nexial ${Math.round(Number(liveAsset.opportunity_score))}/100 modéré` : null,
+          liveAsset.freshness_status === "red" ? "Données de marché possiblement obsolètes (vérifier ingestion)" : null,
+        ].filter(Boolean),
+      };
+    }
+
+    // Priority 3: fallback (pas de live data, pas de mock)
+    return buildFallbackAsset(ticker);
+  }, [ticker, liveAsset]);
+
   return (
     <>
       <DetailHeader asset={asset} onBack={onBack} />
