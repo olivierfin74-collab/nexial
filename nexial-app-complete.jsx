@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useProposalActions } from "@/lib/hooks/useProposalActions";
 import { useActiveOrders } from "@/lib/hooks/useActiveOrders";
+import { useTodayDashboard } from "@/lib/hooks/useTodayDashboard";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -634,92 +635,217 @@ const ActionCard = ({ action, isLast, onClick }) => {
   );
 };
 
-const SectionToDoToday = ({ onAssetClick }) => (
-  <section style={{ marginTop: 16 }}>
-    <div style={{ padding: "0 20px 14px" }}>
-      <Eyebrow variant="accent">À faire aujourd'hui</Eyebrow>
-      <HeroNumber size="M" style={{ marginTop: 6 }}>
-        {ACTIONS_TODAY.length} décisions en attente
-      </HeroNumber>
-    </div>
-    <div style={{
-      backgroundColor: T.bgSurface, border: `1.5px solid ${T.inkPrimary}`,
-      borderRadius: 12, margin: "0 20px", overflow: "hidden",
-    }}>
-      {ACTIONS_TODAY.map((a, i) => (
-        <ActionCard key={i} action={a} isLast={i === ACTIONS_TODAY.length - 1}
-          onClick={() => onAssetClick(a.ticker)} />
-      ))}
-    </div>
-  </section>
-);
+const SectionToDoToday = ({ onAssetClick, opportunities, loading }) => {
+  const items = opportunities || [];
+  // Adapter Supabase row -> ActionCard expected shape
+  const adapted = items.slice(0, 5).map((o) => ({
+    ticker: o.ticker,
+    name: o.asset_name,
+    type: (o.event_kind && o.event_kind.includes("REVERSAL")) ? "ALERT" : "ORDER",
+    title: o.final_action || "Surveiller",
+    badge: o.tier === "tier1_core" ? "CORE" : o.tier === "tier2_watch" ? "WATCH" : "—",
+    detail: o.thesis ? (o.thesis.length > 100 ? o.thesis.slice(0, 100) + "…" : o.thesis) : "",
+    palier1: null,
+  }));
+  return (
+    <section style={{ marginTop: 16 }}>
+      <div style={{ padding: "0 20px 14px" }}>
+        <Eyebrow variant="accent">À faire aujourd'hui</Eyebrow>
+        <HeroNumber size="M" style={{ marginTop: 6 }}>
+          {loading ? "Chargement…" : `${adapted.length} ${adapted.length > 1 ? "opportunités" : "opportunité"}`}
+        </HeroNumber>
+      </div>
+      {!loading && adapted.length === 0 ? (
+        <div style={{ margin: "0 20px", padding: "20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Aucune opportunité détectée pour le moment.
+        </div>
+      ) : (
+        <div style={{
+          backgroundColor: T.bgSurface, border: `1.5px solid ${T.inkPrimary}`,
+          borderRadius: 12, margin: "0 20px", overflow: "hidden",
+        }}>
+          {adapted.map((a, i) => (
+            <ActionCard key={i} action={a} isLast={i === adapted.length - 1}
+              onClick={() => onAssetClick(a.ticker)} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
 
-const YourMoney = ({ onAccountClick }) => {
-  const positive = PORTFOLIO.pnlEur > 0;
+const AUTOMATION_LABEL = { MANUAL_ONLY: "MAN", SEMI_AUTO: "S-AUTO", FULL_AUTO: "F-AUTO" };
+
+const AccountCard = ({ account, onClick }) => {
+  const isInactive = account.total_account_value_eur === 0 && account.positions_count === 0;
+  const automationLabel = AUTOMATION_LABEL[account.automation_mode] || account.automation_mode;
+  const isClickable = !isInactive;
+  const cashBalances = account.cash_balances || [];
+  const showMultiCurrency = cashBalances.length > 1;
+  const labCapitalNote = account.is_lab && account.lab_max_capital_eur
+    ? `capital max €${fmtEur(account.lab_max_capital_eur)}`
+    : null;
+
+  return (
+    <div
+      onClick={isClickable ? () => onClick(account) : undefined}
+      style={{
+        padding: "16px 18px",
+        backgroundColor: T.bgSurface,
+        border: `1px solid ${T.borderSubtle}`,
+        borderRadius: 12,
+        marginBottom: 10,
+        cursor: isClickable ? "pointer" : "default",
+        opacity: isInactive ? 0.6 : 1,
+        transition: "background-color 200ms",
+      }}
+      onMouseEnter={(e) => { if (isClickable) e.currentTarget.style.backgroundColor = T.bgHover; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = T.bgSurface; }}>
+
+      {/* Header: name + automation + universe */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: isInactive ? 4 : 10, gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_SANS, fontSize: 14, fontWeight: 600, color: T.inkPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {account.account_name}
+            {account.broker && account.broker !== account.account_name && (
+              <span style={{ color: T.inkTertiary, fontWeight: 500 }}> · {account.broker}</span>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_MONO, fontSize: 10, fontWeight: 600, color: T.inkTertiary, letterSpacing: "0.05em", flexShrink: 0 }}>
+          <span>{automationLabel}</span>
+          <span style={{ color: T.inkQuaternary }}>·</span>
+          <span>{account.universe_short_name}</span>
+        </div>
+      </div>
+
+      {isInactive ? (
+        <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, fontWeight: 500 }}>
+          Inactif{labCapitalNote ? ` · ${labCapitalNote}` : account.universe === "PAPER_TRADING" ? " · simulation" : ""}
+        </div>
+      ) : (
+        <>
+          {/* Investi + Cash totals */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 6 }}>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 500, color: T.inkPrimary, letterSpacing: "-0.01em" }}>
+                €{fmtEur(account.invested_total_eur)}
+              </div>
+              <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 1 }}>
+                investi
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 500, color: T.inkPrimary, letterSpacing: "-0.01em" }}>
+                €{fmtEur(account.cash_total_eur)}
+              </div>
+              <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 1 }}>
+                cash
+              </div>
+            </div>
+          </div>
+
+          {/* Cash multi-devise (si applicable) */}
+          {showMultiCurrency && (
+            <div style={{ marginTop: 4, marginBottom: 8, paddingLeft: 0 }}>
+              {cashBalances.map((c, i) => (
+                <div key={i} style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: T.inkSecondary, fontWeight: 500, marginTop: 2 }}>
+                  └ {c.currency} {fmtEur(c.balance)} <span style={{ color: T.inkTertiary }}>(€{fmtEur(c.balance_eur)})</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Positions count + chevron */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, fontWeight: 500 }}>
+              {account.positions_count} position{account.positions_count > 1 ? "s" : ""}
+            </div>
+            <ChevronRight size={14} strokeWidth={2} color={T.inkTertiary} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const YourMoney = ({ patrimoine, loading }) => {
+  const [showAccounts, setShowAccounts] = useState(false);
+  const totalEur = patrimoine?.total_eur ?? 0;
+  const cashEur = patrimoine?.cash_eur ?? 0;
+  const accounts = patrimoine?.accounts ?? [];
+  const totalPositions = accounts.reduce((sum, a) => sum + (a.positions_count || 0), 0);
+
   return (
     <section style={{ marginTop: 36, padding: "0 20px" }}>
       <Eyebrow>Ton argent</Eyebrow>
-      <div style={{ marginTop: 12 }}>
-        <HeroNumber size="XL">€{fmtEur(PORTFOLIO.totalEur)}</HeroNumber>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-          <MetricChip variant={positive ? "positive" : "negative"}>
-            {positive ? "+" : ""}{PORTFOLIO.pnlPct.toFixed(1)}%
-          </MetricChip>
-          <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.inkSecondary, fontWeight: 600 }}>
-            +€{fmtEur(PORTFOLIO.pnlEur)}
-          </span>
-          <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, fontWeight: 500 }}>
-            depuis l'achat
-          </span>
-        </div>
-      </div>
-      <div style={{
-        marginTop: 22, padding: "16px 18px", backgroundColor: T.bgDarkPanel,
-        borderRadius: 12, display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
-      }}>
-        <div style={{
-          width: 38, height: 38, borderRadius: 8,
-          backgroundColor: "rgba(122, 168, 134, 0.18)",
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+
+      {/* Header compact dépliable */}
+      <div
+        onClick={() => setShowAccounts((s) => !s)}
+        style={{
+          marginTop: 12,
+          padding: "16px 18px",
+          backgroundColor: T.bgDarkPanel,
+          borderRadius: 12,
+          cursor: "pointer",
+          transition: "background-color 200ms",
         }}>
-          <Wallet size={18} strokeWidth={2} color={T.forestGreenPale} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <Eyebrow variant="onDarkAccent">Cash disponible</Eyebrow>
-          <HeroNumber size="M" color={T.inkOnDark} style={{ marginTop: 3 }}>
-            €{fmtEur(PORTFOLIO.cashEur)}
-          </HeroNumber>
-        </div>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 4, color: T.inkOnDark,
-          fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 600,
-        }}>Déployer<ArrowUpRight size={15} strokeWidth={2.2} /></div>
-      </div>
-      <div style={{
-        marginTop: 22, backgroundColor: T.bgSurface,
-        border: `1px solid ${T.borderSubtle}`, borderRadius: 12, overflow: "hidden",
-      }}>
-        {ACCOUNTS.map((acc, i) => (
-          <div key={i} onClick={() => onAccountClick && onAccountClick(acc)} style={{
-            padding: "14px 16px",
-            borderBottom: i === ACCOUNTS.length - 1 ? "none" : `1px solid ${T.borderSubtle}`,
-            display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: FONT_SANS, fontSize: 14, fontWeight: 600, color: T.inkPrimary }}>
-                {acc.name}
-              </div>
-              <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkTertiary,
-                marginTop: 2, fontWeight: 500 }}>{acc.broker}</div>
+        <div style={{ display: "flex", alignItems: "stretch", gap: 16 }}>
+          {/* Patrimoine total */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.forestGreenPale, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+              Patrimoine
             </div>
-            <div style={{ textAlign: "right" }}>
-              <HeroNumber size="S">€{fmtEur(acc.value)}</HeroNumber>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.inkSecondary,
-                marginTop: 2, fontWeight: 600 }}>{acc.share.toFixed(1)}%</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 500, color: T.inkOnDark, letterSpacing: "-0.015em" }}>
+              {loading ? "…" : `€${fmtEur(totalEur)}`}
             </div>
           </div>
-        ))}
+
+          {/* Séparateur vertical */}
+          <div style={{ width: 1, backgroundColor: "rgba(168, 196, 176, 0.25)" }} />
+
+          {/* Cash dispo */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.forestGreenPale, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+              Cash dispo
+            </div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 500, color: T.inkOnDark, letterSpacing: "-0.015em" }}>
+              {loading ? "…" : `€${fmtEur(cashEur)}`}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer: positions + chevron */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(168, 196, 176, 0.18)" }}>
+          <div style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreenPale, fontWeight: 500 }}>
+            {loading ? "…" : `${totalPositions} positions sur ${accounts.length} comptes`}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, color: T.inkOnDark, fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600 }}>
+            {showAccounts ? "Masquer" : "Détail"}
+            <ChevronDown size={14} strokeWidth={2.2} style={{ transform: showAccounts ? "rotate(180deg)" : "none", transition: "transform 200ms" }} />
+          </div>
+        </div>
       </div>
+
+      {/* Liste des comptes (dépliable) */}
+      {showAccounts && (
+        <div style={{ marginTop: 14 }}>
+          {loading ? (
+            <div style={{ padding: "20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
+              Chargement des comptes…
+            </div>
+          ) : accounts.length === 0 ? (
+            <div style={{ padding: "20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
+              Aucun compte configuré.
+            </div>
+          ) : (
+            accounts.map((acc) => (
+              <AccountCard key={acc.account_id} account={acc} />
+            ))
+          )}
+        </div>
+      )}
     </section>
   );
 };
@@ -766,15 +892,18 @@ const Timeline = () => (
   </section>
 );
 
-const DashboardPage = ({ onAssetClick }) => (
-  <>
-    <DashboardHeader />
-    <RegimeBanner />
-    <SectionToDoToday onAssetClick={onAssetClick} />
-    <YourMoney />
-    <Timeline />
-  </>
-);
+const DashboardPage = ({ onAssetClick }) => {
+  const { opportunities, patrimoine, loading } = useTodayDashboard();
+  return (
+    <>
+      <DashboardHeader />
+      <RegimeBanner />
+      <SectionToDoToday onAssetClick={onAssetClick} opportunities={opportunities} loading={loading} />
+      <YourMoney patrimoine={patrimoine} loading={loading} />
+      <Timeline />
+    </>
+  );
+};
 
 // ============================================================
 // PAGE — AUJOURD'HUI (alertes du jour)
