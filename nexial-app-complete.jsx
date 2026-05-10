@@ -4,12 +4,17 @@ import {
   ArrowLeft, Home, ListChecks, Eye, Briefcase, ChevronDown,
   Award, LayoutGrid, List, Filter, Clock, CheckCircle2, XCircle,
   TrendingUp, TrendingDown, AlertCircle, Search,
+  Plus, X, Trash2, Edit3, MoreHorizontal,
+  Zap, Flame, Repeat, ShieldCheck,
 } from "lucide-react";
 import { useProposalActions } from "@/lib/hooks/useProposalActions";
 import { useActiveOrders } from "@/lib/hooks/useActiveOrders";
 import { useTodayDashboard } from "@/lib/hooks/useTodayDashboard";
 import { usePortfolio } from "@/lib/hooks/usePortfolio";
 import { useWatchlist } from "@/lib/hooks/useWatchlist";
+import { useWatchlists } from "@/lib/hooks/useWatchlists";
+import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
+import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 
 /**
@@ -1408,12 +1413,503 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
   );
 };
 
+// Map icon name -> Lucide component (utilisé pour les watchlists)
+const ICON_MAP = {
+  "shield-check": ShieldCheck,
+  "flame": Flame,
+  "zap": Zap,
+  "repeat": Repeat,
+  "eye": Eye,
+};
+
+// Petit dot coloré pour la watchlist (à gauche du nom dans le dropdown)
+const WatchlistDot = ({ color }) => (
+  <span style={{
+    width: 8, height: 8, borderRadius: "50%",
+    backgroundColor: color || T.forestGreen, flexShrink: 0,
+  }} />
+);
+
+// Dropdown switcher pour sélectionner la watchlist active
+const WatchlistSwitcher = ({ watchlists, activeId, onSelect, onOpenCreate, loading }) => {
+  const [open, setOpen] = useState(false);
+  const active = watchlists.find((w) => w.watchlist_id === activeId);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((s) => !s)}
+        style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 14px",
+          backgroundColor: T.bgSurface,
+          border: `1.5px solid ${T.inkPrimary}`,
+          borderRadius: 10, cursor: "pointer",
+          fontFamily: FONT_SANS,
+        }}>
+        {active && <WatchlistDot color={active.color} />}
+        <div style={{ textAlign: "left", flex: 1 }}>
+          <div style={{
+            fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 500,
+            color: T.inkPrimary, letterSpacing: "-0.015em", lineHeight: 1,
+          }}>
+            {loading ? "Chargement…" : active ? active.name : "Aucune watchlist"}
+          </div>
+          {active && (
+            <div style={{
+              fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary,
+              fontWeight: 500, marginTop: 3, letterSpacing: "0.02em",
+            }}>
+              {active.kind === "OPPORTUNITY" ? "Dynamique sur signaux" :
+               active.kind === "DCA" ? "Accumulation programmée" :
+               "Convictions long terme"}
+              {" · "}
+              {active.items_count} actif{active.items_count > 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+        <ChevronDown size={16} strokeWidth={2}
+          style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 200ms" }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+          backgroundColor: T.bgSurface,
+          border: `1.5px solid ${T.inkPrimary}`,
+          borderRadius: 10, overflow: "hidden", zIndex: 10,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+        }}>
+          {watchlists.map((w, i) => {
+            const isActive = w.watchlist_id === activeId;
+            const Icon = w.icon ? ICON_MAP[w.icon] : null;
+            return (
+              <div
+                key={w.watchlist_id}
+                onClick={() => { onSelect(w.watchlist_id); setOpen(false); }}
+                style={{
+                  padding: "12px 14px",
+                  borderBottom: i === watchlists.length - 1 && !onOpenCreate
+                    ? "none" : `1px solid ${T.borderSubtle}`,
+                  display: "flex", alignItems: "center", gap: 10,
+                  cursor: "pointer",
+                  backgroundColor: isActive ? T.bgHover : T.bgSurface,
+                  transition: "background-color 200ms",
+                }}>
+                <WatchlistDot color={w.color} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {Icon && <Icon size={13} strokeWidth={2} color={T.inkSecondary} />}
+                    <span style={{
+                      fontFamily: FONT_SANS, fontSize: 13.5,
+                      fontWeight: isActive ? 700 : 500,
+                      color: T.inkPrimary,
+                    }}>{w.name}</span>
+                    {w.is_default && (
+                      <span style={{
+                        fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+                        letterSpacing: "0.1em", color: T.gold,
+                        padding: "2px 5px", border: `1px solid ${T.gold}`,
+                        borderRadius: 3, textTransform: "uppercase",
+                      }}>défaut</span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontFamily: FONT_SANS, fontSize: 11,
+                    color: T.inkTertiary, fontWeight: 500, marginTop: 2,
+                  }}>
+                    {w.kind === "OPPORTUNITY" ? "Dynamique" :
+                     w.kind === "DCA" ? "DCA" : "Conviction"}
+                    {" · "}{w.items_count} actif{w.items_count > 1 ? "s" : ""}
+                    {w.account_name && ` · ${w.account_name}`}
+                  </div>
+                </div>
+                {isActive && <CheckCircle2 size={14} strokeWidth={2.5} color={T.forestGreen} />}
+              </div>
+            );
+          })}
+          <div
+            onClick={() => { setOpen(false); onOpenCreate(); }}
+            style={{
+              padding: "12px 14px", display: "flex", alignItems: "center", gap: 10,
+              cursor: "pointer", backgroundColor: T.bgSurface,
+              transition: "background-color 200ms",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = T.bgSurface}>
+            <Plus size={14} strokeWidth={2.5} color={T.forestGreen} />
+            <span style={{
+              fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600,
+              color: T.forestGreen,
+            }}>Nouvelle watchlist</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Accordion pour créer une watchlist (pas de modale — anti-pattern noté)
+const CreateWatchlistAccordion = ({ open, onClose, onCreate }) => {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("CONVICTION");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState(null);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!name.trim()) {
+      setErr("Le nom est requis");
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onCreate({ name: name.trim(), kind });
+      setName("");
+      setKind("CONVICTION");
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      margin: "0 20px 16px", padding: 16,
+      backgroundColor: T.bgSurface,
+      border: `1.5px solid ${T.forestGreen}`,
+      borderRadius: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <Eyebrow variant="accent">Nouvelle watchlist</Eyebrow>
+        <button onClick={onClose} style={{
+          background: "none", border: "none", cursor: "pointer", padding: 4,
+          color: T.inkTertiary,
+        }}><X size={16} strokeWidth={2} /></button>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{
+          display: "block", fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700,
+          letterSpacing: "0.1em", textTransform: "uppercase",
+          color: T.inkTertiary, marginBottom: 6,
+        }}>Nom</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Ex: Pépites US, DCA Tech, …"
+          style={{
+            width: "100%", padding: "10px 12px",
+            border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 14, color: T.inkPrimary,
+            backgroundColor: T.bgCanvas,
+            outline: "none",
+          }}
+          onFocus={(e) => e.target.style.borderColor = T.inkPrimary}
+          onBlur={(e) => e.target.style.borderColor = T.borderSubtle}
+        />
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label style={{
+          display: "block", fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700,
+          letterSpacing: "0.1em", textTransform: "uppercase",
+          color: T.inkTertiary, marginBottom: 6,
+        }}>Type</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { k: "CONVICTION", label: "Conviction", desc: "Liste fixe long terme" },
+            { k: "OPPORTUNITY", label: "Opportunités", desc: "Dynamique sur signaux" },
+            { k: "DCA", label: "DCA", desc: "Accumulation programmée" },
+          ].map((opt) => {
+            const active = kind === opt.k;
+            return (
+              <button
+                key={opt.k}
+                onClick={() => setKind(opt.k)}
+                style={{
+                  flex: 1, minWidth: 90,
+                  padding: "10px 8px", textAlign: "left",
+                  border: `1.5px solid ${active ? T.forestGreen : T.borderSubtle}`,
+                  backgroundColor: active ? T.bgPour : T.bgCanvas,
+                  borderRadius: 8, cursor: "pointer",
+                }}>
+                <div style={{
+                  fontFamily: FONT_SANS, fontSize: 12.5,
+                  fontWeight: active ? 700 : 600,
+                  color: active ? T.forestGreen : T.inkPrimary,
+                }}>{opt.label}</div>
+                <div style={{
+                  fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary,
+                  fontWeight: 500, marginTop: 2,
+                }}>{opt.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {err && (
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy,
+          marginBottom: 10, fontWeight: 500,
+        }}>{err}</div>
+      )}
+
+      <button
+        onClick={submit}
+        disabled={submitting}
+        style={{
+          width: "100%", padding: 12,
+          backgroundColor: T.inkPrimary, color: T.inkOnDark,
+          border: "none", borderRadius: 10,
+          fontFamily: FONT_SANS, fontSize: 13.5, fontWeight: 600,
+          cursor: submitting ? "default" : "pointer",
+          opacity: submitting ? 0.6 : 1,
+        }}>
+        {submitting ? "Création…" : "Créer la watchlist"}
+      </button>
+    </div>
+  );
+};
+
+// Accordion pour ajouter un actif (recherche)
+const AddAssetAccordion = ({ open, onClose, onAddAsset, currentWatchlistName }) => {
+  const { query, setQuery, results, loading, error, createUserAsset } = useAssetSearch();
+  const [busyAssetId, setBusyAssetId] = useState(null);
+  const [submitErr, setSubmitErr] = useState(null);
+
+  if (!open) return null;
+
+  const handleAddInternal = async (r) => {
+    setBusyAssetId(r.asset_id);
+    setSubmitErr(null);
+    try {
+      await onAddAsset(r.asset_id);
+      setQuery("");
+    } catch (e) {
+      setSubmitErr(e.message || "Erreur");
+    } finally {
+      setBusyAssetId(null);
+    }
+  };
+
+  const handleAddExternal = async (r) => {
+    const key = `ext:${r.ticker}:${r.exchange_mic}`;
+    setBusyAssetId(key);
+    setSubmitErr(null);
+    try {
+      const newAssetId = await createUserAsset(r);
+      await onAddAsset(newAssetId);
+      setQuery("");
+    } catch (e) {
+      setSubmitErr(e.message || "Erreur");
+    } finally {
+      setBusyAssetId(null);
+    }
+  };
+
+  return (
+    <div style={{
+      margin: "0 20px 16px", padding: 16,
+      backgroundColor: T.bgSurface,
+      border: `1.5px solid ${T.forestGreen}`,
+      borderRadius: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <Eyebrow variant="accent">Ajouter un actif à {currentWatchlistName}</Eyebrow>
+        <button onClick={onClose} style={{
+          background: "none", border: "none", cursor: "pointer", padding: 4,
+          color: T.inkTertiary,
+        }}><X size={16} strokeWidth={2} /></button>
+      </div>
+
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <Search size={14} strokeWidth={2} color={T.inkTertiary}
+          style={{ position: "absolute", left: 12, top: 12 }} />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ticker ou nom (ex: NVDA, Carrefour, ISIN…)"
+          autoFocus
+          style={{
+            width: "100%", padding: "10px 12px 10px 34px",
+            border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 14, color: T.inkPrimary,
+            backgroundColor: T.bgCanvas, outline: "none",
+          }}
+          onFocus={(e) => e.target.style.borderColor = T.inkPrimary}
+          onBlur={(e) => e.target.style.borderColor = T.borderSubtle}
+        />
+      </div>
+
+      {submitErr && (
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy,
+          marginBottom: 10, fontWeight: 500,
+        }}>{submitErr}</div>
+      )}
+
+      {loading && (
+        <div style={{
+          padding: "12px 0", textAlign: "center", color: T.inkTertiary,
+          fontFamily: FONT_SANS, fontSize: 12.5,
+        }}>Recherche…</div>
+      )}
+
+      {!loading && query.length >= 2 && results.internal.length === 0 && results.external.length === 0 && (
+        <div style={{
+          padding: "16px 0", textAlign: "center", color: T.inkTertiary,
+          fontFamily: FONT_SANS, fontSize: 12.5,
+        }}>Aucun résultat pour "{query}".</div>
+      )}
+
+      {results.internal.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{
+            fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700,
+            letterSpacing: "0.1em", textTransform: "uppercase",
+            color: T.forestGreen, marginBottom: 6,
+          }}>Univers Nexial</div>
+          {results.internal.map((r) => (
+            <SearchResultRow
+              key={r.asset_id}
+              ticker={r.ticker}
+              name={r.asset_name}
+              meta={[r.exchange_mic, r.currency, r.coverage_level === "NEXIAL_CORE" ? "★ Couvert" : "Suivi simple"].filter(Boolean).join(" · ")}
+              isPremium={r.coverage_level === "NEXIAL_CORE"}
+              busy={busyAssetId === r.asset_id}
+              onAdd={() => handleAddInternal(r)}
+            />
+          ))}
+        </div>
+      )}
+
+      {results.external.length > 0 && (
+        <div>
+          <div style={{
+            fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700,
+            letterSpacing: "0.1em", textTransform: "uppercase",
+            color: T.inkTertiary, marginBottom: 6,
+          }}>Marchés externes (suivi simple)</div>
+          {results.external.map((r) => {
+            const key = `ext:${r.ticker}:${r.exchange_mic}`;
+            return (
+              <SearchResultRow
+                key={key}
+                ticker={r.ticker}
+                name={r.asset_name}
+                meta={[r.exchange_mic, r.currency, r.country].filter(Boolean).join(" · ")}
+                isPremium={false}
+                isTracked
+                busy={busyAssetId === key}
+                onAdd={() => handleAddExternal(r)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {!results.external_search_available && (
+        <div style={{
+          marginTop: 10, padding: "8px 10px",
+          backgroundColor: T.bgAlert, borderRadius: 6,
+          fontFamily: FONT_SANS, fontSize: 11, color: T.amber,
+          fontWeight: 500, lineHeight: 1.4,
+        }}>
+          Recherche externe désactivée (TWELVE_DATA_API_KEY manquante).
+          Seuls les actifs déjà dans nx.assets sont recherchés.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SearchResultRow = ({ ticker, name, meta, isPremium, isTracked, busy, onAdd }) => (
+  <div style={{
+    display: "flex", alignItems: "center", gap: 10,
+    padding: "10px 8px", borderRadius: 6,
+    cursor: busy ? "default" : "pointer",
+    backgroundColor: busy ? T.bgHover : "transparent",
+    transition: "background-color 200ms",
+  }}
+  onClick={busy ? undefined : onAdd}
+  onMouseEnter={(e) => !busy && (e.currentTarget.style.backgroundColor = T.bgHover)}
+  onMouseLeave={(e) => !busy && (e.currentTarget.style.backgroundColor = "transparent")}>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{
+          fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700,
+          color: T.inkPrimary, letterSpacing: "0.02em",
+        }}>{ticker}</span>
+        {isPremium && (
+          <span style={{
+            fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+            letterSpacing: "0.1em", color: T.gold,
+            padding: "1px 5px", border: `1px solid ${T.gold}`,
+            borderRadius: 3, textTransform: "uppercase",
+          }}>★</span>
+        )}
+        {isTracked && (
+          <span style={{
+            fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+            letterSpacing: "0.1em", color: T.inkTertiary,
+            padding: "1px 5px", border: `1px solid ${T.inkTertiary}`,
+            borderRadius: 3, textTransform: "uppercase",
+          }}>suivi</span>
+        )}
+      </div>
+      <div style={{
+        fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary,
+        fontWeight: 500, marginTop: 2,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>{name}</div>
+      <div style={{
+        fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary,
+        fontWeight: 500, marginTop: 1, letterSpacing: "0.02em",
+      }}>{meta}</div>
+    </div>
+    {busy ? (
+      <span style={{
+        fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 600,
+      }}>Ajout…</span>
+    ) : (
+      <Plus size={16} strokeWidth={2.2} color={T.forestGreen} />
+    )}
+  </div>
+);
+
 const WatchlistPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [filter, setFilter] = useState("all");
-  const { items, loading, error } = useWatchlist();
+  const [activeId, setActiveId] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showAddAsset, setShowAddAsset] = useState(false);
 
-  // Adapter Supabase row -> WatchlistRow expected shape
+  const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
+
+  // Auto-sélection: default watchlist au premier load
+  React.useEffect(() => {
+    if (!activeId && watchlists.length > 0) {
+      const def = watchlists.find((w) => w.is_default) || watchlists[0];
+      setActiveId(def.watchlist_id);
+    }
+  }, [watchlists, activeId]);
+
+  const activeWatchlist = watchlists.find((w) => w.watchlist_id === activeId);
+  const { items, loading: itemsLoading, error, addItem } = useWatchlistItems(activeId);
+
+  React.useEffect(() => {
+    setFilter("all");
+  }, [activeId]);
+
+  // Adapter Supabase row -> WatchlistRow expected shape (préserve sous-composants existants)
   const adaptedItems = useMemo(() => {
     return (items || []).map((it) => ({
       ticker: it.ticker,
@@ -1425,6 +1921,7 @@ const WatchlistPage = ({ onAssetClick }) => {
       price: Number(it.current_price ?? 0),
       isHeld: it.in_portfolio === true,
       currency: it.currency || "USD",
+      asset_id: it.asset_id,
     }));
   }, [items]);
 
@@ -1443,23 +1940,91 @@ const WatchlistPage = ({ onAssetClick }) => {
   const watchCount = adaptedItems.filter((w) =>
     w.state === "WATCH_PULLBACK" || w.state === "WATCH_BORDERLINE").length;
 
+  const isOpportunityWl = activeWatchlist?.kind === "OPPORTUNITY";
+
+  const handleCreate = async (input) => {
+    const newId = await createWatchlist(input);
+    setActiveId(newId);
+  };
+
+  const handleAddAsset = async (assetId) => {
+    await addItem(assetId);
+    setShowAddAsset(false);
+  };
+
   return (
     <>
-      <PageHeader
-        eyebrow="Watchlist"
-        title={loading ? "Chargement…" : `${adaptedItems.length} actifs surveillés`}
-        subtitle="Univers Nexial"
-        action={
-          <SegmentedControl
-            options={[
-              { value: "list", label: "", icon: <List size={14} strokeWidth={2} /> },
-              { value: "card", label: "", icon: <LayoutGrid size={14} strokeWidth={2} /> },
-            ]}
-            value={viewMode}
-            onChange={setViewMode}
+      <header style={{ padding: "28px 20px 16px" }}>
+        <Eyebrow>Watchlist</Eyebrow>
+        <div style={{ marginTop: 10, marginBottom: 12 }}>
+          <WatchlistSwitcher
+            watchlists={watchlists}
+            activeId={activeId}
+            onSelect={(id) => { setActiveId(id); setShowAddAsset(false); }}
+            onOpenCreate={() => { setShowCreate(true); setShowAddAsset(false); }}
+            loading={wlLoading}
           />
-        }
+        </div>
+        {activeWatchlist && !isOpportunityWl && (
+          <button
+            onClick={() => { setShowAddAsset((s) => !s); setShowCreate(false); }}
+            style={{
+              width: "100%", padding: "10px 14px",
+              backgroundColor: showAddAsset ? T.bgPour : T.bgSurface,
+              color: T.forestGreen,
+              border: `1.5px dashed ${T.forestGreen}`,
+              borderRadius: 8, cursor: "pointer",
+              fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}>
+            <Plus size={14} strokeWidth={2.5} />
+            Ajouter un actif
+          </button>
+        )}
+        {isOpportunityWl && (
+          <div style={{
+            padding: "10px 12px", backgroundColor: T.bgAlert, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 11.5, color: T.amber,
+            fontWeight: 500, lineHeight: 1.45,
+          }}>
+            Watchlist dynamique : les actifs apparaissent automatiquement quand
+            un signal Nexial (BUY_ZONE, HOT_PULLBACK, WATCH_PULLBACK) se déclenche.
+          </div>
+        )}
+      </header>
+
+      <CreateWatchlistAccordion
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreate={handleCreate}
       />
+
+      <AddAssetAccordion
+        open={showAddAsset}
+        onClose={() => setShowAddAsset(false)}
+        onAddAsset={handleAddAsset}
+        currentWatchlistName={activeWatchlist?.name || ""}
+      />
+
+      <div style={{
+        padding: "0 20px 16px", display: "flex", justifyContent: "space-between",
+        alignItems: "center", gap: 12,
+      }}>
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 13, color: T.inkTertiary, fontWeight: 500,
+        }}>
+          {itemsLoading ? "Chargement…" : `${adaptedItems.length} actif${adaptedItems.length > 1 ? "s" : ""}`}
+        </div>
+        <SegmentedControl
+          options={[
+            { value: "list", label: "", icon: <List size={14} strokeWidth={2} /> },
+            { value: "card", label: "", icon: <LayoutGrid size={14} strokeWidth={2} /> },
+          ]}
+          value={viewMode}
+          onChange={setViewMode}
+        />
+      </div>
+
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
         <FilterChip active={filter === "all"} onClick={() => setFilter("all")} count={adaptedItems.length}>
           Tous
@@ -1474,21 +2039,31 @@ const WatchlistPage = ({ onAssetClick }) => {
           Surveillance
         </FilterChip>
       </div>
+
       {error && (
         <div style={{ padding: "12px 20px", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
           Erreur de chargement — réessai automatique dans 60s.
         </div>
       )}
+
       {viewMode === "list" ? (
         <div style={{
           margin: "0 20px", backgroundColor: T.bgSurface,
           border: `1px solid ${T.borderSubtle}`, borderRadius: 12, overflow: "hidden",
         }}>
-          {filtered.length === 0 ? (
-            <EmptyState icon={Eye} title="Rien à surveiller" message="Aucun actif ne correspond à ce filtre." />
+          {filtered.length === 0 && !itemsLoading ? (
+            <EmptyState
+              icon={Eye}
+              title={isOpportunityWl ? "Aucune opportunité" : "Watchlist vide"}
+              message={isOpportunityWl
+                ? "Aucun signal favorable détecté actuellement. La liste se met à jour automatiquement."
+                : filter === "all"
+                  ? "Ajoute des actifs avec le bouton ci-dessus."
+                  : "Aucun actif ne correspond à ce filtre."}
+            />
           ) : (
             filtered.map((w, i) => (
-              <WatchlistRow key={w.ticker} item={w} viewMode="list"
+              <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="list"
                 isLast={i === filtered.length - 1}
                 onClick={() => onAssetClick(w.ticker)} />
             ))
@@ -1500,7 +2075,7 @@ const WatchlistPage = ({ onAssetClick }) => {
           gridTemplateColumns: "1fr 1fr", gap: 10,
         }}>
           {filtered.map((w) => (
-            <WatchlistRow key={w.ticker} item={w} viewMode="card"
+            <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="card"
               onClick={() => onAssetClick(w.ticker)} />
           ))}
         </div>
