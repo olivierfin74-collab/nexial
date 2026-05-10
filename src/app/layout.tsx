@@ -1,6 +1,5 @@
 import './globals.css'
 import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google'
-import AppNav from '@/components/layout/AppNav'
 import { Toaster } from 'sonner'
 
 const fraunces = Fraunces({
@@ -28,8 +27,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr" className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top_left,#1e3a8a_0,#07111f_45%,#020617_100%)] text-white">
-        <AppNav>{children}</AppNav>
+      <body className="min-h-screen overflow-x-hidden" style={{ backgroundColor: '#FBF9F4', color: '#1F2937' }}>
+        {children}
         <Toaster
           position="top-right"
           expand={false}
