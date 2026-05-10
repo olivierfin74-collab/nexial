@@ -1,9 +1,14 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   Bell, ChevronRight, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown,
   ArrowLeft, LayoutGrid, List, Filter, Eye, Activity, Sparkles,
   CheckCircle2, XCircle, Award, Clock, AlertCircle,
+  Plus, X, Trash2, Edit3, MoreHorizontal, Search,
+  Zap, Flame, Repeat, ShieldCheck,
 } from "lucide-react";
+import { useWatchlists } from "@/lib/hooks/useWatchlists";
+import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
+import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 
 /* ============================================================
    NEXIAL DESKTOP — PROTO COMPLET V2 (5 pages + détail asset + dev/admin)
@@ -19,6 +24,27 @@ import {
     + Détail asset — fiche d'analyse 2 colonnes magazine
     + Dev/Admin   — monitoring opérationnel (caché, lien footer)
    ============================================================ */
+
+// Deterministic PRNG (mulberry32) for SSR-safe mock series generation
+const makeRng = (seed) => {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const stringSeed = (str) => {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < (str || "").length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
 
 /* ---------- Tokens v2 contraste renforcé (alignés mobile validé) ---------- */
 const T = {
@@ -197,20 +223,21 @@ const Sparkline = ({
 /* ============================================================
    MOCK DATA (réelles 8 mai 2026, alignées mobile validé)
    ============================================================ */
-const genSeries = (start, end, n, vol = 0.012) => {
+const genSeries = (start, end, n, vol = 0.012, seedKey = "default") => {
+  const rng = makeRng(stringSeed(seedKey));
   const data = [];
   let v = start;
   for (let i = 0; i < n; i++) {
     const drift = (end / start - 1) / n;
-    v = v * (1 + drift + (Math.random() - 0.5) * vol);
+    v = v * (1 + drift + (rng() - 0.5) * vol);
     data.push(v);
   }
   const scale = end / data[data.length - 1];
   return data.map((x) => x * scale);
 };
 
-const portfolioSeries = genSeries(125000, 149903, 84, 0.013);
-const msciBenchSeries = genSeries(125000, 141000, 84, 0.009);
+const portfolioSeries = genSeries(125000, 149903, 84, 0.013, "portfolio-main");
+const msciBenchSeries = genSeries(125000, 141000, 84, 0.009, "msci-bench");
 
 const MOCK = {
   user: { name: "Olivier" },
@@ -2139,78 +2166,500 @@ const PortefeuillePage = ({ onAssetClick }) => {
 /* ============================================================
    PAGE — WATCHLIST (scanner premium, scores et états)
    ============================================================ */
-const stateMeta = (state) => {
-  if (state === "OPPORTUNITY_LIGHT") return { label: "Opportunité", color: T.forestGreen, bg: T.bgPour };
-  if (state === "WATCH_BORDERLINE") return { label: "À surveiller", color: T.gold, bg: "rgba(125,102,40,0.08)" };
-  if (state === "FLASH_DROP") return { label: "Flash drop", color: T.burgundy, bg: T.bgContre };
-  if (state === "OVERBOUGHT") return { label: "Surachat", color: T.amber, bg: T.bgAlert };
-  if (state === "HOLD") return { label: "Détenu", color: T.inkSecondary, bg: T.bgSubtle };
-  return { label: state, color: T.inkTertiary, bg: T.bgSubtle };
+const WL_ICON_MAP = {
+  "shield-check": ShieldCheck,
+  "flame": Flame,
+  "zap": Zap,
+  "repeat": Repeat,
+  "eye": Eye,
 };
 
-const WatchlistHeader = ({ filter, setFilter, viewMode, setViewMode }) => (
-  <header style={{
-    paddingTop: 36, paddingBottom: 24,
-    borderBottom: `1px solid ${T.borderUltra}`,
+const KIND_META = {
+  CONVICTION: { label: "Conviction", desc: "Liste fixe long terme" },
+  OPPORTUNITY: { label: "Opportunités", desc: "Dynamique sur signaux" },
+  DCA: { label: "DCA", desc: "Accumulation programmée" },
+};
+
+const WatchlistSidebarItem = ({ watchlist, isActive, onClick }) => {
+  const Icon = watchlist.icon ? WL_ICON_MAP[watchlist.icon] : null;
+  return (
+    <button onClick={onClick} style={{
+      width: "100%", textAlign: "left",
+      display: "block", padding: "10px 12px",
+      borderRadius: 8, border: "none", cursor: "pointer",
+      backgroundColor: isActive ? T.bgPour : "transparent",
+      transition: "background-color 200ms",
+      marginBottom: 2,
+    }}
+    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = T.bgHover; }}
+    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = "transparent"; }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: "50%",
+          backgroundColor: watchlist.color || T.forestGreen, flexShrink: 0,
+        }} />
+        {Icon && <Icon size={13} strokeWidth={2} color={isActive ? T.forestGreen : T.inkSecondary} />}
+        <span style={{
+          fontFamily: FONT_SANS, fontSize: 13,
+          fontWeight: isActive ? 700 : 500,
+          color: isActive ? T.forestGreen : T.inkPrimary,
+          flex: 1, minWidth: 0,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>{watchlist.name}</span>
+        {watchlist.is_default && (
+          <span style={{
+            fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+            letterSpacing: "0.08em", color: T.gold,
+            padding: "1px 5px", border: `1px solid ${T.gold}`,
+            borderRadius: 3, textTransform: "uppercase",
+          }}>défaut</span>
+        )}
+      </div>
+      <div style={{
+        fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary,
+        fontWeight: 500, paddingLeft: 16, letterSpacing: "0.02em",
+      }}>
+        {KIND_META[watchlist.kind]?.label || watchlist.kind}
+        {" · "}{watchlist.items_count} actif{watchlist.items_count > 1 ? "s" : ""}
+        {watchlist.account_name && ` · ${watchlist.account_name}`}
+      </div>
+    </button>
+  );
+};
+
+const WatchlistSidebar = ({ watchlists, activeId, onSelect, onOpenCreate, loading }) => (
+  <aside style={{
+    width: 240, flexShrink: 0,
+    padding: "0 8px 0 0",
+    borderRight: `1px solid ${T.borderUltra}`,
   }}>
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 32 }}>
-      <div>
+    <div style={{ padding: "0 12px 12px" }}>
+      <Eyebrow color={T.inkTertiary}>Mes watchlists</Eyebrow>
+    </div>
+    {loading ? (
+      <div style={{
+        padding: "16px 12px", color: T.inkTertiary,
+        fontFamily: FONT_SANS, fontSize: 12, fontWeight: 500,
+      }}>Chargement…</div>
+    ) : (
+      <>
+        {watchlists.map((w) => (
+          <WatchlistSidebarItem
+            key={w.watchlist_id}
+            watchlist={w}
+            isActive={w.watchlist_id === activeId}
+            onClick={() => onSelect(w.watchlist_id)}
+          />
+        ))}
+        <button onClick={onOpenCreate} style={{
+          width: "100%", textAlign: "left",
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "10px 12px", marginTop: 8,
+          border: `1.5px dashed ${T.forestGreen}`,
+          backgroundColor: "transparent",
+          borderRadius: 8, cursor: "pointer",
+          fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 600,
+          color: T.forestGreen,
+          transition: "background-color 200ms",
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgPour}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}>
+          <Plus size={14} strokeWidth={2.5} />
+          Nouvelle watchlist
+        </button>
+      </>
+    )}
+  </aside>
+);
+
+const CreateWatchlistPanel = ({ open, onClose, onCreate }) => {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("CONVICTION");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState(null);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!name.trim()) { setErr("Le nom est requis"); return; }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await onCreate({ name: name.trim(), kind });
+      setName(""); setKind("CONVICTION");
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Erreur");
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div style={{
+      padding: "20px 24px", marginBottom: 20,
+      backgroundColor: T.bgSurface,
+      border: `1.5px solid ${T.forestGreen}`,
+      borderRadius: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <Eyebrow color={T.forestGreen}>Nouvelle watchlist</Eyebrow>
+        <button onClick={onClose} style={{
+          background: "none", border: "none", cursor: "pointer", padding: 4,
+          color: T.inkTertiary,
+        }}><X size={16} strokeWidth={2} /></button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <div>
+          <label style={{
+            display: "block", fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700,
+            letterSpacing: "0.10em", textTransform: "uppercase",
+            color: T.inkTertiary, marginBottom: 6,
+          }}>Nom</label>
+          <input
+            type="text" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="Ex: Pépites US, DCA Tech, …"
+            style={{
+              width: "100%", padding: "10px 12px",
+              border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+              fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary,
+              backgroundColor: T.bgCanvas, outline: "none",
+            }}
+            onFocus={(e) => e.target.style.borderColor = T.inkPrimary}
+            onBlur={(e) => e.target.style.borderColor = T.borderSubtle}
+          />
+        </div>
+        <div>
+          <label style={{
+            display: "block", fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700,
+            letterSpacing: "0.10em", textTransform: "uppercase",
+            color: T.inkTertiary, marginBottom: 6,
+          }}>Type</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {Object.entries(KIND_META).map(([k, m]) => {
+              const active = kind === k;
+              return (
+                <button key={k} onClick={() => setKind(k)} style={{
+                  flex: 1, padding: "9px 6px",
+                  border: `1.5px solid ${active ? T.forestGreen : T.borderSubtle}`,
+                  backgroundColor: active ? T.bgPour : T.bgCanvas,
+                  borderRadius: 8, cursor: "pointer",
+                  fontFamily: FONT_SANS, fontSize: 11.5,
+                  fontWeight: active ? 700 : 600,
+                  color: active ? T.forestGreen : T.inkPrimary,
+                }}>{m.label}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {err && (
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy,
+          marginBottom: 10, fontWeight: 500,
+        }}>{err}</div>
+      )}
+
+      <button onClick={submit} disabled={submitting} style={{
+        padding: "10px 24px",
+        backgroundColor: T.inkPrimary, color: T.inkOnDark,
+        border: "none", borderRadius: 8,
+        fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600,
+        cursor: submitting ? "default" : "pointer",
+        opacity: submitting ? 0.6 : 1,
+      }}>
+        {submitting ? "Création…" : "Créer la watchlist"}
+      </button>
+    </div>
+  );
+};
+
+const DesktopSearchResultRow = ({ ticker, name, meta, isPremium, isTracked, busy, onAdd }) => (
+  <div style={{
+    display: "flex", alignItems: "center", gap: 10,
+    padding: "10px 10px", borderRadius: 6,
+    cursor: busy ? "default" : "pointer",
+    backgroundColor: busy ? T.bgHover : "transparent",
+    transition: "background-color 200ms",
+  }}
+  onClick={busy ? undefined : onAdd}
+  onMouseEnter={(e) => !busy && (e.currentTarget.style.backgroundColor = T.bgHover)}
+  onMouseLeave={(e) => !busy && (e.currentTarget.style.backgroundColor = "transparent")}>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{
+          fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 700,
+          color: T.inkPrimary, letterSpacing: "0.02em",
+        }}>{ticker}</span>
+        {isPremium && (
+          <span style={{
+            fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+            letterSpacing: "0.08em", color: T.gold,
+            padding: "1px 5px", border: `1px solid ${T.gold}`,
+            borderRadius: 3, textTransform: "uppercase",
+          }}>★</span>
+        )}
+        {isTracked && (
+          <span style={{
+            fontFamily: FONT_SANS, fontSize: 8.5, fontWeight: 700,
+            letterSpacing: "0.08em", color: T.inkTertiary,
+            padding: "1px 5px", border: `1px solid ${T.inkTertiary}`,
+            borderRadius: 3, textTransform: "uppercase",
+          }}>suivi</span>
+        )}
+      </div>
+      <div style={{
+        fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkSecondary,
+        fontWeight: 500, marginTop: 2,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>{name}</div>
+      <div style={{
+        fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary,
+        fontWeight: 500, marginTop: 1,
+      }}>{meta}</div>
+    </div>
+    {busy ? (
+      <span style={{
+        fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 600,
+      }}>Ajout…</span>
+    ) : (
+      <Plus size={16} strokeWidth={2.2} color={T.forestGreen} />
+    )}
+  </div>
+);
+
+const AddAssetPanel = ({ open, onClose, onAddAsset, currentWatchlistName }) => {
+  const { query, setQuery, results, loading, error, createUserAsset } = useAssetSearch();
+  const [busyKey, setBusyKey] = useState(null);
+  const [submitErr, setSubmitErr] = useState(null);
+
+  if (!open) return null;
+
+  const handleAddInternal = async (r) => {
+    setBusyKey(r.asset_id); setSubmitErr(null);
+    try { await onAddAsset(r.asset_id); setQuery(""); }
+    catch (e) { setSubmitErr(e.message || "Erreur"); }
+    finally { setBusyKey(null); }
+  };
+
+  const handleAddExternal = async (r) => {
+    const key = `ext:${r.ticker}:${r.exchange_mic}`;
+    setBusyKey(key); setSubmitErr(null);
+    try {
+      const newAssetId = await createUserAsset(r);
+      await onAddAsset(newAssetId);
+      setQuery("");
+    } catch (e) { setSubmitErr(e.message || "Erreur"); }
+    finally { setBusyKey(null); }
+  };
+
+  return (
+    <div style={{
+      padding: "20px 24px", marginBottom: 20,
+      backgroundColor: T.bgSurface,
+      border: `1.5px solid ${T.forestGreen}`,
+      borderRadius: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <Eyebrow color={T.forestGreen}>Ajouter un actif à {currentWatchlistName}</Eyebrow>
+        <button onClick={onClose} style={{
+          background: "none", border: "none", cursor: "pointer", padding: 4,
+          color: T.inkTertiary,
+        }}><X size={16} strokeWidth={2} /></button>
+      </div>
+
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <Search size={14} strokeWidth={2} color={T.inkTertiary}
+          style={{ position: "absolute", left: 12, top: 12 }} />
+        <input
+          type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ticker, nom ou ISIN (ex: NVDA, Carrefour, FR0000120172)"
+          autoFocus
+          style={{
+            width: "100%", padding: "10px 12px 10px 34px",
+            border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary,
+            backgroundColor: T.bgCanvas, outline: "none",
+          }}
+          onFocus={(e) => e.target.style.borderColor = T.inkPrimary}
+          onBlur={(e) => e.target.style.borderColor = T.borderSubtle}
+        />
+      </div>
+
+      {submitErr && (
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy,
+          marginBottom: 10, fontWeight: 500,
+        }}>{submitErr}</div>
+      )}
+
+      {loading && (
+        <div style={{
+          padding: "12px 0", textAlign: "center", color: T.inkTertiary,
+          fontFamily: FONT_SANS, fontSize: 12.5,
+        }}>Recherche…</div>
+      )}
+
+      {!loading && query.length >= 2 && results.internal.length === 0 && results.external.length === 0 && (
+        <div style={{
+          padding: "16px 0", textAlign: "center", color: T.inkTertiary,
+          fontFamily: FONT_SANS, fontSize: 12.5,
+        }}>Aucun résultat pour "{query}".</div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {results.internal.length > 0 && (
+          <div>
+            <div style={{
+              fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
+              letterSpacing: "0.10em", textTransform: "uppercase",
+              color: T.forestGreen, marginBottom: 6,
+            }}>Univers Nexial</div>
+            {results.internal.map((r) => (
+              <DesktopSearchResultRow
+                key={r.asset_id}
+                ticker={r.ticker} name={r.asset_name}
+                meta={[r.exchange_mic, r.currency, r.coverage_level === "NEXIAL_CORE" ? "★ Couvert" : "Suivi simple"].filter(Boolean).join(" · ")}
+                isPremium={r.coverage_level === "NEXIAL_CORE"}
+                busy={busyKey === r.asset_id}
+                onAdd={() => handleAddInternal(r)}
+              />
+            ))}
+          </div>
+        )}
+        {results.external.length > 0 && (
+          <div>
+            <div style={{
+              fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
+              letterSpacing: "0.10em", textTransform: "uppercase",
+              color: T.inkTertiary, marginBottom: 6,
+            }}>Marchés externes (suivi simple)</div>
+            {results.external.map((r) => {
+              const key = `ext:${r.ticker}:${r.exchange_mic}`;
+              return (
+                <DesktopSearchResultRow
+                  key={key} ticker={r.ticker} name={r.asset_name}
+                  meta={[r.exchange_mic, r.currency, r.country].filter(Boolean).join(" · ")}
+                  isTracked
+                  busy={busyKey === key}
+                  onAdd={() => handleAddExternal(r)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {!results.external_search_available && (
+        <div style={{
+          marginTop: 12, padding: "8px 12px",
+          backgroundColor: T.bgAlert, borderRadius: 6,
+          fontFamily: FONT_SANS, fontSize: 11, color: T.amber,
+          fontWeight: 500, lineHeight: 1.4,
+        }}>
+          Recherche externe désactivée (TWELVE_DATA_API_KEY manquante).
+        </div>
+      )}
+    </div>
+  );
+};
+
+const WatchlistMainHeader = ({
+  activeWatchlist, itemsCount, isOpportunity,
+  viewMode, setViewMode, filter, setFilter,
+  filterCounts, onAddAsset, addAssetOpen,
+}) => (
+  <header style={{
+    paddingBottom: 20, borderBottom: `1px solid ${T.borderUltra}`,
+    marginBottom: 20,
+  }}>
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, marginBottom: 14 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <Eyebrow color={T.inkTertiary}>{MOCK.date.full}</Eyebrow>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginTop: 10 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
           <h1 style={{
             margin: 0,
-            fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 400,
-            color: T.forestGreen, lineHeight: 1.05,
-            letterSpacing: "-0.024em",
-          }}>Watchlist</h1>
+            fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 400,
+            color: T.forestGreen, lineHeight: 1.05, letterSpacing: "-0.024em",
+          }}>{activeWatchlist?.name || "Watchlist"}</h1>
           <span style={{
-            fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 18,
-            color: T.inkSecondary, fontWeight: 400, letterSpacing: "-0.005em",
+            fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 16,
+            color: T.inkSecondary, fontWeight: 400,
           }}>
-            <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{MOCK.watchlist.length} actifs</em>
-            {" "}surveillés · univers de qualité supérieure
+            <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>
+              {itemsCount} actif{itemsCount > 1 ? "s" : ""}
+            </em>
+            {activeWatchlist && (
+              <> · {KIND_META[activeWatchlist.kind]?.desc || ""}</>
+            )}
           </span>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 4, padding: 4, backgroundColor: T.bgSubtle, borderRadius: 8 }}>
-        <button onClick={() => setViewMode("list")} style={{
-          padding: "8px 12px", border: "none",
-          backgroundColor: viewMode === "list" ? T.bgSurface : "transparent",
-          boxShadow: viewMode === "list" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
-          borderRadius: 6, cursor: "pointer", color: viewMode === "list" ? T.inkPrimary : T.inkTertiary,
-          display: "flex", alignItems: "center", gap: 6,
-          fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
-        }}>
-          <List size={13} strokeWidth={2} /> Liste
-        </button>
-        <button onClick={() => setViewMode("card")} style={{
-          padding: "8px 12px", border: "none",
-          backgroundColor: viewMode === "card" ? T.bgSurface : "transparent",
-          boxShadow: viewMode === "card" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
-          borderRadius: 6, cursor: "pointer", color: viewMode === "card" ? T.inkPrimary : T.inkTertiary,
-          display: "flex", alignItems: "center", gap: 6,
-          fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
-        }}>
-          <LayoutGrid size={13} strokeWidth={2} /> Cartes
-        </button>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {!isOpportunity && activeWatchlist && (
+          <button onClick={onAddAsset} style={{
+            padding: "8px 14px",
+            backgroundColor: addAssetOpen ? T.bgPour : T.bgSurface,
+            color: T.forestGreen,
+            border: `1.5px solid ${T.forestGreen}`,
+            borderRadius: 8, cursor: "pointer",
+            fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <Plus size={13} strokeWidth={2.5} />
+            Ajouter un actif
+          </button>
+        )}
+        <div style={{ display: "flex", gap: 4, padding: 4, backgroundColor: T.bgSubtle, borderRadius: 8 }}>
+          <button onClick={() => setViewMode("list")} style={{
+            padding: "7px 11px", border: "none",
+            backgroundColor: viewMode === "list" ? T.bgSurface : "transparent",
+            boxShadow: viewMode === "list" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
+            borderRadius: 6, cursor: "pointer",
+            color: viewMode === "list" ? T.inkPrimary : T.inkTertiary,
+            display: "flex", alignItems: "center", gap: 6,
+            fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
+          }}>
+            <List size={13} strokeWidth={2} /> Liste
+          </button>
+          <button onClick={() => setViewMode("card")} style={{
+            padding: "7px 11px", border: "none",
+            backgroundColor: viewMode === "card" ? T.bgSurface : "transparent",
+            boxShadow: viewMode === "card" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
+            borderRadius: 6, cursor: "pointer",
+            color: viewMode === "card" ? T.inkPrimary : T.inkTertiary,
+            display: "flex", alignItems: "center", gap: 6,
+            fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
+          }}>
+            <LayoutGrid size={13} strokeWidth={2} /> Cartes
+          </button>
+        </div>
       </div>
     </div>
 
-    <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+    {isOpportunity && (
+      <div style={{
+        padding: "10px 14px", marginBottom: 14,
+        backgroundColor: T.bgAlert, borderRadius: 8,
+        fontFamily: FONT_SANS, fontSize: 12, color: T.amber,
+        fontWeight: 500, lineHeight: 1.45,
+        border: `1px solid rgba(139,94,10,0.2)`,
+      }}>
+        Watchlist dynamique : les actifs apparaissent automatiquement quand un signal Nexial (BUY_ZONE, HOT_PULLBACK, WATCH_PULLBACK) se déclenche.
+      </div>
+    )}
+
+    <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
       {[
-        { id: "all", label: "Tous" },
-        { id: "opp", label: "Opportunités" },
-        { id: "held", label: "Détenus" },
-        { id: "ultra", label: "Ultra premium" },
+        { id: "all", label: "Tous", count: filterCounts.all },
+        { id: "opportunities", label: "Opportunités", count: filterCounts.opp },
+        { id: "held", label: "Détenus", count: filterCounts.held },
+        { id: "watch", label: "Surveillance", count: filterCounts.watch },
       ].map((f) => {
         const active = filter === f.id;
-        const count = f.id === "all" ? MOCK.watchlist.length :
-          f.id === "opp" ? MOCK.watchlist.filter(w => w.state === "OPPORTUNITY_LIGHT" || w.state === "WATCH_BORDERLINE").length :
-          f.id === "held" ? MOCK.watchlist.filter(w => w.isHeld).length :
-          MOCK.watchlist.filter(w => w.quality === "ULTRA_PREMIUM").length;
         return (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
-            padding: "7px 14px",
+            padding: "7px 13px",
             backgroundColor: active ? T.forestGreen : "transparent",
             color: active ? T.inkOnDark : T.inkSecondary,
             border: `1px solid ${active ? T.forestGreen : T.borderHair}`,
@@ -2222,7 +2671,7 @@ const WatchlistHeader = ({ filter, setFilter, viewMode, setViewMode }) => (
             <span style={{
               fontFamily: FONT_MONO, fontSize: 11, fontWeight: 700,
               color: active ? T.forestGreenPale : T.inkQuaternary,
-            }}>{count}</span>
+            }}>{f.count}</span>
           </button>
         );
       })}
@@ -2230,54 +2679,67 @@ const WatchlistHeader = ({ filter, setFilter, viewMode, setViewMode }) => (
   </header>
 );
 
-const WatchlistTable = ({ items, onAssetClick }) => (
-  <section style={{ paddingTop: 16, paddingBottom: 32 }}>
+const stateMetaLive = (signal) => {
+  if (signal === "BUY_ZONE") return { label: "Opportunité", color: T.forestGreen, bg: T.bgPour };
+  if (signal === "HOT_PULLBACK") return { label: "Opportunité", color: T.forestGreen, bg: T.bgPour };
+  if (signal === "WATCH_PULLBACK") return { label: "À surveiller", color: T.gold, bg: "rgba(125,102,40,0.08)" };
+  if (signal === "WATCH_BORDERLINE") return { label: "À surveiller", color: T.gold, bg: "rgba(125,102,40,0.08)" };
+  if (signal === "TOO_EXPENSIVE") return { label: "Tendu", color: T.amber, bg: T.bgAlert };
+  if (signal === "FLASH_DROP") return { label: "Flash drop", color: T.burgundy, bg: T.bgContre };
+  if (signal === "OVERBOUGHT") return { label: "Surachat", color: T.amber, bg: T.bgAlert };
+  if (signal === "UNKNOWN" || !signal) return { label: "—", color: T.inkTertiary, bg: T.bgSubtle };
+  return { label: signal, color: T.inkTertiary, bg: T.bgSubtle };
+};
+
+const WatchlistLiveTable = ({ items, onAssetClick, onRemoveAsset, isOpportunity }) => (
+  <section>
     <div style={{
       display: "grid",
-      gridTemplateColumns: "60px 1.5fr 110px 80px 80px 90px 70px 110px 20px",
+      gridTemplateColumns: "60px 1.5fr 130px 80px 90px 90px 70px 30px",
       gap: 12, alignItems: "center",
       padding: "12px 16px",
       borderBottom: `1px solid ${T.borderHair}`,
     }}>
-      {["Ticker", "Nom", "État", "Score", "Qualité", "Prix", "1j %", "90 jours", ""].map((h, i) => (
+      {["Ticker", "Nom", "État", "Score", "Prix", "1d %", "", ""].map((h, i) => (
         <span key={i} style={{
           fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
           letterSpacing: "0.10em", textTransform: "uppercase",
           color: T.inkTertiary,
-          textAlign: ["Score", "Prix", "1j %"].includes(h) ? "right" : "left",
+          textAlign: ["Score", "Prix", "1d %"].includes(h) ? "right" : "left",
         }}>{h}</span>
       ))}
     </div>
-    {items.map((w, i) => {
-      const sm = stateMeta(w.state);
-      const isPos = w.delta >= 0;
+    {items.map((it) => {
+      const sm = stateMetaLive(it.signal);
+      const score = Number(it.opportunity_score ?? 0);
+      const delta = Number(it.perf_1d_pct ?? 0);
+      const isPos = delta >= 0;
+      const price = Number(it.current_price ?? 0);
+      const currency = it.currency || "USD";
+      const priceFmt = currency === "EUR" ? `${price.toFixed(2)} €` : `$${price.toFixed(2)}`;
       return (
-        <div key={w.ticker} onClick={() => onAssetClick(w.ticker)} style={{
+        <div key={(it.item_id || it.dynamic_key || it.asset_id)} style={{
           display: "grid",
-          gridTemplateColumns: "60px 1.5fr 110px 80px 80px 90px 70px 110px 20px",
+          gridTemplateColumns: "60px 1.5fr 130px 80px 90px 90px 70px 30px",
           gap: 12, alignItems: "center",
           padding: "12px 16px",
           borderBottom: `1px solid ${T.borderUltra}`,
-          cursor: "pointer", transition: "background-color 200ms",
+          transition: "background-color 200ms",
         }}
         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
         onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}>
-          <span style={{
+          <span onClick={() => onAssetClick(it.ticker)} style={{
             fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 700,
-            color: T.inkPrimary, letterSpacing: "0.02em",
-          }}>{w.ticker}</span>
-          <div>
+            color: T.inkPrimary, letterSpacing: "0.02em", cursor: "pointer",
+          }}>{it.ticker}</span>
+          <div onClick={() => onAssetClick(it.ticker)} style={{ cursor: "pointer", minWidth: 0 }}>
             <div style={{
               fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary, fontWeight: 600,
               display: "flex", alignItems: "center", gap: 8,
             }}>
-              {w.name}
-              {w.isHeld && <Badge variant="soft">DÉTENU</Badge>}
+              {it.asset_name || it.ticker}
+              {it.in_portfolio && <Badge variant="soft">DÉTENU</Badge>}
             </div>
-            <div style={{
-              fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary, fontWeight: 500,
-              letterSpacing: "0.02em", marginTop: 1,
-            }}>{w.sector}</div>
           </div>
           <span style={{
             display: "inline-flex", padding: "3px 8px", borderRadius: 4,
@@ -2285,48 +2747,61 @@ const WatchlistTable = ({ items, onAssetClick }) => (
             fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
             letterSpacing: "0.10em", textTransform: "uppercase",
             border: `1px solid ${sm.color}40`,
+            justifySelf: "start",
           }}>{sm.label}</span>
           <span style={{
             fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 500,
-            color: w.score >= 8 ? T.forestGreen : w.score >= 6 ? T.gold : T.burgundy,
+            color: score >= 70 ? T.forestGreen : score >= 50 ? T.gold : score > 0 ? T.burgundy : T.inkTertiary,
             letterSpacing: "-0.01em", textAlign: "right",
-          }}>{w.score.toFixed(1)}</span>
-          <span style={{
-            fontFamily: FONT_SANS, fontSize: 10.5, color: w.quality === "ULTRA_PREMIUM" ? T.gold : T.inkTertiary,
-            fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-          }}>{w.quality === "ULTRA_PREMIUM" ? "★ Ultra" : "Premium"}</span>
+          }}>{score > 0 ? score.toFixed(0) : "—"}</span>
           <span style={{
             fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary,
             fontWeight: 700, textAlign: "right",
-          }}>{w.currency}{w.price.toFixed(2)}</span>
+          }}>{price > 0 ? priceFmt : "—"}</span>
           <div style={{ textAlign: "right" }}>
-            <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(w.delta)}</MetricChip>
+            {price > 0 && (
+              <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>
+            )}
           </div>
-          <div style={{ width: 110, height: 28 }}>
-            <Sparkline data={w.series} height={28}
-              color={isPos ? T.forestGreen : T.burgundy}
-              showFinalDot={false} strokeWidth={1.2} id={`wl-${i}`} />
-          </div>
-          <ChevronRight size={14} color={T.inkQuaternary} strokeWidth={1.5} />
+          <ChevronRight size={14} color={T.inkQuaternary} strokeWidth={1.5}
+            onClick={() => onAssetClick(it.ticker)} style={{ cursor: "pointer" }} />
+          {!isOpportunity ? (
+            <button onClick={() => onRemoveAsset(it.asset_id)} style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              padding: 4, color: T.inkQuaternary,
+              transition: "color 200ms",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = T.burgundy}
+            onMouseLeave={(e) => e.currentTarget.style.color = T.inkQuaternary}
+            title="Retirer">
+              <X size={14} strokeWidth={2} />
+            </button>
+          ) : <span />}
         </div>
       );
     })}
   </section>
 );
 
-const WatchlistCard = ({ item, onClick, index }) => {
-  const sm = stateMeta(item.state);
-  const isPos = item.delta >= 0;
-  const scoreColor = item.score >= 8 ? T.forestGreen : item.score >= 6 ? T.gold : T.burgundy;
+const WatchlistLiveCard = ({ item, onClick, onRemove, isOpportunity }) => {
+  const sm = stateMetaLive(item.signal);
+  const score = Number(item.opportunity_score ?? 0);
+  const delta = Number(item.perf_1d_pct ?? 0);
+  const isPos = delta >= 0;
+  const price = Number(item.current_price ?? 0);
+  const currency = item.currency || "USD";
+  const priceFmt = currency === "EUR" ? `${price.toFixed(2)} €` : `$${price.toFixed(2)}`;
+  const scoreColor = score >= 70 ? T.forestGreen : score >= 50 ? T.gold : score > 0 ? T.burgundy : T.inkTertiary;
   return (
-    <div onClick={onClick} style={{
+    <div style={{
       position: "relative",
-      padding: "16px 18px 14px 20px",
+      padding: "14px 16px 14px 18px",
       backgroundColor: T.bgSurface,
       border: `1px solid ${T.borderUltra}`,
       borderRadius: 12, cursor: "pointer", overflow: "hidden",
       transition: "transform 200ms",
     }}
+    onClick={onClick}
     onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
     onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}>
       <div style={{
@@ -2344,40 +2819,51 @@ const WatchlistCard = ({ item, onClick, index }) => {
         <span style={{
           fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 500,
           color: scoreColor, letterSpacing: "-0.01em",
-        }}>{item.score.toFixed(1)}</span>
+        }}>{score > 0 ? score.toFixed(0) : "—"}</span>
       </div>
       <div style={{
         fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkSecondary,
-        fontWeight: 500, marginBottom: 10,
+        fontWeight: 500, marginBottom: 8,
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-      }}>{item.name}</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+      }}>{item.asset_name || item.ticker}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
         <span style={{
           padding: "2px 7px", borderRadius: 4,
           backgroundColor: sm.bg, color: sm.color,
           fontFamily: FONT_SANS, fontSize: 9, fontWeight: 700,
           letterSpacing: "0.10em", textTransform: "uppercase",
         }}>{sm.label}</span>
-        {item.quality === "ULTRA_PREMIUM" && (
+        {item.in_portfolio && (
           <span style={{
             padding: "2px 7px", borderRadius: 4,
-            backgroundColor: "rgba(125,102,40,0.10)", color: T.gold,
+            backgroundColor: "rgba(31,74,46,0.10)", color: T.forestGreen,
             fontFamily: FONT_SANS, fontSize: 9, fontWeight: 700,
             letterSpacing: "0.10em", textTransform: "uppercase",
-          }}>★ Ultra</span>
+          }}>Détenu</span>
         )}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={{
           fontFamily: FONT_MONO, fontSize: 13, color: T.inkPrimary, fontWeight: 700,
-        }}>{item.currency}{item.price.toFixed(2)}</span>
-        <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(item.delta)}</MetricChip>
+        }}>{price > 0 ? priceFmt : "—"}</span>
+        {price > 0 && (
+          <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>
+        )}
       </div>
-      <div style={{ marginTop: 10, height: 28 }}>
-        <Sparkline data={item.series} height={28}
-          color={isPos ? T.forestGreen : T.burgundy}
-          fillGradient strokeWidth={1.3} id={`wlc-${index}`} />
-      </div>
+      {!isOpportunity && (
+        <button onClick={(e) => { e.stopPropagation(); onRemove(item.asset_id); }} style={{
+          position: "absolute", top: 8, right: 8,
+          background: "transparent", border: "none", cursor: "pointer",
+          padding: 4, color: T.inkQuaternary,
+          opacity: 0.6,
+          transition: "color 200ms, opacity 200ms",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = T.burgundy; e.currentTarget.style.opacity = "1"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = T.inkQuaternary; e.currentTarget.style.opacity = "0.6"; }}
+        title="Retirer">
+          <X size={13} strokeWidth={2} />
+        </button>
+      )}
     </div>
   );
 };
@@ -2385,32 +2871,142 @@ const WatchlistCard = ({ item, onClick, index }) => {
 const WatchlistPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [filter, setFilter] = useState("all");
+  const [activeId, setActiveId] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showAddAsset, setShowAddAsset] = useState(false);
+
+  const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
+
+  useEffect(() => {
+    if (!activeId && watchlists.length > 0) {
+      const def = watchlists.find((w) => w.is_default) || watchlists[0];
+      setActiveId(def.watchlist_id);
+    }
+  }, [watchlists, activeId]);
+
+  useEffect(() => {
+    setFilter("all");
+    setShowAddAsset(false);
+  }, [activeId]);
+
+  const activeWatchlist = watchlists.find((w) => w.watchlist_id === activeId);
+  const isOpportunity = activeWatchlist?.kind === "OPPORTUNITY";
+  const { items, loading: itemsLoading, error, addItem, removeItem } = useWatchlistItems(activeId);
+
+  const filterCounts = useMemo(() => {
+    const all = items.length;
+    const opp = items.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK").length;
+    const held = items.filter((it) => it.in_portfolio === true).length;
+    const watch = items.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE").length;
+    return { all, opp, held, watch };
+  }, [items]);
+
   const filtered = useMemo(() => {
-    if (filter === "opp") return MOCK.watchlist.filter(w => w.state === "OPPORTUNITY_LIGHT" || w.state === "WATCH_BORDERLINE");
-    if (filter === "held") return MOCK.watchlist.filter(w => w.isHeld);
-    if (filter === "ultra") return MOCK.watchlist.filter(w => w.quality === "ULTRA_PREMIUM");
-    return MOCK.watchlist;
-  }, [filter]);
+    if (filter === "opportunities") return items.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK");
+    if (filter === "held") return items.filter((it) => it.in_portfolio === true);
+    if (filter === "watch") return items.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE");
+    return items;
+  }, [items, filter]);
+
+  const handleCreate = async (input) => {
+    const newId = await createWatchlist(input);
+    setActiveId(newId);
+  };
+
+  const handleAddAsset = async (assetId) => {
+    await addItem(assetId);
+    setShowAddAsset(false);
+  };
+
   return (
     <main style={{
       maxWidth: CONTAINER_MAX, margin: "0 auto",
-      padding: `0 ${CONTAINER_PAD}px`,
+      padding: `28px ${CONTAINER_PAD}px`,
     }}>
-      <WatchlistHeader filter={filter} setFilter={setFilter}
-        viewMode={viewMode} setViewMode={setViewMode} />
-      {viewMode === "list" ? (
-        <WatchlistTable items={filtered} onAssetClick={onAssetClick} />
-      ) : (
-        <section style={{
-          paddingTop: 24, paddingBottom: 32,
-          display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14,
-        }}>
-          {filtered.map((w, i) => (
-            <WatchlistCard key={w.ticker} item={w} index={i}
-              onClick={() => onAssetClick(w.ticker)} />
-          ))}
-        </section>
-      )}
+      <div style={{ display: "flex", gap: 32, alignItems: "flex-start" }}>
+        <WatchlistSidebar
+          watchlists={watchlists}
+          activeId={activeId}
+          onSelect={(id) => { setActiveId(id); setShowCreate(false); }}
+          onOpenCreate={() => { setShowCreate(true); setShowAddAsset(false); }}
+          loading={wlLoading}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <WatchlistMainHeader
+            activeWatchlist={activeWatchlist}
+            itemsCount={items.length}
+            isOpportunity={isOpportunity}
+            viewMode={viewMode} setViewMode={setViewMode}
+            filter={filter} setFilter={setFilter}
+            filterCounts={filterCounts}
+            onAddAsset={() => { setShowAddAsset((s) => !s); setShowCreate(false); }}
+            addAssetOpen={showAddAsset}
+          />
+
+          <CreateWatchlistPanel
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+            onCreate={handleCreate}
+          />
+
+          <AddAssetPanel
+            open={showAddAsset}
+            onClose={() => setShowAddAsset(false)}
+            onAddAsset={handleAddAsset}
+            currentWatchlistName={activeWatchlist?.name || ""}
+          />
+
+          {error && (
+            <div style={{
+              padding: "12px 16px", color: T.burgundy,
+              fontFamily: FONT_SANS, fontSize: 13, marginBottom: 16,
+              backgroundColor: T.bgContre, borderRadius: 8,
+            }}>
+              Erreur de chargement — réessai automatique dans 60s.
+            </div>
+          )}
+
+          {itemsLoading && items.length === 0 ? (
+            <div style={{
+              padding: "48px 0", textAlign: "center",
+              fontFamily: FONT_SANS, fontSize: 13, color: T.inkTertiary,
+            }}>Chargement…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{
+              padding: "60px 24px", textAlign: "center",
+              fontFamily: FONT_DISPLAY, fontSize: 18, fontStyle: "italic",
+              color: T.inkSecondary,
+            }}>
+              {isOpportunity
+                ? "Aucune opportunité détectée actuellement. La liste se met à jour automatiquement."
+                : items.length === 0
+                  ? "Cette watchlist est vide. Ajoute un actif via le bouton ci-dessus."
+                  : "Aucun actif ne correspond à ce filtre."}
+            </div>
+          ) : viewMode === "list" ? (
+            <WatchlistLiveTable
+              items={filtered}
+              onAssetClick={onAssetClick}
+              onRemoveAsset={removeItem}
+              isOpportunity={isOpportunity}
+            />
+          ) : (
+            <section style={{
+              display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14,
+            }}>
+              {filtered.map((it) => (
+                <WatchlistLiveCard
+                  key={it.item_id || it.dynamic_key || it.asset_id}
+                  item={it}
+                  onClick={() => onAssetClick(it.ticker)}
+                  onRemove={removeItem}
+                  isOpportunity={isOpportunity}
+                />
+              ))}
+            </section>
+          )}
+        </div>
+      </div>
     </main>
   );
 };
