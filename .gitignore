@@ -55,3 +55,8 @@ nexial-audit*
 # Supabase CLI cache (linked project metadata, version cache)
 supabase/.temp
 supabase/.branches
+
+# Backups locaux (jsx, ts, etc.) — jamais commités
+*.bak
+*.bak-*
+*.backup
