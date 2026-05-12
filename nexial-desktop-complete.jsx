@@ -106,6 +106,33 @@ const assetReactKey = (asset, prefix, index) => {
   return key ? `${prefix}:${key}` : `${prefix}:row-${index}`;
 };
 
+const getAlertFreshness = (createdAt, ageHoursOverride) => {
+  let ageHours = typeof ageHoursOverride === "number" ? ageHoursOverride : null;
+
+  if (ageHours == null && createdAt) {
+    const createdTime = new Date(createdAt).getTime();
+    if (!Number.isNaN(createdTime)) {
+      ageHours = Math.max(0, (Date.now() - createdTime) / 36e5);
+    }
+  }
+
+  if (ageHours == null) {
+    return { color: "#828794", label: "age inconnu", tier: "unknown", tone: "ancien" };
+  }
+
+  const roundedHours = Math.max(1, Math.round(ageHours));
+  const days = Math.max(1, Math.round(ageHours / 24));
+  const label = ageHours < 24 ? `il y a ${roundedHours}h` : `il y a ${days}j`;
+
+  if (ageHours < 24) return { color: "#2D5F3F", label, tier: "fresh", tone: "frais" };
+  if (ageHours <= 72) return { color: "#C9A14A", label, tier: "recent", tone: "recent" };
+  return { color: "#828794", label, tier: "old", tone: "ancien" };
+};
+
+const isPersistedAlertId = (alertId) => (
+  Boolean(alertId) && !String(alertId).startsWith("mock-")
+);
+
 /* ============================================================
    PRIMITIVES (alignées mobile validé byte-pour-byte sur les noms/comportements)
    ============================================================ */
@@ -356,15 +383,15 @@ const MOCK = {
     { ticker: "MC", name: "LVMH", account: "PEA", pnlPct: -3.27, pnlEur: -591, value: 17490 },
   ],
   alerts: [
-    { time: "23:30", ticker: "MELI", kind: "FLASH_DROP", severity: "CRITICAL",
+    { id: "mock-desktop-meli", status: "NEW", time: "23:30", ticker: "MELI", kind: "FLASH_DROP", severity: "CRITICAL", created_at: "2026-05-12T09:30:00+02:00",
       delta: -12.7, message: "Chute brutale -12.7% sans catalyseur identifié. Surveiller pour confirmation J+1 avant entrée graduée." },
-    { time: "21:48", ticker: "CRWD", kind: "OVERBOUGHT_HOLD", severity: "HIGH",
+    { id: "mock-desktop-crwd", status: "NEW", time: "21:48", ticker: "CRWD", kind: "OVERBOUGHT_HOLD", severity: "HIGH", created_at: "2026-05-11T21:48:00+02:00",
       delta: 18.2, message: "Tension haussière extrême — RSI 78, momentum à 3 mois en zone d'épuisement." },
-    { time: "20:15", ticker: "NVDA", kind: "OVERBOUGHT_HOLD", severity: "HIGH",
+    { id: "mock-desktop-nvda", status: "NEW", time: "20:15", ticker: "NVDA", kind: "OVERBOUGHT_HOLD", severity: "HIGH", created_at: "2026-05-10T20:15:00+02:00",
       delta: 22.1, message: "Position détenue à +57% — pas de renforcement, surveillance des prises de profits." },
-    { time: "18:55", ticker: "PANX", kind: "OVERBOUGHT_HOLD", severity: "WARNING",
+    { id: "mock-desktop-panx", status: "NEW", time: "18:55", ticker: "PANX", kind: "OVERBOUGHT_HOLD", severity: "WARNING", created_at: "2026-05-09T18:55:00+02:00",
       delta: 8.4, message: "Tension haussière sur ETF Nasdaq-100. Score 85, position détenue." },
-    { time: "18:20", ticker: "AI", kind: "BUY_ZONE_ENTERED", severity: "INFO",
+    { id: "mock-desktop-ai", status: "NEW", time: "18:20", ticker: "AI", kind: "BUY_ZONE_ENTERED", severity: "INFO", created_at: "2026-05-08T18:20:00+02:00",
       delta: -3.2, message: "Approche Z2 — surveiller franchissement pour entrée graduée." },
   ],
   horizon: [
@@ -1310,7 +1337,124 @@ const SectionMovers = () => (
 /* ============================================================
    SECTION 6 — Alertes du jour timeline éditoriale
    ============================================================ */
-const SectionAlerts = () => (
+const DesktopDismissAlertModal = ({ alert, onClose, onConfirm }) => {
+  const [reason, setReason] = useState("");
+  const [dismissing, setDismissing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleConfirm = async () => {
+    setDismissing(true);
+    setError(null);
+    const result = await onConfirm(alert, reason.trim() || "manual_dismiss");
+    if (result?.error) {
+      setError(result.error);
+      setDismissing(false);
+      return;
+    }
+    setDismissing(false);
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 100, backgroundColor: "rgba(10,10,10,0.30)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 32,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 440, backgroundColor: T.bgSurface,
+        border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+        boxShadow: "0 22px 70px rgba(10,10,10,0.18)", padding: 22,
+      }}>
+        <h3 style={{
+          margin: 0, fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 400,
+          color: T.inkPrimary, letterSpacing: "-0.015em",
+        }}>Ignorer {alert.ticker} ?</h3>
+        <p style={{
+          margin: "8px 0 16px", fontFamily: FONT_SANS, fontSize: 13,
+          color: T.inkSecondary, lineHeight: 1.45,
+        }}>Cette alerte sera retiree de la timeline active.</p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Pourquoi ignores-tu cette alerte ?"
+          rows={3}
+          style={{
+            width: "100%", resize: "vertical", border: `1px solid ${T.borderSubtle}`,
+            borderRadius: 6, padding: 11, fontFamily: FONT_SANS, fontSize: 13,
+            color: T.inkPrimary, backgroundColor: T.bgCanvas, outline: "none",
+          }}
+        />
+        {error && (
+          <div style={{
+            marginTop: 10, padding: "9px 11px", borderRadius: 6,
+            backgroundColor: T.bgContre, color: T.burgundy,
+            fontFamily: FONT_SANS, fontSize: 12, fontWeight: 700,
+          }}>{error}</div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+          <button type="button" onClick={onClose} disabled={dismissing} style={{
+            border: `1px solid ${T.borderSubtle}`, backgroundColor: "transparent",
+            color: T.inkSecondary, borderRadius: 6, padding: "9px 13px",
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}>Annuler</button>
+          <button type="button" onClick={handleConfirm} disabled={dismissing} style={{
+            border: "none", backgroundColor: T.burgundy, color: T.inkOnDark,
+            borderRadius: 6, padding: "9px 13px", fontFamily: FONT_SANS,
+            fontSize: 13, fontWeight: 700, cursor: dismissing ? "default" : "pointer",
+            opacity: dismissing ? 0.7 : 1,
+          }}>{dismissing ? "Suppression..." : "Confirmer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SectionAlerts = () => {
+  const supabase = useMemo(() => createClient(), []);
+  const [alerts, setAlerts] = useState(MOCK.alerts);
+  const [menuOpenForAlertId, setMenuOpenForAlertId] = useState(null);
+  const [dismissModalForAlert, setDismissModalForAlert] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const visibleAlerts = useMemo(
+    () => alerts.filter((a) => a.status !== "DISMISSED"),
+    [alerts]
+  );
+
+  const handleMarkSeen = async (alertId) => {
+    setActionError(null);
+    if (isPersistedAlertId(alertId)) {
+      const { error } = await supabase.rpc("fn_mark_alert_seen", { p_alert_id: alertId });
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+    }
+    setAlerts((items) => items.map((item) => (
+      item.id === alertId ? { ...item, status: "SEEN" } : item
+    )));
+    setMenuOpenForAlertId(null);
+  };
+
+  const handleDismiss = async (alert, reason) => {
+    setActionError(null);
+    if (isPersistedAlertId(alert.id)) {
+      const { error } = await supabase.rpc("fn_dismiss_alert", {
+        p_alert_id: alert.id,
+        p_reason: reason,
+      });
+      if (error) {
+        setActionError(error.message);
+        return { error: error.message };
+      }
+    }
+    setAlerts((items) => items.map((item) => (
+      item.id === alert.id ? { ...item, status: "DISMISSED" } : item
+    )));
+    setMenuOpenForAlertId(null);
+    return { ok: true };
+  };
+
+  return (
   <section style={{
     paddingTop: 44, paddingBottom: 44,
     borderBottom: `1px solid ${T.borderUltra}`,
@@ -1322,13 +1466,21 @@ const SectionAlerts = () => (
         fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 400,
         color: T.inkPrimary, letterSpacing: "-0.022em", lineHeight: 1.15,
       }}>
-        <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>Cinq signaux</em>
+        <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{visibleAlerts.length} signaux</em>
         {" "}ont mérité d'être envoyés.
       </h2>
     </div>
 
+    {actionError && (
+      <div style={{
+        marginBottom: 14, padding: "9px 11px", borderRadius: 8,
+        backgroundColor: T.bgContre, color: T.burgundy,
+        fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700,
+      }}>{actionError}</div>
+    )}
+
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {MOCK.alerts.map((a, i) => {
+      {visibleAlerts.map((a, i) => {
         const sev =
           a.severity === "CRITICAL" ? "danger" :
           a.severity === "HIGH" ? "warning" :
@@ -1341,23 +1493,26 @@ const SectionAlerts = () => (
           a.severity === "CRITICAL" ? T.bgContre :
           a.severity === "HIGH" ? T.bgAlert :
           a.severity === "WARNING" ? "rgba(125,102,40,0.06)" : T.bgPour;
+        const freshness = getAlertFreshness(a.created_at, a.age_hours);
+        const isSeen = a.status === "SEEN";
         return (
-          <div key={i} style={{
+          <div key={a.id || i} style={{
             position: "relative",
             display: "grid",
-            gridTemplateColumns: "170px 1fr auto auto",
+            gridTemplateColumns: "210px 1fr auto auto auto",
             gap: 28, alignItems: "center",
             padding: "14px 16px 14px 18px",
             backgroundColor: sevBg,
             border: `1px solid ${T.borderUltra}`,
             borderRadius: 8,
-            overflow: "hidden",
+            overflow: "visible",
+            opacity: isSeen ? 0.7 : 1,
           }}>
             <div style={{
               position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
               backgroundColor: sevColor,
             }} />
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{
                 fontFamily: FONT_MONO, fontSize: 11, color: T.inkSecondary,
                 fontWeight: 700, minWidth: 38,
@@ -1367,6 +1522,16 @@ const SectionAlerts = () => (
                 color: T.inkPrimary, letterSpacing: "0.02em", minWidth: 50,
               }}>{a.ticker}</span>
               <Badge variant={sev}>{a.kind.replace(/_/g, " ").toLowerCase()}</Badge>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                fontFamily: FONT_MONO, fontSize: 10, fontWeight: 700,
+                color: freshness.color, backgroundColor: `${freshness.color}14`,
+                border: `1px solid ${freshness.color}33`, borderRadius: 999,
+                padding: "2px 7px", textTransform: "uppercase",
+              }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: freshness.color }} />
+                {freshness.tone} - {freshness.label}
+              </span>
             </div>
             <p style={{
               margin: 0,
@@ -1377,12 +1542,62 @@ const SectionAlerts = () => (
               {fmtPct(a.delta)}
             </MetricChip>
             <ChevronRight size={15} color={sevColor} strokeWidth={2} />
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                aria-label="Actions sur l'alerte"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpenForAlertId((current) => current === a.id ? null : a.id);
+                }}
+                style={{
+                  border: "none", backgroundColor: "transparent", color: T.inkTertiary,
+                  width: 30, height: 30, borderRadius: 6, display: "inline-flex",
+                  alignItems: "center", justifyContent: "center", cursor: "pointer",
+                }}
+              >
+                <MoreHorizontal size={17} />
+              </button>
+              {menuOpenForAlertId === a.id && (
+                <div style={{
+                  position: "absolute", right: 0, top: 34, zIndex: 40, minWidth: 180,
+                  backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`,
+                  borderRadius: 8, boxShadow: "0 12px 36px rgba(10,10,10,0.12)", padding: 6,
+                }}>
+                  {a.status === "NEW" && (
+                    <button type="button" onClick={() => handleMarkSeen(a.id)} style={{
+                      width: "100%", border: "none", backgroundColor: "transparent",
+                      color: T.inkSecondary, textAlign: "left", borderRadius: 6,
+                      padding: "9px 10px", fontFamily: FONT_SANS, fontSize: 13,
+                      fontWeight: 600, cursor: "pointer",
+                    }}>Marquer comme vu</button>
+                  )}
+                  <button type="button" onClick={() => {
+                    setMenuOpenForAlertId(null);
+                    setDismissModalForAlert(a);
+                  }} style={{
+                    width: "100%", border: "none", backgroundColor: "transparent",
+                    color: T.burgundy, textAlign: "left", borderRadius: 6,
+                    padding: "9px 10px", fontFamily: FONT_SANS, fontSize: 13,
+                    fontWeight: 600, cursor: "pointer",
+                  }}>Ignorer</button>
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
     </div>
+    {dismissModalForAlert && (
+      <DesktopDismissAlertModal
+        alert={dismissModalForAlert}
+        onClose={() => setDismissModalForAlert(null)}
+        onConfirm={handleDismiss}
+      />
+    )}
   </section>
-);
+  );
+};
 
 /* ============================================================
    SECTION 7 — Horizon (ce qui arrive)

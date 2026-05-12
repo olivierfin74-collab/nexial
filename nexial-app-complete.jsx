@@ -79,6 +79,33 @@ const assetReactKey = (asset, prefix, index) => {
   return key ? `${prefix}:${key}` : `${prefix}:row-${index}`;
 };
 
+const getAlertFreshness = (createdAt, ageHoursOverride) => {
+  let ageHours = typeof ageHoursOverride === "number" ? ageHoursOverride : null;
+
+  if (ageHours == null && createdAt) {
+    const createdTime = new Date(createdAt).getTime();
+    if (!Number.isNaN(createdTime)) {
+      ageHours = Math.max(0, (Date.now() - createdTime) / 36e5);
+    }
+  }
+
+  if (ageHours == null) {
+    return { color: "#828794", label: "age inconnu", tier: "unknown", tone: "ancien" };
+  }
+
+  const roundedHours = Math.max(1, Math.round(ageHours));
+  const days = Math.max(1, Math.round(ageHours / 24));
+  const label = ageHours < 24 ? `il y a ${roundedHours}h` : `il y a ${days}j`;
+
+  if (ageHours < 24) return { color: "#2D5F3F", label, tier: "fresh", tone: "frais" };
+  if (ageHours <= 72) return { color: "#C9A14A", label, tier: "recent", tone: "recent" };
+  return { color: "#828794", label, tier: "old", tone: "ancien" };
+};
+
+const isPersistedAlertId = (alertId) => (
+  Boolean(alertId) && !String(alertId).startsWith("mock-")
+);
+
 // ============================================================
 // MOCK DATA (réelles 8 mai 2026)
 // ============================================================
@@ -108,14 +135,14 @@ const TIMELINE = [
 
 // Alertes du jour (8 mai 2026)
 const ALERTS_TODAY = [
-  { ticker: "MELI", name: "MercadoLibre", kind: "FLASH_DROP", score: 62.5, price: 1632.03, severity: "critical" },
-  { ticker: "CRWD", name: "CrowdStrike", kind: "OVERBOUGHT_HOLD", score: 100, price: 505.67, severity: "warning" },
-  { ticker: "PANX", name: "Amundi Nasdaq-100", kind: "OVERBOUGHT_HOLD", score: 85, price: 75.86, severity: "warning" },
-  { ticker: "NVDA", name: "Nvidia", kind: "OVERBOUGHT_HOLD", score: 80, price: 211.60, severity: "warning" },
-  { ticker: "SNOW", name: "Snowflake", kind: "OVERBOUGHT_HOLD", score: 73, price: 153.82, severity: "warning" },
-  { ticker: "RF", name: "Eurazeo", kind: "OVERBOUGHT_HOLD", score: 65, price: 48.32, severity: "warning" },
-  { ticker: "ALSTI", name: "STIF", kind: "OVERBOUGHT_HOLD", score: 65, price: 50.25, severity: "warning" },
-  { ticker: "MC", name: "LVMH", kind: "OVERBOUGHT_HOLD", score: 40, price: 478.30, severity: "info" },
+  { id: "mock-mobile-meli", status: "NEW", ticker: "MELI", name: "MercadoLibre", kind: "FLASH_DROP", score: 62.5, price: 1632.03, severity: "critical", created_at: "2026-05-12T09:30:00+02:00" },
+  { id: "mock-mobile-crwd", status: "NEW", ticker: "CRWD", name: "CrowdStrike", kind: "OVERBOUGHT_HOLD", score: 100, price: 505.67, severity: "warning", created_at: "2026-05-11T21:48:00+02:00" },
+  { id: "mock-mobile-panx", status: "NEW", ticker: "PANX", name: "Amundi Nasdaq-100", kind: "OVERBOUGHT_HOLD", score: 85, price: 75.86, severity: "warning", created_at: "2026-05-10T20:15:00+02:00" },
+  { id: "mock-mobile-nvda", status: "NEW", ticker: "NVDA", name: "Nvidia", kind: "OVERBOUGHT_HOLD", score: 80, price: 211.60, severity: "warning", created_at: "2026-05-10T18:55:00+02:00" },
+  { id: "mock-mobile-snow", status: "NEW", ticker: "SNOW", name: "Snowflake", kind: "OVERBOUGHT_HOLD", score: 73, price: 153.82, severity: "warning", created_at: "2026-05-09T18:20:00+02:00" },
+  { id: "mock-mobile-rf", status: "NEW", ticker: "RF", name: "Eurazeo", kind: "OVERBOUGHT_HOLD", score: 65, price: 48.32, severity: "warning", created_at: "2026-05-09T12:10:00+02:00" },
+  { id: "mock-mobile-alsti", status: "NEW", ticker: "ALSTI", name: "STIF", kind: "OVERBOUGHT_HOLD", score: 65, price: 50.25, severity: "warning", created_at: "2026-05-08T22:15:00+02:00" },
+  { id: "mock-mobile-mc", status: "NEW", ticker: "MC", name: "LVMH", kind: "OVERBOUGHT_HOLD", score: 40, price: 478.30, severity: "info", created_at: "2026-05-08T16:40:00+02:00" },
 ];
 
 // Positions du portefeuille
@@ -951,23 +978,93 @@ const DashboardPage = ({ onAssetClick, onNavigate }) => {
 // ============================================================
 // PAGE — AUJOURD'HUI (alertes du jour)
 // ============================================================
-const AlertRow = ({ alert, onClick, isLast }) => {
-  const isFlash = alert.kind === "FLASH_DROP";
-  const isOverbought = alert.kind.includes("OVERBOUGHT");
-  let dotColor = T.inkTertiary;
-  if (isFlash) dotColor = T.burgundy;
-  else if (isOverbought) dotColor = T.amber;
+const DismissAlertModal = ({ alert, onClose, onConfirm }) => {
+  const [reason, setReason] = useState("");
+  const [dismissing, setDismissing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleConfirm = async () => {
+    setDismissing(true);
+    setError(null);
+    const result = await onConfirm(alert, reason.trim() || "manual_dismiss");
+    if (result?.error) {
+      setError(result.error);
+      setDismissing(false);
+      return;
+    }
+    setDismissing(false);
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 80, backgroundColor: "rgba(10,10,10,0.28)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 360, backgroundColor: T.bgSurface,
+        border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+        boxShadow: "0 18px 60px rgba(10,10,10,0.18)", padding: 18,
+      }}>
+        <h3 style={{
+          margin: 0, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 500,
+          color: T.inkPrimary,
+        }}>Ignorer {alert.ticker} ?</h3>
+        <p style={{
+          margin: "8px 0 14px", fontFamily: FONT_SANS, fontSize: 13,
+          color: T.inkSecondary, lineHeight: 1.4,
+        }}>{alert.name} sera retiree de la liste des alertes actives.</p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Pourquoi ignores-tu cette alerte ?"
+          rows={3}
+          style={{
+            width: "100%", resize: "vertical", border: `1px solid ${T.borderSubtle}`,
+            borderRadius: 8, padding: 10, fontFamily: FONT_SANS, fontSize: 13,
+            color: T.inkPrimary, backgroundColor: T.bgCanvas, outline: "none",
+          }}
+        />
+        {error && (
+          <div style={{
+            marginTop: 10, padding: "8px 10px", borderRadius: 6,
+            backgroundColor: T.bgContre, color: T.burgundy,
+            fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
+          }}>{error}</div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={onClose} disabled={dismissing} style={{
+            border: `1px solid ${T.borderSubtle}`, backgroundColor: "transparent",
+            color: T.inkSecondary, borderRadius: 6, padding: "8px 12px",
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}>Annuler</button>
+          <button type="button" onClick={handleConfirm} disabled={dismissing} style={{
+            border: "none", backgroundColor: T.burgundy, color: T.inkOnDark,
+            borderRadius: 6, padding: "8px 12px", fontFamily: FONT_SANS,
+            fontSize: 13, fontWeight: 700, cursor: dismissing ? "default" : "pointer",
+            opacity: dismissing ? 0.7 : 1,
+          }}>{dismissing ? "Suppression..." : "Confirmer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AlertRow = ({ alert, onClick, isLast, menuOpen, onToggleMenu, onMarkSeen, onDismissRequest }) => {
+  const freshness = getAlertFreshness(alert.created_at, alert.age_hours);
+  const isSeen = alert.status === "SEEN";
 
   return (
     <div onClick={onClick} style={{
       padding: "14px 16px", borderBottom: isLast ? "none" : `1px solid ${T.borderSubtle}`,
       display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
-      transition: "background-color 200ms",
+      transition: "background-color 200ms", position: "relative", opacity: isSeen ? 0.7 : 1,
     }}
     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}>
       <div style={{
-        width: 8, height: 8, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0,
+        width: isSeen ? 6 : 8, height: isSeen ? 6 : 8, borderRadius: "50%",
+        backgroundColor: freshness.color, flexShrink: 0, opacity: isSeen ? 0.65 : 1,
       }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
@@ -981,8 +1078,21 @@ const AlertRow = ({ alert, onClick, isLast }) => {
           }}>{alert.name}</span>
         </div>
         <div style={{
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
           fontFamily: FONT_SANS, fontSize: 12.5, color: T.inkSecondary, fontWeight: 500,
-        }}>{alertKindLabel(alert.kind)}</div>
+        }}>
+          <span>{alertKindLabel(alert.kind)}</span>
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            fontFamily: FONT_MONO, fontSize: 10, fontWeight: 700,
+            color: freshness.color, backgroundColor: `${freshness.color}14`,
+            border: `1px solid ${freshness.color}33`, borderRadius: 999,
+            padding: "2px 7px", textTransform: "uppercase",
+          }}>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: freshness.color }} />
+            {freshness.tone} - {freshness.label}
+          </span>
+        </div>
       </div>
       <div style={{ textAlign: "right" }}>
         <div style={{
@@ -995,32 +1105,112 @@ const AlertRow = ({ alert, onClick, isLast }) => {
         }}>score {Math.round(alert.score)}</div>
       </div>
       <ChevronRight size={16} strokeWidth={2} color={T.inkTertiary} style={{ flexShrink: 0 }} />
+      <button
+        type="button"
+        aria-label="Actions sur l'alerte"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleMenu(alert.id);
+        }}
+        style={{
+          border: "none", backgroundColor: "transparent", color: T.inkTertiary,
+          width: 30, height: 30, borderRadius: 6, display: "inline-flex",
+          alignItems: "center", justifyContent: "center", cursor: "pointer",
+        }}
+      >
+        <MoreHorizontal size={17} />
+      </button>
+      {menuOpen && (
+        <div onClick={(e) => e.stopPropagation()} style={{
+          position: "absolute", right: 14, top: 46, zIndex: 30, minWidth: 180,
+          backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`,
+          borderRadius: 8, boxShadow: "0 12px 36px rgba(10,10,10,0.12)", padding: 6,
+        }}>
+          {alert.status === "NEW" && (
+            <button type="button" onClick={() => onMarkSeen(alert.id)} style={{
+              width: "100%", border: "none", backgroundColor: "transparent",
+              color: T.inkSecondary, textAlign: "left", borderRadius: 6,
+              padding: "9px 10px", fontFamily: FONT_SANS, fontSize: 13,
+              fontWeight: 600, cursor: "pointer",
+            }}>Marquer comme vu</button>
+          )}
+          <button type="button" onClick={() => onDismissRequest(alert)} style={{
+            width: "100%", border: "none", backgroundColor: "transparent",
+            color: T.burgundy, textAlign: "left", borderRadius: 6,
+            padding: "9px 10px", fontFamily: FONT_SANS, fontSize: 13,
+            fontWeight: 600, cursor: "pointer",
+          }}>Ignorer</button>
+        </div>
+      )}
     </div>
   );
 };
 
 const TodayPage = ({ onAssetClick }) => {
+  const supabase = useMemo(() => createClient(), []);
   const [filter, setFilter] = useState("all");
+  const [alerts, setAlerts] = useState(ALERTS_TODAY);
+  const [menuOpenForAlertId, setMenuOpenForAlertId] = useState(null);
+  const [dismissModalForAlert, setDismissModalForAlert] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const visibleAlerts = useMemo(
+    () => alerts.filter((a) => a.status !== "DISMISSED"),
+    [alerts]
+  );
   const filtered = useMemo(() => {
-    if (filter === "flash") return ALERTS_TODAY.filter(a => a.kind === "FLASH_DROP");
-    if (filter === "overbought") return ALERTS_TODAY.filter(a => a.kind.includes("OVERBOUGHT"));
-    return ALERTS_TODAY;
-  }, [filter]);
+    if (filter === "flash") return visibleAlerts.filter(a => a.kind === "FLASH_DROP");
+    if (filter === "overbought") return visibleAlerts.filter(a => a.kind.includes("OVERBOUGHT"));
+    return visibleAlerts;
+  }, [filter, visibleAlerts]);
 
-  const flashCount = ALERTS_TODAY.filter(a => a.kind === "FLASH_DROP").length;
-  const overboughtCount = ALERTS_TODAY.filter(a => a.kind.includes("OVERBOUGHT")).length;
+  const flashCount = visibleAlerts.filter(a => a.kind === "FLASH_DROP").length;
+  const overboughtCount = visibleAlerts.filter(a => a.kind.includes("OVERBOUGHT")).length;
+
+  const handleMarkSeen = async (alertId) => {
+    setActionError(null);
+    if (isPersistedAlertId(alertId)) {
+      const { error } = await supabase.rpc("fn_mark_alert_seen", { p_alert_id: alertId });
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+    }
+    setAlerts((items) => items.map((item) => (
+      item.id === alertId ? { ...item, status: "SEEN" } : item
+    )));
+    setMenuOpenForAlertId(null);
+  };
+
+  const handleDismiss = async (alert, reason) => {
+    setActionError(null);
+    if (isPersistedAlertId(alert.id)) {
+      const { error } = await supabase.rpc("fn_dismiss_alert", {
+        p_alert_id: alert.id,
+        p_reason: reason,
+      });
+      if (error) {
+        setActionError(error.message);
+        return { error: error.message };
+      }
+    }
+    setAlerts((items) => items.map((item) => (
+      item.id === alert.id ? { ...item, status: "DISMISSED" } : item
+    )));
+    setMenuOpenForAlertId(null);
+    return { ok: true };
+  };
 
   return (
     <>
       <PageHeader
         eyebrow="Aujourd'hui"
-        title={`${ALERTS_TODAY.length} alertes`}
+        title={`${visibleAlerts.length} alertes`}
         subtitle="Signaux détectés sur les dernières 24 heures"
       />
       <div style={{
         padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto",
       }}>
-        <FilterChip active={filter === "all"} onClick={() => setFilter("all")} count={ALERTS_TODAY.length}>
+        <FilterChip active={filter === "all"} onClick={() => setFilter("all")} count={visibleAlerts.length}>
           Toutes
         </FilterChip>
         <FilterChip active={filter === "flash"} onClick={() => setFilter("flash")} count={flashCount}>
@@ -1030,6 +1220,13 @@ const TodayPage = ({ onAssetClick }) => {
           Tensions
         </FilterChip>
       </div>
+      {actionError && (
+        <div style={{
+          margin: "0 20px 12px", padding: "9px 11px", borderRadius: 8,
+          backgroundColor: T.bgContre, color: T.burgundy,
+          fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 600,
+        }}>{actionError}</div>
+      )}
       <div style={{
         margin: "0 20px", backgroundColor: T.bgSurface,
         border: `1px solid ${T.borderSubtle}`, borderRadius: 12, overflow: "hidden",
@@ -1039,11 +1236,29 @@ const TodayPage = ({ onAssetClick }) => {
             message="Rien à signaler dans cette catégorie pour le moment." />
         ) : (
           filtered.map((a, i) => (
-            <AlertRow key={i} alert={a} isLast={i === filtered.length - 1}
-              onClick={() => onAssetClick(a.ticker)} />
+            <AlertRow
+              key={a.id || i}
+              alert={a}
+              isLast={i === filtered.length - 1}
+              menuOpen={menuOpenForAlertId === a.id}
+              onToggleMenu={(alertId) => setMenuOpenForAlertId((current) => current === alertId ? null : alertId)}
+              onMarkSeen={handleMarkSeen}
+              onDismissRequest={(alert) => {
+                setMenuOpenForAlertId(null);
+                setDismissModalForAlert(alert);
+              }}
+              onClick={() => onAssetClick(a.ticker)}
+            />
           ))
         )}
       </div>
+      {dismissModalForAlert && (
+        <DismissAlertModal
+          alert={dismissModalForAlert}
+          onClose={() => setDismissModalForAlert(null)}
+          onConfirm={handleDismiss}
+        />
+      )}
       <div style={{ height: 32 }} />
     </>
   );
