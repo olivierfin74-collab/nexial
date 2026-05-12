@@ -4164,8 +4164,52 @@ const WatchlistLiveCard = ({ item, onClick, onRemoveRequest, isOpportunity }) =>
 
 const wlLivePrice = (item) => Number(item.last_price ?? item.current_price ?? 0);
 const wlLiveCurrency = (item) => item.asset_currency || item.currency || "USD";
-const wlLivePerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? 0);
+const wlLivePerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? item.unrealized_pnl_pct ?? 0);
 const wlLiveScore = (item) => Number(item.opportunity_score ?? 0);
+const WL_LIVE_NOW = Date.now();
+const wlLiveNumber = (...values) => {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+const wlLiveAbsChange = (item) => {
+  const direct = wlLiveNumber(
+    item.price_change_abs,
+    item.change_abs,
+    item.chg_24h_abs,
+    item.change_1d_abs,
+    item.perf_1d_abs,
+    item.day_change_abs,
+    item.absolute_change,
+    item.price_delta,
+  );
+  if (direct !== null) return direct;
+  const price = wlLivePrice(item);
+  const pct = wlLiveNumber(item.chg_24h_pct, item.perf_1d_pct, item.unrealized_pnl_pct);
+  if (!(price > 0) || pct === null || pct <= -100) return null;
+  return price - (price / (1 + pct / 100));
+};
+const wlLiveAbsText = (item) => {
+  const change = wlLiveAbsChange(item);
+  if (change === null) return null;
+  return `${change >= 0 ? "+" : ""}${change.toFixed(Math.abs(change) >= 100 ? 2 : 3)} ${wlLiveCurrency(item)}`;
+};
+const wlLiveStaleTag = (item) => {
+  const stamp = item.price_updated_at || item.price_as_of || item.priced_at || item.last_price_at || item.last_quote_at || item.updated_at;
+  if (stamp) {
+    const time = new Date(stamp).getTime();
+    if (Number.isFinite(time)) {
+      const days = Math.floor((WL_LIVE_NOW - time) / 86400000);
+      if (days >= 3) return `J-${days}`;
+    }
+  }
+  const status = String(item.freshness_status || "").toLowerCase();
+  if (status.includes("stale") || status === "red") return "STALE";
+  return null;
+};
 const wlLiveZ1 = (item) => Number(item.z1_price ?? item.z1 ?? 0);
 const wlLiveZDistance = (item) => {
   if (item.distance_to_z1_pct !== undefined && item.distance_to_z1_pct !== null) return Number(item.distance_to_z1_pct);
@@ -4198,15 +4242,15 @@ const WlLiveTag = ({ children, color = T.inkSecondary, bg = T.bgSurface }) => (
 const WatchlistEnrichedTable = ({ items, onAssetClick, onRemoveRequest, isOpportunity }) => (
   <section>
     <div style={{
-      display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 90px 80px 86px 90px 30px",
+      display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 110px 100px 86px 90px 30px",
       gap: 12, alignItems: "center", padding: "12px 16px",
       borderBottom: `1px solid ${T.borderHair}`,
     }}>
-      {["Ticker", "Nom", "Tags", "Score", "Prix", "1d %", "Z1", "30j", ""].map((h, i) => (
+      {["Ticker", "Nom", "Tags", "Score", "Prix", "1d", "Z1", "30j", ""].map((h, i) => (
         <span key={i} style={{
           fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
           letterSpacing: "0.10em", textTransform: "uppercase", color: T.inkTertiary,
-          textAlign: ["Score", "Prix", "1d %", "Z1"].includes(h) ? "right" : "left",
+          textAlign: ["Score", "Prix", "1d", "Z1"].includes(h) ? "right" : "left",
         }}>{h}</span>
       ))}
     </div>
@@ -4216,6 +4260,8 @@ const WatchlistEnrichedTable = ({ items, onAssetClick, onRemoveRequest, isOpport
       const currency = wlLiveCurrency(it);
       const delta = wlLivePerf1d(it);
       const isPos = delta >= 0;
+      const absText = wlLiveAbsText(it);
+      const staleTag = wlLiveStaleTag(it);
       const score = wlLiveScore(it);
       const zDistance = wlLiveZDistance(it);
       const inBuyZone = wlLiveInBuyZone(it);
@@ -4224,7 +4270,7 @@ const WatchlistEnrichedTable = ({ items, onAssetClick, onRemoveRequest, isOpport
       const sparkStart = price > 0 ? price / (1 + (delta / 100 || 0.01)) : 1;
       return (
         <div key={(it.item_id || it.dynamic_key || it.asset_id)} style={{
-          display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 90px 80px 86px 90px 30px",
+          display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 110px 100px 86px 90px 30px",
           gap: 12, alignItems: "center", padding: "12px 16px",
           borderBottom: `1px solid ${T.borderUltra}`,
           backgroundColor: inBuyZone ? T.bgPour : "transparent",
@@ -4244,10 +4290,14 @@ const WatchlistEnrichedTable = ({ items, onAssetClick, onRemoveRequest, isOpport
             <WlLiveTag color={sm.color} bg={sm.bg}>{sm.label}</WlLiveTag>
             {inBuyZone && <WlLiveTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</WlLiveTag>}
             {rsiTag && <WlLiveTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</WlLiveTag>}
+            {staleTag && <WlLiveTag color={T.amber} bg={T.bgAlert}>{staleTag}</WlLiveTag>}
           </div>
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: score >= 70 ? T.forestGreen : score >= 50 ? T.gold : score > 0 ? T.burgundy : T.inkTertiary, textAlign: "right" }}>{score > 0 ? score.toFixed(0) : "-"}</span>
           <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700, textAlign: "right" }}>{price > 0 ? priceFmt : "-"}</span>
-          <div style={{ textAlign: "right" }}>{price > 0 && <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>}</div>
+          <div style={{ textAlign: "right" }}>
+            {price > 0 && <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>}
+            {absText && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: isPos ? T.forestGreen : T.burgundy, fontWeight: 800 }}>{absText}</div>}
+          </div>
           <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: zDistance != null && zDistance <= 0 ? T.forestGreen : T.inkSecondary, fontWeight: 800, textAlign: "right" }}>{zDistance == null ? "-" : `${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}</span>
           <div style={{ height: 28 }}>{price > 0 && <Sparkline data={genSeries(sparkStart, price, 30, 0.012, `${it.asset_id || it.ticker}:watch`)} height={28} color={isPos ? T.forestGreen : T.burgundy} strokeWidth={1.2} id={`wl-${it.asset_id || it.ticker}`} />}</div>
           {!isOpportunity ? (
@@ -4267,6 +4317,8 @@ const WatchlistEnrichedCard = ({ item, onClick, onRemoveRequest, isOpportunity }
   const currency = wlLiveCurrency(item);
   const delta = wlLivePerf1d(item);
   const isPos = delta >= 0;
+  const absText = wlLiveAbsText(item);
+  const staleTag = wlLiveStaleTag(item);
   const score = wlLiveScore(item);
   const zDistance = wlLiveZDistance(item);
   const inBuyZone = wlLiveInBuyZone(item);
@@ -4288,11 +4340,17 @@ const WatchlistEnrichedCard = ({ item, onClick, onRemoveRequest, isOpportunity }
         <WlLiveTag color={sm.color} bg={sm.bg}>{sm.label}</WlLiveTag>
         {inBuyZone && <WlLiveTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</WlLiveTag>}
         {rsiTag && <WlLiveTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</WlLiveTag>}
+        {staleTag && <WlLiveTag color={T.amber} bg={T.bgAlert}>{staleTag}</WlLiveTag>}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.inkPrimary, fontWeight: 700 }}>{price > 0 ? `${price.toFixed(2)} ${currency}` : "-"}</span>
         {price > 0 && <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>}
       </div>
+      {absText && (
+        <div style={{ marginTop: 4, fontFamily: FONT_MONO, fontSize: 10.5, color: isPos ? T.forestGreen : T.burgundy, fontWeight: 800 }}>
+          {absText}
+        </div>
+      )}
       <div style={{ marginTop: 8, fontFamily: FONT_SANS, fontSize: 11, color: zDistance != null && zDistance <= 0 ? T.forestGreen : T.inkTertiary, fontWeight: 800 }}>
         {zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}
       </div>

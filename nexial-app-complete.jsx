@@ -2719,8 +2719,52 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, canRem
 
 const liveWatchlistPrice = (item) => Number(item.last_price ?? item.current_price ?? item.price ?? 0);
 const liveWatchlistCurrency = (item) => item.asset_currency || item.currency || "EUR";
-const liveWatchlistPerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? 0);
+const liveWatchlistPerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? item.unrealized_pnl_pct ?? 0);
 const liveWatchlistScore = (item) => Number(item.opportunity_score ?? item.score ?? 0);
+const LIVE_WATCHLIST_NOW = Date.now();
+const liveWatchlistNumber = (...values) => {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+const liveWatchlistAbsChange = (item) => {
+  const direct = liveWatchlistNumber(
+    item.price_change_abs,
+    item.change_abs,
+    item.chg_24h_abs,
+    item.change_1d_abs,
+    item.perf_1d_abs,
+    item.day_change_abs,
+    item.absolute_change,
+    item.price_delta,
+  );
+  if (direct !== null) return direct;
+  const price = liveWatchlistPrice(item);
+  const pct = liveWatchlistNumber(item.chg_24h_pct, item.perf_1d_pct, item.unrealized_pnl_pct);
+  if (!(price > 0) || pct === null || pct <= -100) return null;
+  return price - (price / (1 + pct / 100));
+};
+const liveWatchlistAbsText = (item) => {
+  const change = liveWatchlistAbsChange(item);
+  if (change === null) return null;
+  return `${change >= 0 ? "+" : ""}${change.toFixed(Math.abs(change) >= 100 ? 2 : 3)} ${liveWatchlistCurrency(item)}`;
+};
+const liveWatchlistStaleTag = (item) => {
+  const stamp = item.price_updated_at || item.price_as_of || item.priced_at || item.last_price_at || item.last_quote_at || item.updated_at;
+  if (stamp) {
+    const time = new Date(stamp).getTime();
+    if (Number.isFinite(time)) {
+      const days = Math.floor((LIVE_WATCHLIST_NOW - time) / 86400000);
+      if (days >= 3) return `J-${days}`;
+    }
+  }
+  const status = String(item.freshness_status || "").toLowerCase();
+  if (status.includes("stale") || status === "red") return "STALE";
+  return null;
+};
 const liveWatchlistZ1 = (item) => Number(item.z1_price ?? item.z1 ?? 0);
 const liveWatchlistZDistance = (item) => {
   if (item.distance_to_z1_pct !== undefined && item.distance_to_z1_pct !== null) return Number(item.distance_to_z1_pct);
@@ -2754,6 +2798,8 @@ const WatchlistItemRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, ca
   const price = liveWatchlistPrice(item);
   const perf1d = liveWatchlistPerf1d(item);
   const perfColor = perf1d >= 0 ? T.forestGreen : T.burgundy;
+  const absText = liveWatchlistAbsText(item);
+  const staleTag = liveWatchlistStaleTag(item);
   const score = liveWatchlistScore(item);
   const zDistance = liveWatchlistZDistance(item);
   const inBuyZone = liveWatchlistInBuyZone(item);
@@ -2783,11 +2829,12 @@ const WatchlistItemRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, ca
           {inBuyZone && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</LiveWatchlistTag>}
           {rsiTag && <LiveWatchlistTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</LiveWatchlistTag>}
           {item.isHeld && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>Detenu</LiveWatchlistTag>}
+          {staleTag && <LiveWatchlistTag color={T.amber} bg={T.bgAlert}>{staleTag}</LiveWatchlistTag>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
           <div>
             <div style={{ fontFamily: FONT_MONO, fontSize: 14, color: T.inkPrimary, fontWeight: 800 }}>{priceText}</div>
-            {price > 0 && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: perfColor, fontWeight: 800 }}>{perf1d >= 0 ? "+" : ""}{perf1d.toFixed(2)}% 24h</div>}
+            {price > 0 && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: perfColor, fontWeight: 800 }}>{perf1d >= 0 ? "+" : ""}{perf1d.toFixed(2)}%{absText ? ` / ${absText}` : ""} 24h</div>}
           </div>
           <div style={{ textAlign: "right", fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 800 }}>
             {zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}
@@ -2821,11 +2868,13 @@ const WatchlistItemRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, ca
           {inBuyZone && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</LiveWatchlistTag>}
           {rsiTag && <LiveWatchlistTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</LiveWatchlistTag>}
           {item.isHeld && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>Detenu</LiveWatchlistTag>}
+          {staleTag && <LiveWatchlistTag color={T.amber} bg={T.bgAlert}>{staleTag}</LiveWatchlistTag>}
         </div>
       </div>
       <div style={{ textAlign: "right" }}>
         <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.inkPrimary, fontWeight: 800 }}>{priceText}</div>
         {price > 0 && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: perfColor, fontWeight: 800 }}>{perf1d >= 0 ? "+" : ""}{perf1d.toFixed(2)}%</div>}
+        {absText && <div style={{ marginTop: 2, fontFamily: FONT_MONO, fontSize: 10, color: perfColor, fontWeight: 700 }}>{absText}</div>}
         <div style={{ marginTop: 3, fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 800 }}>{zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}</div>
       </div>
       <div style={{ textAlign: "right" }}>
