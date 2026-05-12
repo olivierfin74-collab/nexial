@@ -61,3 +61,4 @@ supabase/.branches
 *.bak
 *.bak-*
 *.backup
+CHATGPT_CODEC_TASK/
