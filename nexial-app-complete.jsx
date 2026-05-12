@@ -1392,7 +1392,6 @@ const DailyDecisionsSection = ({ onNavigate, onAssetClick }) => (
       <MarketRegimeDecisionCard onClick={() => onNavigate("dashboard")} />
       <AlertsDecisionCard title="Opportunites chaudes" kinds={HOT_DECISION_KINDS} statuses={NEW_DECISION_STATUS} onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
       <AlertsDecisionCard title="Positions a risque" kinds={RISK_DECISION_KINDS} statuses={ACTIVE_DECISION_STATUS} tone="risk" onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
-      <WealthDecisionCard onClick={() => onNavigate("portfolio")} />
     </div>
   </section>
 );
@@ -2023,12 +2022,12 @@ const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) =>
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>{name}</span>
           </div>
-          <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary, marginTop: 2,
+          <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkTertiary, marginTop: 2,
             fontWeight: 600, letterSpacing: "0.05em",
           }}>{account}</div>
           <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
-            marginTop: 8, fontFamily: FONT_MONO, fontSize: 10.5,
+            marginTop: 8, fontFamily: FONT_MONO, fontSize: 11.5,
             color: T.inkSecondary, fontWeight: 600,
           }}>
             <span>Qty {formatPositionNumber(quantity, 4)}</span>
@@ -2042,14 +2041,14 @@ const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) =>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{
-            fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 500,
+            fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 500,
             color: T.inkPrimary, letterSpacing: "-0.01em",
           }}>{formatPositionMoney(marketValue, currency, 0)}</div>
-          <MetricChip variant={positive ? "positive" : "negative"} style={{ marginTop: 3, fontSize: 11 }}>
+          <MetricChip variant={positive ? "positive" : "negative"} style={{ marginTop: 3, fontSize: 11.5 }}>
             {positive ? "+" : ""}{pnlPct.toFixed(2)}%
           </MetricChip>
           <div style={{
-            marginTop: 4, fontFamily: FONT_MONO, fontSize: 10.5,
+            marginTop: 4, fontFamily: FONT_MONO, fontSize: 11.5,
             color: pnlColor, fontWeight: 700,
           }}>{positive ? "+" : ""}{formatPositionMoney(pnlNative, currency, 0)}</div>
         </div>
@@ -2076,7 +2075,7 @@ const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) =>
       }}>{name}</div>
       <div style={{
         display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 10,
-        fontFamily: FONT_MONO, fontSize: 10.5, color: T.inkSecondary, fontWeight: 600,
+        fontFamily: FONT_MONO, fontSize: 11.5, color: T.inkSecondary, fontWeight: 600,
       }}>
         {stats.map(([label, value]) => (
           <span key={label}>{label} {value}</span>
@@ -2085,16 +2084,16 @@ const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) =>
         <span>Jour {dayPerf == null ? "-" : `${dayPerf >= 0 ? "+" : ""}${dayPerf.toFixed(2)}%`}</span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 500,
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 500,
           color: T.inkPrimary, letterSpacing: "-0.01em" }}>
           {formatPositionMoney(marketValue, currency, 0)}
         </div>
-        <MetricChip variant={positive ? "positive" : "negative"} style={{ fontSize: 11.5 }}>
+        <MetricChip variant={positive ? "positive" : "negative"} style={{ fontSize: 12 }}>
           {positive ? "+" : ""}{pnlPct.toFixed(2)}%
         </MetricChip>
       </div>
       <div style={{
-        marginTop: 5, fontFamily: FONT_MONO, fontSize: 11,
+        marginTop: 5, fontFamily: FONT_MONO, fontSize: 12,
         color: pnlColor, fontWeight: 700,
       }}>{positive ? "+" : ""}{formatPositionMoney(pnlNative, currency, 0)}</div>
       <PositionActions position={position} onPrepareOrder={onPrepareOrder} />
@@ -4524,6 +4523,14 @@ export default function NexialApp() {
     }
   }, []);
 
+  React.useEffect(() => {
+    if (!detailTicker || typeof window === "undefined") return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detailTicker]);
+
   const { openConfirm, openEdit, ProposalActionModals } = useProposalActions({
     surface: "mobile",
   });
@@ -4584,7 +4591,12 @@ export default function NexialApp() {
         maxWidth: 440, margin: "0 auto", minHeight: "100vh",
         display: "flex", flexDirection: "column",
       }}>
-        <main style={{ flex: 1 }}>
+        <main style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: detailTicker ? "auto" : "visible",
+          WebkitOverflowScrolling: "touch",
+        }}>
           {detailTicker ? (
             <AssetDetailPage
               ticker={detailTicker}
