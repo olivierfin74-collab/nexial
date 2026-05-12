@@ -18,6 +18,7 @@ import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 import { createClient } from "@/lib/supabase/client";
 import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
+import SystemFreshnessBadge from "@/components/SystemFreshnessBadge";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -1536,6 +1537,7 @@ const TodayPage = ({ onAssetClick, onNavigate }) => {
       <PageHeader
         eyebrow="Aujourd'hui"
         title={`${visibleAlerts.length} alertes`}
+        action={<SystemFreshnessBadge />}
         subtitle="Signaux détectés sur les dernières 24 heures"
       />
       <div style={{ padding: "0 20px 12px", display: "flex", justifyContent: "flex-end" }}>
