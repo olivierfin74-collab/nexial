@@ -24,6 +24,7 @@ interface YahooQuote {
   regularMarketChangePercent: number;
   regularMarketVolume: number;
   averageDailyVolume3Month?: number;
+  marketCap?: number;
   exchange?: string;
 }
 
@@ -54,6 +55,7 @@ async function fetchYahooDayLosers(): Promise<YahooQuote[]> {
     regularMarketChangePercent: q.regularMarketChangePercent?.raw,
     regularMarketVolume: q.regularMarketVolume?.raw,
     averageDailyVolume3Month: q.averageDailyVolume3Month?.raw,
+    marketCap: q.marketCap?.raw,
     exchange: q.exchange,
   }));
 }
@@ -82,8 +84,22 @@ async function fetchYahooQuotes(tickers: string[]): Promise<YahooQuote[]> {
     regularMarketChangePercent: q.regularMarketChangePercent,
     regularMarketVolume: q.regularMarketVolume,
     averageDailyVolume3Month: q.averageDailyVolume3Month,
+    marketCap: q.marketCap,
     exchange: q.exchange,
   }));
+}
+
+function signalStrength(changePct: number): "MEDIUM" | "HIGH" | "EXTREME" {
+  if (changePct <= -8) return "EXTREME";
+  if (changePct <= -5) return "HIGH";
+  return "MEDIUM";
+}
+
+function detectionBucket(date = new Date()): string {
+  const copy = new Date(date);
+  const minutes = copy.getUTCMinutes();
+  copy.setUTCMinutes(minutes - (minutes % 5), 0, 0);
+  return copy.toISOString();
 }
 
 Deno.serve(async (req) => {
@@ -136,11 +152,57 @@ Deno.serve(async (req) => {
       ...watchlistQuotes.map(q => ({ ...q, source: "yahoo_watchlist_quote" })),
     ];
 
+    const minMarketCap = Number(Deno.env.get("FLASH_DROP_MIN_MARKET_CAP") ?? 1_000_000_000);
+    const minVolume = Number(Deno.env.get("FLASH_DROP_MIN_VOLUME") ?? 100_000);
     const drops = allCandidates.filter(q =>
-      q.regularMarketChangePercent != null && q.regularMarketChangePercent <= -3
+      q.regularMarketChangePercent != null &&
+      q.regularMarketChangePercent <= -3 &&
+      (q.marketCap ?? 0) > minMarketCap &&
+      (q.regularMarketVolume ?? 0) > minVolume
     );
 
     console.log(`Drops detectes (>= -3%) : ${drops.length}`);
+
+    const bucket = detectionBucket();
+    const flashDropEvents = drops
+      .map(d => {
+        const sym = d.symbol?.toUpperCase();
+        const matched = tickerToAsset.get(sym);
+        const changePct = d.regularMarketChangePercent ?? 0;
+
+        return {
+          asset_id: matched?.id ?? null,
+          ticker: matched?.ticker ?? d.symbol,
+          detected_at: new Date().toISOString(),
+          detection_bucket: bucket,
+          price: d.regularMarketPrice,
+          intraday_change_pct: changePct,
+          close_to_close_pct: changePct,
+          price_vs_vwap_pct: null,
+          signal_strength: signalStrength(changePct),
+          source: d.source,
+          market_cap: d.marketCap,
+          volume: d.regularMarketVolume,
+          trigger_reason: "intraday_change_pct <= -3%",
+        };
+      });
+
+    let insertedEvents: any[] = [];
+    if (flashDropEvents.length > 0) {
+      const { data, error: eventsErr } = await supabase
+        .schema("nx")
+        .from("flash_drop_events")
+        .upsert(flashDropEvents, {
+          onConflict: "ticker,source,detection_bucket",
+          ignoreDuplicates: true,
+        })
+        .select("id, ticker, intraday_change_pct, signal_strength");
+
+      if (eventsErr) throw eventsErr;
+      insertedEvents = data ?? [];
+    }
+
+    console.log(`Flash drop events inseres : ${insertedEvents?.length ?? 0}`);
 
     // 5. Insert snapshots
     const snapshots = drops.map(d => {
@@ -198,6 +260,7 @@ Deno.serve(async (req) => {
           day_losers_fetched: losers.length,
           watchlist_quotes_fetched: watchlistQuotes.length,
           drops_detected: drops.length,
+          flash_drop_events_new: insertedEvents?.length ?? 0,
           snapshots_inserted: insertedSnapshots?.length ?? 0,
           flash_alerts_new: newAlerts.length,
           flash_alerts_total_lookback: alerts?.length ?? 0,
