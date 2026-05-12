@@ -751,7 +751,7 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
   return (
     <header style={{ padding: "28px 20px 24px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <Eyebrow>Nexial</Eyebrow>
           <HeroNumber size="L" style={{ margin: "8px 0 6px" }}>Bonjour Olivier</HeroNumber>
           <div style={{
@@ -764,8 +764,10 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
             <MarketStatusIndicator />
             <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
           </div>
-          <NotificationBellPanel />
-          <SystemFreshnessBadge />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, maxWidth: "100%" }}>
+            <SystemFreshnessBadge />
+            <NotificationBellPanel compact />
+          </div>
         </div>
       </div>
     </header>
