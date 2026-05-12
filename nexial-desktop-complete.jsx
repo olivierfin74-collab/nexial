@@ -718,6 +718,49 @@ const useManualRefresh = (refetch) => {
   return { refreshing, handleRefresh };
 };
 
+const FilterBar = ({ filters = [], sortOptions = [], activeFilters = [], activeSort, onChange }) => (
+  <div style={{
+    display: "flex", alignItems: "center", gap: 10,
+    flexWrap: "wrap", marginBottom: 18,
+  }}>
+    {sortOptions.length > 0 && (
+      <select
+        value={activeSort}
+        onChange={(e) => onChange({ sort: e.target.value })}
+        style={{
+          padding: "8px 10px",
+          border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+          backgroundColor: T.bgSurface, color: T.inkPrimary,
+          fontFamily: FONT_SANS, fontSize: 12, fontWeight: 700,
+        }}
+      >
+        {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      </select>
+    )}
+    {filters.map((filter) => {
+      const active = activeFilters.includes(filter.key);
+      return (
+        <button key={filter.key} onClick={() => onChange({ filter: filter.key })} style={{
+          padding: "7px 13px",
+          backgroundColor: active ? T.inkPrimary : T.bgSurface,
+          color: active ? T.inkOnDark : T.inkSecondary,
+          border: `1px solid ${active ? T.inkPrimary : T.borderSubtle}`,
+          borderRadius: 20, cursor: "pointer",
+          fontFamily: FONT_SANS, fontSize: 12, fontWeight: active ? 700 : 600,
+          display: "inline-flex", alignItems: "center", gap: 6,
+        }}>
+          {filter.label}
+          {filter.count !== undefined && (
+            <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: active ? T.forestGreenOnDark : T.inkTertiary, fontWeight: 800 }}>
+              {filter.count}
+            </span>
+          )}
+        </button>
+      );
+    })}
+  </div>
+);
+
 const getMarketStatus = () => {
   const now = new Date();
   const day = now.getUTCDay();
@@ -1513,6 +1556,8 @@ const DesktopDismissAlertModal = ({ alert, onClose, onConfirm }) => {
 
 const SectionAlerts = () => {
   const supabase = useMemo(() => createClient(), []);
+  const [alertFilters, setAlertFilters] = useState([]);
+  const [alertSort, setAlertSort] = useState("freshness");
   const [alerts, setAlerts] = useState(MOCK.alerts);
   const [menuOpenForAlertId, setMenuOpenForAlertId] = useState(null);
   const [dismissModalForAlert, setDismissModalForAlert] = useState(null);
@@ -1521,6 +1566,26 @@ const SectionAlerts = () => {
     () => alerts.filter((a) => a.status !== "DISMISSED"),
     [alerts]
   );
+  const filteredAlerts = useMemo(() => {
+    let next = [...visibleAlerts];
+    if (alertFilters.includes("buy")) next = next.filter((a) => ["BUY_ZONE", "HOT_PULLBACK", "BUY"].some((k) => a.kind?.includes(k)));
+    if (alertFilters.includes("flash")) next = next.filter((a) => a.kind === "FLASH_DROP");
+    if (alertFilters.includes("protective")) next = next.filter((a) => ["OVERBOUGHT", "DOWNTREND", "PROTECT"].some((k) => a.kind?.includes(k)));
+    if (alertFilters.includes("held")) next = next.filter((a) => a.in_portfolio || a.isHeld);
+    if (alertSort === "score") next.sort((a, b) => Number(b.score || b.opportunity_score || 0) - Number(a.score || a.opportunity_score || 0));
+    else if (alertSort === "kind") next.sort((a, b) => String(a.kind || "").localeCompare(String(b.kind || "")));
+    else next.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return next;
+  }, [alertFilters, alertSort, visibleAlerts]);
+  const toggleAlertFilter = (key) => setAlertFilters((current) => (
+    current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+  ));
+  const alertFilterDefs = [
+    { key: "buy", label: "Buy zones", count: visibleAlerts.filter((a) => ["BUY_ZONE", "HOT_PULLBACK", "BUY"].some((k) => a.kind?.includes(k))).length },
+    { key: "flash", label: "Flash drops", count: visibleAlerts.filter((a) => a.kind === "FLASH_DROP").length },
+    { key: "protective", label: "Protective", count: visibleAlerts.filter((a) => ["OVERBOUGHT", "DOWNTREND", "PROTECT"].some((k) => a.kind?.includes(k))).length },
+    { key: "held", label: "Mes positions", count: visibleAlerts.filter((a) => a.in_portfolio || a.isHeld).length },
+  ];
 
   const handleMarkSeen = async (alertId) => {
     setActionError(null);
@@ -1581,8 +1646,23 @@ const SectionAlerts = () => {
       }}>{actionError}</div>
     )}
 
+    <FilterBar
+      filters={alertFilterDefs}
+      sortOptions={[
+        { value: "freshness", label: "Fraicheur" },
+        { value: "score", label: "Score DESC" },
+        { value: "kind", label: "Type alerte" },
+      ]}
+      activeFilters={alertFilters}
+      activeSort={alertSort}
+      onChange={({ filter, sort }) => {
+        if (sort) setAlertSort(sort);
+        if (filter) toggleAlertFilter(filter);
+      }}
+    />
+
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {visibleAlerts.map((a, i) => {
+      {filteredAlerts.map((a, i) => {
         const sev =
           a.severity === "CRITICAL" ? "danger" :
           a.severity === "HIGH" ? "warning" :
@@ -3095,11 +3175,14 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
 const PortefeuillePage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [account, setAccount] = useState("all");
+  const [portfolioFilters, setPortfolioFilters] = useState([]);
+  const [portfolioSort, setPortfolioSort] = useState("value_desc");
   const [showAddPosition, setShowAddPosition] = useState(false);
   const accountFilter = account === "all" ? null : account;
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter });
   const { refreshing, handleRefresh } = useManualRefresh(refetch);
-  const filtered = useMemo(() => (positions || []).map((p) => ({
+  const filtered = useMemo(() => {
+    let next = (positions || []).map((p) => ({
     ticker: p.ticker,
     name: p.asset_name,
     account: p.account_name,
@@ -3120,10 +3203,21 @@ const PortefeuillePage = ({ onAssetClick }) => {
       0.01,
       `${p.account_id}:${p.ticker}`
     ),
-  })).sort((a, b) => Number(b.marketValueNative || b.value || 0) - Number(a.marketValueNative || a.value || 0)), [positions]);
+    }));
+    if (portfolioFilters.includes("eur")) next = next.filter((p) => (p.currency || "").toUpperCase() === "EUR");
+    if (portfolioFilters.includes("usd")) next = next.filter((p) => (p.currency || "").toUpperCase() === "USD");
+    if (portfolioSort === "pnl_desc") next.sort((a, b) => Number(b.pnlPct || 0) - Number(a.pnlPct || 0));
+    else if (portfolioSort === "pnl_asc") next.sort((a, b) => Number(a.pnlPct || 0) - Number(b.pnlPct || 0));
+    else if (portfolioSort === "ticker_asc") next.sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || "")));
+    else next.sort((a, b) => Number(b.marketValueNative || b.value || 0) - Number(a.marketValueNative || a.value || 0));
+    return next;
+  }, [positions, portfolioFilters, portfolioSort]);
   const totalValue = Number(summary?.total_value_eur ?? filtered.reduce((s, p) => s + p.value, 0));
   const accounts = summary?.by_account ?? [];
   const totalPositions = Number(summary?.total_positions ?? filtered.length);
+  const togglePortfolioFilter = (key) => setPortfolioFilters((current) => (
+    current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+  ));
   return (
     <main style={{
       maxWidth: CONTAINER_MAX, margin: "0 auto",
@@ -3146,6 +3240,24 @@ const PortefeuillePage = ({ onAssetClick }) => {
         open={showAddPosition}
         onClose={() => setShowAddPosition(false)}
         onSuccess={refetch}
+      />
+      <FilterBar
+        filters={[
+          { key: "eur", label: "Devise EUR", count: (positions || []).filter((p) => (p.asset_currency || "").toUpperCase() === "EUR").length },
+          { key: "usd", label: "Devise USD", count: (positions || []).filter((p) => (p.asset_currency || "").toUpperCase() === "USD").length },
+        ]}
+        sortOptions={[
+          { value: "value_desc", label: "Valeur DESC" },
+          { value: "pnl_desc", label: "P&L % DESC" },
+          { value: "pnl_asc", label: "P&L % ASC" },
+          { value: "ticker_asc", label: "Ticker A-Z" },
+        ]}
+        activeFilters={portfolioFilters}
+        activeSort={portfolioSort}
+        onChange={({ filter, sort }) => {
+          if (sort) setPortfolioSort(sort);
+          if (filter) togglePortfolioFilter(filter);
+        }}
       />
       {!loading && !error && filtered.length > 0 && (
         <PortfolioPerfSummary positions={filtered} />
@@ -4115,6 +4227,8 @@ const RemoveAssetConfirmModal = ({ item, onClose, onConfirm }) => {
 const WatchlistPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [filter, setFilter] = useState("all");
+  const [watchlistFilters, setWatchlistFilters] = useState([]);
+  const [watchlistSort, setWatchlistSort] = useState("score_desc");
   const [activeId, setActiveId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddAsset, setShowAddAsset] = useState(false);
@@ -4150,12 +4264,22 @@ const WatchlistPage = ({ onAssetClick }) => {
   }, [items]);
 
   const filtered = useMemo(() => {
-    const sorted = [...items].sort((a, b) => Number(b.opportunity_score ?? 0) - Number(a.opportunity_score ?? 0));
-    if (filter === "opportunities") return sorted.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK");
-    if (filter === "held") return sorted.filter((it) => it.in_portfolio === true);
-    if (filter === "watch") return sorted.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE");
-    return sorted;
-  }, [items, filter]);
+    let next = [...items];
+    if (filter === "opportunities") next = next.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK");
+    if (filter === "held") next = next.filter((it) => it.in_portfolio === true);
+    if (filter === "watch") next = next.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE");
+    if (watchlistFilters.includes("buy_zone")) next = next.filter((it) => wlLiveInBuyZone(it));
+    if (watchlistFilters.includes("not_held")) next = next.filter((it) => it.in_portfolio !== true);
+    if (watchlistFilters.includes("tier1")) next = next.filter((it) => Number(it.opportunity_score ?? 0) >= 70 || it.tier === "tier1_core");
+    if (watchlistSort === "drawdown") next.sort((a, b) => Number(a.drawdown_from_high_pct ?? 0) - Number(b.drawdown_from_high_pct ?? 0));
+    else if (watchlistSort === "z1_distance") next.sort((a, b) => Number(wlLiveZDistance(a) ?? 999) - Number(wlLiveZDistance(b) ?? 999));
+    else if (watchlistSort === "perf_1m") next.sort((a, b) => Number(b.perf_1m_pct ?? 0) - Number(a.perf_1m_pct ?? 0));
+    else next.sort((a, b) => Number(b.opportunity_score ?? 0) - Number(a.opportunity_score ?? 0));
+    return next;
+  }, [items, filter, watchlistFilters, watchlistSort]);
+  const toggleWatchlistFilter = (key) => setWatchlistFilters((current) => (
+    current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+  ));
 
   const handleCreate = async (input) => {
     const newId = await createWatchlist(input);
@@ -4206,6 +4330,26 @@ const WatchlistPage = ({ onAssetClick }) => {
             onClose={() => setShowAddAsset(false)}
             onAddAsset={handleAddAsset}
             currentWatchlistName={activeWatchlist?.name || ""}
+          />
+
+          <FilterBar
+            filters={[
+              { key: "buy_zone", label: "In Buy Zone", count: items.filter((it) => wlLiveInBuyZone(it)).length },
+              { key: "not_held", label: "Pas en portefeuille", count: items.filter((it) => it.in_portfolio !== true).length },
+              { key: "tier1", label: "Tier 1", count: items.filter((it) => Number(it.opportunity_score ?? 0) >= 70 || it.tier === "tier1_core").length },
+            ]}
+            sortOptions={[
+              { value: "score_desc", label: "Score opp. DESC" },
+              { value: "drawdown", label: "Drawdown 52w" },
+              { value: "z1_distance", label: "Distance Z1" },
+              { value: "perf_1m", label: "Perf 1M" },
+            ]}
+            activeFilters={watchlistFilters}
+            activeSort={watchlistSort}
+            onChange={({ filter, sort }) => {
+              if (sort) setWatchlistSort(sort);
+              if (filter) toggleWatchlistFilter(filter);
+            }}
           />
 
           {error && (
