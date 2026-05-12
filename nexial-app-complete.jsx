@@ -50,6 +50,34 @@ const FONT_DISPLAY = '"Fraunces", "Tobias", "Playfair Display", Georgia, serif';
 const FONT_SANS = '"Inter", "Söhne", system-ui, sans-serif';
 const FONT_MONO = '"JetBrains Mono", "SF Mono", ui-monospace, monospace';
 
+const assetIdentityKey = (asset) => {
+  const value = [
+    asset?.asset_id,
+    asset?.assetId,
+    asset?.ticker,
+    asset?.symbol,
+    asset?.asset_name,
+    asset?.name,
+  ].find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+
+  return value ? String(value).trim().toUpperCase() : "";
+};
+
+const dedupeAssets = (items = [], seen = new Set()) => (
+  (items || []).filter((item) => {
+    const key = assetIdentityKey(item);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  })
+);
+
+const assetReactKey = (asset, prefix, index) => {
+  const key = assetIdentityKey(asset);
+  return key ? `${prefix}:${key}` : `${prefix}:row-${index}`;
+};
+
 // ============================================================
 // MOCK DATA (réelles 8 mai 2026)
 // ============================================================
@@ -647,6 +675,7 @@ const SectionToDoToday = ({ onAssetClick, opportunities, loading }) => {
   const items = opportunities || [];
   // Adapter Supabase row -> ActionCard expected shape
   const adapted = items.slice(0, 5).map((o) => ({
+    asset_id: o.asset_id,
     ticker: o.ticker,
     name: o.asset_name,
     type: (o.event_kind && o.event_kind.includes("REVERSAL")) ? "ALERT" : "ORDER",
@@ -673,7 +702,7 @@ const SectionToDoToday = ({ onAssetClick, opportunities, loading }) => {
           borderRadius: 12, margin: "0 20px", overflow: "hidden",
         }}>
           {adapted.map((a, i) => (
-            <ActionCard key={i} action={a} isLast={i === adapted.length - 1}
+            <ActionCard key={assetReactKey(a, "dashboard-action", i)} action={a} isLast={i === adapted.length - 1}
               onClick={() => onAssetClick(a.ticker)} />
           ))}
         </div>
@@ -902,11 +931,16 @@ const Timeline = () => (
 
 const DashboardPage = ({ onAssetClick }) => {
   const { opportunities, patrimoine, loading } = useTodayDashboard();
+  const dashboardOpportunities = useMemo(
+    () => dedupeAssets(opportunities),
+    [opportunities]
+  );
+
   return (
     <>
       <DashboardHeader />
       <RegimeBanner />
-      <SectionToDoToday onAssetClick={onAssetClick} opportunities={opportunities} loading={loading} />
+      <SectionToDoToday onAssetClick={onAssetClick} opportunities={dashboardOpportunities} loading={loading} />
       <YourMoney patrimoine={patrimoine} loading={loading} />
       <Timeline />
     </>

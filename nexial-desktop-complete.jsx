@@ -74,6 +74,34 @@ const CONTAINER_PAD = 40;
 /* ---------- Helpers ---------- */
 const fmtEur = (n) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(n);
 const fmtPct = (n, withSign = true) => (withSign && n > 0 ? "+" : "") + n.toFixed(1) + "%";
+const assetIdentityKey = (asset) => {
+  const value = [
+    asset?.asset_id,
+    asset?.assetId,
+    asset?.ticker,
+    asset?.symbol,
+    asset?.asset_name,
+    asset?.name,
+  ].find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+
+  return value ? String(value).trim().toUpperCase() : "";
+};
+const dedupeAssetGroups = (...groups) => {
+  const seen = new Set();
+  return groups.map((items = []) => (
+    (items || []).filter((item) => {
+      const key = assetIdentityKey(item);
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+  ));
+};
+const assetReactKey = (asset, prefix, index) => {
+  const key = assetIdentityKey(asset);
+  return key ? `${prefix}:${key}` : `${prefix}:row-${index}`;
+};
 
 /* ============================================================
    PRIMITIVES (alignées mobile validé byte-pour-byte sur les noms/comportements)
@@ -1636,7 +1664,13 @@ const TableauTimeline = () => (
   </section>
 );
 
-const TableauPage = () => (
+const TableauPage = () => {
+  const [dashboardContributors, dashboardDetractors] = useMemo(
+    () => dedupeAssetGroups(MOCK.contributors, MOCK.detractors),
+    []
+  );
+
+  return (
   <main style={{
     maxWidth: CONTAINER_MAX, margin: "0 auto",
     padding: `0 ${CONTAINER_PAD}px`,
@@ -1662,11 +1696,11 @@ const TableauPage = () => (
           padding: "16px 18px", backgroundColor: T.bgPour,
           border: `1px solid ${T.borderUltra}`, borderRadius: 12,
         }}>
-          {MOCK.contributors.map((c, i) => (
-            <div key={c.ticker} style={{
+          {dashboardContributors.map((c, i) => (
+            <div key={assetReactKey(c, "dashboard-contributor", i)} style={{
               display: "grid", gridTemplateColumns: "56px 1fr auto auto",
               gap: 12, alignItems: "center", padding: "8px 0",
-              borderBottom: i < MOCK.contributors.length - 1 ? `1px solid rgba(0,0,0,0.06)` : "none",
+              borderBottom: i < dashboardContributors.length - 1 ? `1px solid rgba(0,0,0,0.06)` : "none",
             }}>
               <span style={{
                 fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700,
@@ -1698,11 +1732,11 @@ const TableauPage = () => (
           padding: "16px 18px", backgroundColor: T.bgContre,
           border: `1px solid ${T.borderUltra}`, borderRadius: 12,
         }}>
-          {MOCK.detractors.map((c, i) => (
-            <div key={c.ticker} style={{
+          {dashboardDetractors.map((c, i) => (
+            <div key={assetReactKey(c, "dashboard-detractor", i)} style={{
               display: "grid", gridTemplateColumns: "56px 1fr auto auto",
               gap: 12, alignItems: "center", padding: "8px 0",
-              borderBottom: i < MOCK.detractors.length - 1 ? `1px solid rgba(0,0,0,0.06)` : "none",
+              borderBottom: i < dashboardDetractors.length - 1 ? `1px solid rgba(0,0,0,0.06)` : "none",
             }}>
               <span style={{
                 fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700,
@@ -1724,7 +1758,8 @@ const TableauPage = () => (
     <TableauComptes />
     <TableauTimeline />
   </main>
-);
+  );
+};
 
 /* ============================================================
    PAGE — ORDRES (paper trading, paliers étagés par ticker)
