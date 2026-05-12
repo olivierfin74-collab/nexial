@@ -2444,6 +2444,130 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, canRem
   );
 };
 
+const liveWatchlistPrice = (item) => Number(item.last_price ?? item.current_price ?? item.price ?? 0);
+const liveWatchlistCurrency = (item) => item.asset_currency || item.currency || "EUR";
+const liveWatchlistPerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? 0);
+const liveWatchlistScore = (item) => Number(item.opportunity_score ?? item.score ?? 0);
+const liveWatchlistZ1 = (item) => Number(item.z1_price ?? item.z1 ?? 0);
+const liveWatchlistZDistance = (item) => {
+  if (item.distance_to_z1_pct !== undefined && item.distance_to_z1_pct !== null) return Number(item.distance_to_z1_pct);
+  const price = liveWatchlistPrice(item);
+  const z1 = liveWatchlistZ1(item);
+  if (!(price > 0) || !(z1 > 0)) return null;
+  return ((price - z1) / price) * 100;
+};
+const liveWatchlistInBuyZone = (item) => {
+  const price = liveWatchlistPrice(item);
+  const z1 = liveWatchlistZ1(item);
+  return item.has_buy_alert === true || item.signal === "BUY_ZONE" || (price > 0 && z1 > 0 && price <= z1);
+};
+const liveWatchlistRsiTag = (item) => {
+  const rsi = Number(item.rsi_14);
+  if (!Number.isFinite(rsi) || rsi <= 0) return null;
+  if (rsi > 70) return { label: "Surchauffe", color: T.amber, bg: T.bgAlert };
+  if (rsi < 30) return { label: "Survendu", color: T.forestGreen, bg: T.bgPour };
+  return { label: "OK", color: T.inkTertiary, bg: T.bgSurface };
+};
+const LiveWatchlistTag = ({ children, color = T.inkSecondary, bg = T.bgSurface }) => (
+  <span style={{
+    padding: "2px 6px", borderRadius: 5, backgroundColor: bg, color,
+    border: `1px solid ${color}30`, fontFamily: FONT_SANS, fontSize: 9,
+    fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase",
+  }}>{children}</span>
+);
+
+const WatchlistItemRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, canRemove = true }) => {
+  const variant = stateVariant(item.state);
+  const price = liveWatchlistPrice(item);
+  const perf1d = liveWatchlistPerf1d(item);
+  const perfColor = perf1d >= 0 ? T.forestGreen : T.burgundy;
+  const score = liveWatchlistScore(item);
+  const zDistance = liveWatchlistZDistance(item);
+  const inBuyZone = liveWatchlistInBuyZone(item);
+  const rsiTag = liveWatchlistRsiTag(item);
+  const bg = inBuyZone ? T.bgPour : T.bgSurface;
+  const priceText = price > 0 ? `${price.toFixed(price >= 100 ? 2 : 3)} ${liveWatchlistCurrency(item)}` : "-";
+  const scoreColor = score >= 70 ? T.forestGreen : score >= 50 ? T.gold : T.inkPrimary;
+
+  if (viewMode === "card") {
+    return (
+      <div onClick={onClick} style={{
+        position: "relative", padding: 14, backgroundColor: bg,
+        border: `1px solid ${T.borderSubtle}`, borderRadius: 10,
+        cursor: "pointer", transition: "background-color 200ms",
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
+      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bg}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: T.inkPrimary }}>{item.ticker}</span>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: scoreColor }}>{score > 0 ? Math.round(score) : "-"}</span>
+        </div>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 500, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: canRemove ? 28 : 0 }}>
+          {item.name || item.asset_name || item.ticker}
+        </div>
+        <div style={{ display: "flex", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
+          <MetricChip variant={variant} style={{ fontSize: 10 }}>{stateLabel(item.state)}</MetricChip>
+          {inBuyZone && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</LiveWatchlistTag>}
+          {rsiTag && <LiveWatchlistTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</LiveWatchlistTag>}
+          {item.isHeld && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>Detenu</LiveWatchlistTag>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+          <div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 14, color: T.inkPrimary, fontWeight: 800 }}>{priceText}</div>
+            {price > 0 && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: perfColor, fontWeight: 800 }}>{perf1d >= 0 ? "+" : ""}{perf1d.toFixed(2)}% 24h</div>}
+          </div>
+          <div style={{ textAlign: "right", fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 800 }}>
+            {zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}
+          </div>
+        </div>
+        {canRemove && (
+          <button onClick={(e) => { e.stopPropagation(); onRemoveRequest(item); }} aria-label="Plus d'actions" style={{ position: "absolute", top: 8, right: 8, padding: 6, background: "transparent", border: "none", cursor: "pointer", color: T.inkTertiary, borderRadius: 6 }}>
+            <MoreHorizontal size={16} strokeWidth={2.2} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div onClick={onClick} style={{
+      padding: "12px 16px", borderBottom: isLast ? "none" : `1px solid ${T.borderSubtle}`,
+      display: "grid", gridTemplateColumns: canRemove ? "1fr auto auto auto" : "1fr auto auto", gap: 10,
+      alignItems: "center", cursor: "pointer", backgroundColor: bg,
+      transition: "background-color 200ms",
+    }}
+    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
+    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bg}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 5 }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: T.inkPrimary }}>{item.ticker}</span>
+          <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkTertiary, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || item.asset_name}</span>
+        </div>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          <MetricChip variant={variant} style={{ fontSize: 10 }}>{stateLabel(item.state)}</MetricChip>
+          {inBuyZone && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</LiveWatchlistTag>}
+          {rsiTag && <LiveWatchlistTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</LiveWatchlistTag>}
+          {item.isHeld && <LiveWatchlistTag color={T.forestGreen} bg={T.bgPour}>Detenu</LiveWatchlistTag>}
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.inkPrimary, fontWeight: 800 }}>{priceText}</div>
+        {price > 0 && <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 10.5, color: perfColor, fontWeight: 800 }}>{perf1d >= 0 ? "+" : ""}{perf1d.toFixed(2)}%</div>}
+        <div style={{ marginTop: 3, fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary, fontWeight: 800 }}>{zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 500, color: scoreColor }}>{score > 0 ? Math.round(score) : "-"}</div>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 9, color: T.inkTertiary, fontWeight: 600, letterSpacing: "0.08em" }}>SCORE</div>
+      </div>
+      {canRemove && (
+        <button onClick={(e) => { e.stopPropagation(); onRemoveRequest(item); }} aria-label="Plus d'actions" style={{ padding: 8, background: "transparent", border: "none", cursor: "pointer", color: T.inkTertiary, borderRadius: 6 }}>
+          <MoreHorizontal size={17} strokeWidth={2.2} />
+        </button>
+      )}
+    </div>
+  );
+};
+
 const RemoveAssetConfirmModal = ({ item, onClose, onConfirm }) => {
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState(null);
@@ -3017,17 +3141,18 @@ const WatchlistPage = ({ onAssetClick }) => {
   // Adapter Supabase row -> WatchlistRow expected shape (préserve sous-composants existants)
   const adaptedItems = useMemo(() => {
     return (items || []).map((it) => ({
+      ...it,
       ticker: it.ticker,
-      name: it.asset_name || it.ticker,
-      state: it.signal || "UNKNOWN",
+      name: it.asset_name || it.name || it.ticker,
+      state: it.signal || it.signal_label || "UNKNOWN",
       score: Number(it.opportunity_score ?? 0),
       quality: it.in_portfolio ? "DETENU" : "WATCHED",
-      sector: "",
-      price: Number(it.current_price ?? 0),
+      sector: it.sector || "",
+      price: Number(it.current_price ?? it.last_price ?? 0),
       isHeld: it.in_portfolio === true,
-      currency: it.currency || "USD",
+      currency: it.asset_currency || it.currency || "USD",
       asset_id: it.asset_id,
-    }));
+    })).sort((a, b) => Number(b.opportunity_score ?? b.score ?? 0) - Number(a.opportunity_score ?? a.score ?? 0));
   }, [items]);
 
   const filtered = useMemo(() => {
@@ -3171,7 +3296,7 @@ const WatchlistPage = ({ onAssetClick }) => {
             />
           ) : (
             filtered.map((w, i) => (
-              <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="list"
+              <WatchlistItemRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="list"
                 isLast={i === filtered.length - 1}
                 onClick={() => onAssetClick(w.ticker)}
                 onRemoveRequest={setItemToRemove}
@@ -3185,7 +3310,7 @@ const WatchlistPage = ({ onAssetClick }) => {
           gridTemplateColumns: "1fr 1fr", gap: 10,
         }}>
           {filtered.map((w) => (
-            <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="card"
+            <WatchlistItemRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="card"
               onClick={() => onAssetClick(w.ticker)}
               onRemoveRequest={setItemToRemove}
               canRemove={!isOpportunityWl} />

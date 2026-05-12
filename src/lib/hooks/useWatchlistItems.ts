@@ -12,13 +12,21 @@ export type WatchlistItem = {
   ticker: string;
   exchange_mic: string | null;
   currency: string | null;
+  asset_currency?: string | null;
   asset_name: string | null;
+  name?: string | null;
+  sector?: string | null;
   coverage_level?: string | null;  // present in OPPORTUNITY payload
   current_price: number | null;
+  last_price?: number | null;
   signal: string | null;
+  signal_label?: string | null;
   z1: number | null;
   z2: number | null;
   z3: number | null;
+  z1_price?: number | null;
+  z2_price?: number | null;
+  z3_price?: number | null;
   distance_to_z1_pct: number | null;
   distance_to_z2_pct: number | null;
   distance_to_z3_pct: number | null;
@@ -29,6 +37,9 @@ export type WatchlistItem = {
   perf_1m_pct: number | null;
   perf_3m_pct: number | null;
   perf_6m_pct: number | null;
+  chg_24h_pct?: number | null;
+  rsi_14?: number | null;
+  has_buy_alert?: boolean | null;
   in_portfolio: boolean | null;
   pnl_pct: number | null;
   freshness_status: string | null;

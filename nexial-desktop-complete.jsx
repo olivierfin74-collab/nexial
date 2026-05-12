@@ -3888,6 +3888,149 @@ const WatchlistLiveCard = ({ item, onClick, onRemoveRequest, isOpportunity }) =>
   );
 };
 
+const wlLivePrice = (item) => Number(item.last_price ?? item.current_price ?? 0);
+const wlLiveCurrency = (item) => item.asset_currency || item.currency || "USD";
+const wlLivePerf1d = (item) => Number(item.chg_24h_pct ?? item.perf_1d_pct ?? 0);
+const wlLiveScore = (item) => Number(item.opportunity_score ?? 0);
+const wlLiveZ1 = (item) => Number(item.z1_price ?? item.z1 ?? 0);
+const wlLiveZDistance = (item) => {
+  if (item.distance_to_z1_pct !== undefined && item.distance_to_z1_pct !== null) return Number(item.distance_to_z1_pct);
+  const price = wlLivePrice(item);
+  const z1 = wlLiveZ1(item);
+  if (!(price > 0) || !(z1 > 0)) return null;
+  return ((price - z1) / price) * 100;
+};
+const wlLiveInBuyZone = (item) => {
+  const price = wlLivePrice(item);
+  const z1 = wlLiveZ1(item);
+  return item.has_buy_alert === true || item.signal === "BUY_ZONE" || (price > 0 && z1 > 0 && price <= z1);
+};
+const wlLiveRsiTag = (item) => {
+  const rsi = Number(item.rsi_14);
+  if (!Number.isFinite(rsi) || rsi <= 0) return null;
+  if (rsi > 70) return { label: "Surchauffe", color: T.amber, bg: T.bgAlert };
+  if (rsi < 30) return { label: "Survendu", color: T.forestGreen, bg: T.bgPour };
+  return { label: "OK", color: T.inkTertiary, bg: T.bgSubtle };
+};
+const WlLiveTag = ({ children, color = T.inkSecondary, bg = T.bgSurface }) => (
+  <span style={{
+    display: "inline-flex", padding: "2px 7px", borderRadius: 4,
+    backgroundColor: bg, color, border: `1px solid ${color}30`,
+    fontFamily: FONT_SANS, fontSize: 9, fontWeight: 800,
+    letterSpacing: "0.10em", textTransform: "uppercase",
+  }}>{children}</span>
+);
+
+const WatchlistEnrichedTable = ({ items, onAssetClick, onRemoveRequest, isOpportunity }) => (
+  <section>
+    <div style={{
+      display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 90px 80px 86px 90px 30px",
+      gap: 12, alignItems: "center", padding: "12px 16px",
+      borderBottom: `1px solid ${T.borderHair}`,
+    }}>
+      {["Ticker", "Nom", "Tags", "Score", "Prix", "1d %", "Z1", "30j", ""].map((h, i) => (
+        <span key={i} style={{
+          fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
+          letterSpacing: "0.10em", textTransform: "uppercase", color: T.inkTertiary,
+          textAlign: ["Score", "Prix", "1d %", "Z1"].includes(h) ? "right" : "left",
+        }}>{h}</span>
+      ))}
+    </div>
+    {items.map((it) => {
+      const sm = stateMetaLive(it.signal);
+      const price = wlLivePrice(it);
+      const currency = wlLiveCurrency(it);
+      const delta = wlLivePerf1d(it);
+      const isPos = delta >= 0;
+      const score = wlLiveScore(it);
+      const zDistance = wlLiveZDistance(it);
+      const inBuyZone = wlLiveInBuyZone(it);
+      const rsiTag = wlLiveRsiTag(it);
+      const priceFmt = currency === "EUR" ? `${price.toFixed(2)} EUR` : `${price.toFixed(2)} ${currency}`;
+      const sparkStart = price > 0 ? price / (1 + (delta / 100 || 0.01)) : 1;
+      return (
+        <div key={(it.item_id || it.dynamic_key || it.asset_id)} style={{
+          display: "grid", gridTemplateColumns: "60px 1.35fr 150px 70px 90px 80px 86px 90px 30px",
+          gap: 12, alignItems: "center", padding: "12px 16px",
+          borderBottom: `1px solid ${T.borderUltra}`,
+          backgroundColor: inBuyZone ? T.bgPour : "transparent",
+          transition: "background-color 200ms",
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = inBuyZone ? T.bgPour : "transparent"}>
+          <span onClick={() => onAssetClick(it.ticker)} style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 700, color: T.inkPrimary, cursor: "pointer" }}>{it.ticker}</span>
+          <div onClick={() => onAssetClick(it.ticker)} style={{ cursor: "pointer", minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+              {it.asset_name || it.name || it.ticker}
+              {it.in_portfolio && <Badge variant="soft">DETENU</Badge>}
+            </div>
+            {it.sector && <div style={{ marginTop: 2, fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary, fontWeight: 600 }}>{it.sector}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            <WlLiveTag color={sm.color} bg={sm.bg}>{sm.label}</WlLiveTag>
+            {inBuyZone && <WlLiveTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</WlLiveTag>}
+            {rsiTag && <WlLiveTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</WlLiveTag>}
+          </div>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: score >= 70 ? T.forestGreen : score >= 50 ? T.gold : score > 0 ? T.burgundy : T.inkTertiary, textAlign: "right" }}>{score > 0 ? score.toFixed(0) : "-"}</span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700, textAlign: "right" }}>{price > 0 ? priceFmt : "-"}</span>
+          <div style={{ textAlign: "right" }}>{price > 0 && <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>}</div>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: zDistance != null && zDistance <= 0 ? T.forestGreen : T.inkSecondary, fontWeight: 800, textAlign: "right" }}>{zDistance == null ? "-" : `${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}</span>
+          <div style={{ height: 28 }}>{price > 0 && <Sparkline data={genSeries(sparkStart, price, 30, 0.012, `${it.asset_id || it.ticker}:watch`)} height={28} color={isPos ? T.forestGreen : T.burgundy} strokeWidth={1.2} id={`wl-${it.asset_id || it.ticker}`} />}</div>
+          {!isOpportunity ? (
+            <button onClick={() => onRemoveRequest(it)} aria-label="Plus d'actions" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4, color: T.inkQuaternary }}>
+              <MoreHorizontal size={15} strokeWidth={2.2} />
+            </button>
+          ) : <ChevronRight size={14} color={T.inkQuaternary} strokeWidth={1.5} onClick={() => onAssetClick(it.ticker)} style={{ cursor: "pointer" }} />}
+        </div>
+      );
+    })}
+  </section>
+);
+
+const WatchlistEnrichedCard = ({ item, onClick, onRemoveRequest, isOpportunity }) => {
+  const sm = stateMetaLive(item.signal);
+  const price = wlLivePrice(item);
+  const currency = wlLiveCurrency(item);
+  const delta = wlLivePerf1d(item);
+  const isPos = delta >= 0;
+  const score = wlLiveScore(item);
+  const zDistance = wlLiveZDistance(item);
+  const inBuyZone = wlLiveInBuyZone(item);
+  const rsiTag = wlLiveRsiTag(item);
+  return (
+    <div onClick={onClick} style={{
+      position: "relative", padding: "14px 16px 14px 18px",
+      backgroundColor: inBuyZone ? T.bgPour : T.bgSurface,
+      border: `1px solid ${T.borderUltra}`, borderRadius: 12,
+      cursor: "pointer", overflow: "hidden",
+    }}>
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: inBuyZone ? T.forestGreen : sm.color }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: T.inkPrimary }}>{item.ticker}</span>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: score >= 70 ? T.forestGreen : score >= 50 ? T.gold : T.inkPrimary }}>{score > 0 ? score.toFixed(0) : "-"}</span>
+      </div>
+      <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkSecondary, fontWeight: 500, marginBottom: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.asset_name || item.name || item.ticker}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        <WlLiveTag color={sm.color} bg={sm.bg}>{sm.label}</WlLiveTag>
+        {inBuyZone && <WlLiveTag color={T.forestGreen} bg={T.bgPour}>BUY ZONE</WlLiveTag>}
+        {rsiTag && <WlLiveTag color={rsiTag.color} bg={rsiTag.bg}>{rsiTag.label}</WlLiveTag>}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.inkPrimary, fontWeight: 700 }}>{price > 0 ? `${price.toFixed(2)} ${currency}` : "-"}</span>
+        {price > 0 && <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(delta)}</MetricChip>}
+      </div>
+      <div style={{ marginTop: 8, fontFamily: FONT_SANS, fontSize: 11, color: zDistance != null && zDistance <= 0 ? T.forestGreen : T.inkTertiary, fontWeight: 800 }}>
+        {zDistance == null ? "Z1 -" : `Z1 ${zDistance >= 0 ? "+" : ""}${zDistance.toFixed(1)}%`}
+      </div>
+      {!isOpportunity && (
+        <button onClick={(e) => { e.stopPropagation(); onRemoveRequest(item); }} aria-label="Plus d'actions" style={{ position: "absolute", top: 8, right: 8, background: "transparent", border: "none", cursor: "pointer", padding: 4, color: T.inkQuaternary }}>
+          <MoreHorizontal size={14} strokeWidth={2.2} />
+        </button>
+      )}
+    </div>
+  );
+};
+
 const RemoveAssetConfirmModal = ({ item, onClose, onConfirm }) => {
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState(null);
@@ -4007,10 +4150,11 @@ const WatchlistPage = ({ onAssetClick }) => {
   }, [items]);
 
   const filtered = useMemo(() => {
-    if (filter === "opportunities") return items.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK");
-    if (filter === "held") return items.filter((it) => it.in_portfolio === true);
-    if (filter === "watch") return items.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE");
-    return items;
+    const sorted = [...items].sort((a, b) => Number(b.opportunity_score ?? 0) - Number(a.opportunity_score ?? 0));
+    if (filter === "opportunities") return sorted.filter((it) => it.signal === "BUY_ZONE" || it.signal === "HOT_PULLBACK");
+    if (filter === "held") return sorted.filter((it) => it.in_portfolio === true);
+    if (filter === "watch") return sorted.filter((it) => it.signal === "WATCH_PULLBACK" || it.signal === "WATCH_BORDERLINE");
+    return sorted;
   }, [items, filter]);
 
   const handleCreate = async (input) => {
@@ -4092,7 +4236,7 @@ const WatchlistPage = ({ onAssetClick }) => {
                   : "Aucun actif ne correspond à ce filtre."}
             </div>
           ) : viewMode === "list" ? (
-            <WatchlistLiveTable
+            <WatchlistEnrichedTable
               items={filtered}
               onAssetClick={onAssetClick}
               onRemoveRequest={setItemToRemove}
@@ -4103,7 +4247,7 @@ const WatchlistPage = ({ onAssetClick }) => {
               display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14,
             }}>
               {filtered.map((it) => (
-                <WatchlistLiveCard
+                <WatchlistEnrichedCard
                   key={it.item_id || it.dynamic_key || it.asset_id}
                   item={it}
                   onClick={() => onAssetClick(it.ticker)}
