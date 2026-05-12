@@ -9,6 +9,9 @@ import {
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
 import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
+import { usePortfolio } from "@/lib/hooks/usePortfolio";
+import { useTodayDashboard } from "@/lib/hooks/useTodayDashboard";
+import { createClient } from "@/lib/supabase/client";
 
 /* ============================================================
    NEXIAL DESKTOP — PROTO COMPLET V2 (5 pages + détail asset + dev/admin)
@@ -1606,9 +1609,10 @@ const TableauComptes = () => {
   );
 };
 
-const TableauTimeline = () => (
+const TableauTimeline = ({ onSeeAll }) => (
   <section style={{ paddingTop: 32, paddingBottom: 40 }}>
-    <div style={{ marginBottom: 18 }}>
+    <div style={{ marginBottom: 18, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24 }}>
+      <div>
       <Eyebrow>Activité récente</Eyebrow>
       <h2 style={{
         margin: "8px 0 0 0",
@@ -1618,6 +1622,14 @@ const TableauTimeline = () => (
         <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>Ce qui s'est passé</em>
         {" "}depuis hier.
       </h2>
+      </div>
+      <button onClick={onSeeAll} style={{
+        background: "none", border: "none", fontFamily: FONT_SANS,
+        fontSize: 12, color: T.inkPrimary, fontWeight: 600, cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 2, padding: "2px 0",
+        textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: T.borderHair,
+        flexShrink: 0,
+      }}>Tout voir<ChevronRight size={14} strokeWidth={2} /></button>
     </div>
     {MOCK.timeline.map((day, di) => (
       <div key={di} style={{ marginBottom: di === 0 ? 24 : 0 }}>
@@ -1664,7 +1676,7 @@ const TableauTimeline = () => (
   </section>
 );
 
-const TableauPage = () => {
+const TableauPage = ({ onNavigate }) => {
   const [dashboardContributors, dashboardDetractors] = useMemo(
     () => dedupeAssetGroups(MOCK.contributors, MOCK.detractors),
     []
@@ -1756,7 +1768,7 @@ const TableauPage = () => {
       </div>
     </div>
     <TableauComptes />
-    <TableauTimeline />
+    <TableauTimeline onSeeAll={() => onNavigate("today")} />
   </main>
   );
 };
@@ -1959,7 +1971,7 @@ const OrdresPage = () => (
 /* ============================================================
    PAGE — PORTEFEUILLE (tableau dense / cartes, sparklines inline)
    ============================================================ */
-const PortefeuilleHeader = ({ totalValue, account, setAccount, viewMode, setViewMode }) => (
+const PortefeuilleHeader = ({ totalValue, totalPositions, accounts, account, setAccount, viewMode, setViewMode, onAddPosition }) => (
   <header style={{
     paddingTop: 36, paddingBottom: 24,
     borderBottom: `1px solid ${T.borderUltra}`,
@@ -1978,12 +1990,21 @@ const PortefeuilleHeader = ({ totalValue, account, setAccount, viewMode, setView
             fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 18,
             color: T.inkSecondary, fontWeight: 400, letterSpacing: "-0.005em",
           }}>
-            <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{MOCK.positions.filter(p => account === "all" || p.account === account).length} positions</em>
+            <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>{totalPositions} positions</em>
             {" "}· €{fmtEur(totalValue)}
           </span>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 4, padding: 4, backgroundColor: T.bgSubtle, borderRadius: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={onAddPosition} style={{
+          padding: "9px 14px", border: "none", backgroundColor: T.inkPrimary,
+          color: T.inkOnDark, borderRadius: 8, cursor: "pointer",
+          fontFamily: FONT_SANS, fontSize: 12.5, fontWeight: 700,
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <Plus size={14} strokeWidth={2.3} />Ajouter
+        </button>
+        <div style={{ display: "flex", gap: 4, padding: 4, backgroundColor: T.bgSubtle, borderRadius: 8 }}>
         <button onClick={() => setViewMode("list")} style={{
           padding: "8px 12px", border: "none",
           backgroundColor: viewMode === "list" ? T.bgSurface : "transparent",
@@ -2004,20 +2025,16 @@ const PortefeuilleHeader = ({ totalValue, account, setAccount, viewMode, setView
         }}>
           <LayoutGrid size={13} strokeWidth={2} /> Cartes
         </button>
+        </div>
       </div>
     </div>
 
     <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-      {[
-        { id: "all", label: "Tous" },
-        { id: "PEA", label: "PEA Boursobank" },
-        { id: "CTO IBKR", label: "CTO IBKR" },
-        { id: "CTO Trade Republic", label: "CTO Trade Republic" },
-      ].map((f) => {
-        const active = account === f.id;
-        const count = f.id === "all" ? MOCK.positions.length : MOCK.positions.filter(p => p.account === f.id).length;
+      {[{ account_id: "all", account_name: "Tous", positions_count: totalPositions }, ...accounts].map((f) => {
+        const active = account === f.account_id;
+        const count = f.positions_count ?? 0;
         return (
-          <button key={f.id} onClick={() => setAccount(f.id)} style={{
+          <button key={f.account_id} onClick={() => setAccount(f.account_id)} style={{
             padding: "7px 14px",
             backgroundColor: active ? T.forestGreen : "transparent",
             color: active ? T.inkOnDark : T.inkSecondary,
@@ -2026,7 +2043,7 @@ const PortefeuilleHeader = ({ totalValue, account, setAccount, viewMode, setView
             fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600,
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            {f.label}
+            {f.account_name}
             <span style={{
               fontFamily: FONT_MONO, fontSize: 11, fontWeight: 700,
               color: active ? T.forestGreenPale : T.inkQuaternary,
@@ -2167,20 +2184,306 @@ const PortefeuilleCard = ({ position, onClick, index }) => {
   );
 };
 
+const SUPPORTED_POSITION_CURRENCIES = ["EUR", "USD", "GBP", "CHF", "JPY", "HKD"];
+const nowForDatetimeInput = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+
+const AddPositionModal = ({ open, onClose, onSuccess }) => {
+  const supabase = useMemo(() => createClient(), []);
+  const { patrimoine } = useTodayDashboard({ pollMs: 60000, limit: 1 });
+  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch();
+  const accounts = useMemo(
+    () => (patrimoine?.accounts || []).filter((a) => a.is_active && a.universe !== "PAPER_TRADING"),
+    [patrimoine]
+  );
+  const [kind, setKind] = useState("buy");
+  const [accountId, setAccountId] = useState("");
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [quantity, setQuantity] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [currency, setCurrency] = useState("EUR");
+  const [executedAt, setExecutedAt] = useState(nowForDatetimeInput);
+  const [fees, setFees] = useState("0");
+  const [notes, setNotes] = useState("");
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(null);
+
+  if (!open) return null;
+
+  const effectiveAccountId = accountId || accounts[0]?.account_id || "";
+  const selectedAccount = accounts.find((a) => a.account_id === effectiveAccountId);
+  const validate = () => {
+    const next = {};
+    const executed = new Date(executedAt);
+    const maxDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (!selectedAccount) next.account = "Compte requis";
+    if (!selectedAsset) next.asset = "Asset requis";
+    if (!(Number(quantity) > 0)) next.quantity = "QuantitÃ© > 0 requise";
+    if (!(Number(unitPrice) > 0)) next.unitPrice = "Prix unitaire > 0 requis";
+    if (!(Number(fees) >= 0)) next.fees = "Frais >= 0 requis";
+    if (!SUPPORTED_POSITION_CURRENCIES.includes(currency)) next.currency = "Devise non supportÃ©e";
+    if (!executedAt || Number.isNaN(executed.getTime()) || executed.getFullYear() < 2000 || executed > maxDate) {
+      next.executedAt = "Date d'exÃ©cution invalide";
+    }
+    return next;
+  };
+  const currentErrors = validate();
+  const submitDisabled = submitting || Object.keys(currentErrors).length > 0;
+
+  const selectAsset = (asset) => {
+    setSelectedAsset(asset);
+    setCurrency(asset.currency || "EUR");
+    setQuery(asset.ticker || asset.asset_name || "");
+    setErrors((prev) => ({ ...prev, asset: null }));
+  };
+
+  const handleSubmit = async () => {
+    const nextErrors = validate();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    setSubmitting(true);
+    setSuccess(null);
+    try {
+      let assetId = selectedAsset.asset_id;
+      if (!assetId && selectedAsset.isExternal) assetId = await createUserAsset(selectedAsset);
+      const { data, error } = await supabase.schema("nx").rpc("fn_add_manual_position", {
+        p_account_id: selectedAccount.account_id,
+        p_asset_id: assetId,
+        p_event_kind: kind,
+        p_quantity: Number(quantity),
+        p_unit_price: Number(unitPrice),
+        p_currency: currency,
+        p_executed_at: new Date(executedAt).toISOString(),
+        p_fees: Number(fees) || 0,
+        p_taxes: 0,
+        p_notes: notes.trim() || null,
+      });
+      if (error) {
+        setErrors({ submit: error.message });
+        return;
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      setSuccess(`Position ${result?.ticker || selectedAsset.ticker} ajoutÃ©e sur ${result?.account_name || selectedAccount.account_name}`);
+      if (typeof onSuccess === "function") await onSuccess();
+      setTimeout(() => onClose(), 1500);
+    } catch (e) {
+      setErrors({ submit: e.message || "Erreur inattendue" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const fieldStyle = {
+    width: "100%", padding: "10px 12px",
+    border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+    fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary,
+    backgroundColor: T.bgCanvas, outline: "none",
+  };
+  const labelStyle = {
+    display: "block", fontFamily: FONT_SANS, fontSize: 10.5, fontWeight: 700,
+    letterSpacing: "0.10em", textTransform: "uppercase",
+    color: T.inkTertiary, marginBottom: 6,
+  };
+  const errorText = (key) => (errors[key] ? (
+    <div style={{ marginTop: 5, fontFamily: FONT_SANS, fontSize: 11.5, color: T.burgundy, fontWeight: 600 }}>{errors[key]}</div>
+  ) : null);
+  const assetRow = (asset, key, isExternal = false) => (
+    <button key={key} onClick={() => selectAsset(isExternal ? { ...asset, isExternal: true } : asset)} style={{
+      width: "100%", textAlign: "left", padding: "9px 10px",
+      backgroundColor: T.bgSurface, border: "none", borderBottom: `1px solid ${T.borderUltra}`,
+      cursor: "pointer",
+    }}>
+      <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 700, color: T.inkPrimary }}>{asset.ticker}</span>
+      <span style={{ marginLeft: 8, fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary }}>{asset.asset_name}</span>
+      <div style={{ marginTop: 2, fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary }}>
+        {[asset.exchange_mic, asset.currency, asset.country].filter(Boolean).join(" Â· ")}
+      </div>
+    </button>
+  );
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, backgroundColor: "rgba(10,10,10,0.32)",
+      zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24,
+    }}>
+      <div style={{
+        width: "min(760px, 100%)", maxHeight: "90vh", overflowY: "auto",
+        backgroundColor: T.bgSurface, border: `1px solid ${T.borderUltra}`,
+        borderRadius: 12, boxShadow: "0 24px 80px rgba(0,0,0,0.22)",
+        padding: 24,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <Eyebrow color={T.forestGreen}>Ajouter une position</Eyebrow>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: T.inkTertiary }}>
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Type</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {[{ value: "buy", label: "Buy", icon: TrendingUp }, { value: "sell", label: "Sell", icon: TrendingDown }].map((opt) => {
+                const Icon = opt.icon;
+                const active = kind === opt.value;
+                return (
+                  <button key={opt.value} onClick={() => setKind(opt.value)} style={{
+                    padding: "10px 8px", border: `1.5px solid ${active ? T.forestGreen : T.borderSubtle}`,
+                    backgroundColor: active ? T.bgPour : T.bgCanvas,
+                    borderRadius: 8, cursor: "pointer", fontFamily: FONT_SANS,
+                    fontSize: 13, fontWeight: 700, color: active ? T.forestGreen : T.inkPrimary,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}><Icon size={14} strokeWidth={2.2} />{opt.label}</button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Compte</label>
+            <select value={effectiveAccountId} onChange={(e) => setAccountId(e.target.value)} style={fieldStyle}>
+              <option value="">Choisir un compte</option>
+              {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.account_name}{a.broker ? ` - ${a.broker}` : ""}</option>)}
+            </select>
+            {errorText("account")}
+          </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Asset</label>
+          <div style={{ position: "relative" }}>
+            <Search size={14} strokeWidth={2} color={T.inkTertiary} style={{ position: "absolute", left: 12, top: 12 }} />
+            <input type="text" value={query} onChange={(e) => { setQuery(e.target.value); setSelectedAsset(null); }}
+              placeholder="Ticker ou nom (ex: MELI)" style={{ ...fieldStyle, paddingLeft: 34 }} />
+          </div>
+          {selectedAsset && (
+            <div style={{ marginTop: 6, fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>
+              {selectedAsset.ticker} Â· {selectedAsset.asset_name}
+            </div>
+          )}
+          {errorText("asset")}
+          {searchError && <div style={{ marginTop: 5, fontFamily: FONT_SANS, fontSize: 11.5, color: T.burgundy }}>{searchError}</div>}
+          {loading && <div style={{ padding: "10px 0", fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>Rechercheâ€¦</div>}
+          {!loading && query.length >= 2 && (
+            <div style={{ marginTop: 8, maxHeight: 170, overflowY: "auto", border: `1px solid ${T.borderUltra}`, borderRadius: 8 }}>
+              {results.internal.map((r) => assetRow(r, r.asset_id))}
+              {results.external.map((r) => assetRow(r, `ext:${r.ticker}:${r.exchange_mic}`, true))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
+          <div>
+            <label style={labelStyle}>QuantitÃ©</label>
+            <input type="number" step="0.01" min="0" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="1" style={fieldStyle} />
+            {errorText("quantity")}
+          </div>
+          <div>
+            <label style={labelStyle}>Prix unitaire ({currency})</label>
+            <input type="number" step="0.01" min="0" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} placeholder="1500" style={fieldStyle} />
+            {errorText("unitPrice")}
+          </div>
+          <div>
+            <label style={labelStyle}>Devise</label>
+            <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={fieldStyle}>
+              {SUPPORTED_POSITION_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {errorText("currency")}
+          </div>
+          <div>
+            <label style={labelStyle}>Date d'exÃ©cution</label>
+            <input type="datetime-local" value={executedAt} onChange={(e) => setExecutedAt(e.target.value)} style={fieldStyle} />
+            {errorText("executedAt")}
+          </div>
+          <div>
+            <label style={labelStyle}>Frais</label>
+            <input type="number" step="0.01" min="0" value={fees} onChange={(e) => setFees(e.target.value)} placeholder="0" style={fieldStyle} />
+            {errorText("fees")}
+          </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Notes</label>
+          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+            placeholder="Contexte de l'achat, thÃ¨se..." style={{ ...fieldStyle, resize: "vertical" }} />
+        </div>
+        {errors.submit && <div style={{ marginTop: 12, fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy, fontWeight: 600 }}>{errors.submit}</div>}
+        {success && <div style={{ marginTop: 12, fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>{success}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+          <button onClick={onClose} style={{
+            padding: "10px 16px", border: `1px solid ${T.borderSubtle}`,
+            backgroundColor: T.bgSurface, borderRadius: 8, fontFamily: FONT_SANS,
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}>Annuler</button>
+          <button onClick={handleSubmit} disabled={submitDisabled} style={{
+            padding: "10px 18px", backgroundColor: T.inkPrimary, color: T.inkOnDark,
+            border: "none", borderRadius: 8, fontFamily: FONT_SANS,
+            fontSize: 13, fontWeight: 700, cursor: submitDisabled ? "default" : "pointer",
+            opacity: submitDisabled ? 0.55 : 1,
+          }}>{submitting ? "Ajoutâ€¦" : "Ajouter la position"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PortefeuillePage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [account, setAccount] = useState("all");
-  const filtered = useMemo(() =>
-    account === "all" ? MOCK.positions : MOCK.positions.filter(p => p.account === account),
-    [account]);
-  const totalValue = filtered.reduce((s, p) => s + p.value, 0);
+  const [showAddPosition, setShowAddPosition] = useState(false);
+  const accountFilter = account === "all" ? null : account;
+  const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter });
+  const filtered = useMemo(() => (positions || []).map((p) => ({
+    ticker: p.ticker,
+    name: p.asset_name,
+    account: p.account_name,
+    qty: Number(p.total_quantity ?? 0),
+    price: Number(p.last_price ?? 0),
+    value: Number(p.market_value_eur ?? 0),
+    pnlEur: Number(p.unrealized_pnl_eur ?? 0),
+    pnlPct: Number(p.unrealized_pnl_pct ?? 0),
+    sector: p.asset_class || "",
+    series: genSeries(
+      Number(p.avg_cost_per_unit || p.last_price || 1),
+      Number(p.last_price || p.avg_cost_per_unit || 1),
+      60,
+      0.01,
+      `${p.account_id}:${p.ticker}`
+    ),
+  })), [positions]);
+  const totalValue = Number(summary?.total_value_eur ?? filtered.reduce((s, p) => s + p.value, 0));
+  const accounts = summary?.by_account ?? [];
+  const totalPositions = Number(summary?.total_positions ?? filtered.length);
   return (
     <main style={{
       maxWidth: CONTAINER_MAX, margin: "0 auto",
       padding: `0 ${CONTAINER_PAD}px`,
     }}>
-      <PortefeuilleHeader totalValue={totalValue} account={account} setAccount={setAccount}
-        viewMode={viewMode} setViewMode={setViewMode} />
+      <PortefeuilleHeader
+        totalValue={totalValue}
+        totalPositions={totalPositions}
+        accounts={accounts}
+        account={account}
+        setAccount={setAccount}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        onAddPosition={() => setShowAddPosition(true)}
+      />
+      <AddPositionModal
+        open={showAddPosition}
+        onClose={() => setShowAddPosition(false)}
+        onSuccess={refetch}
+      />
+      {error && (
+        <div style={{ padding: "14px 0", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Erreur de chargement du portefeuille.
+        </div>
+      )}
+      {loading && filtered.length === 0 && (
+        <div style={{ padding: "32px 0", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
+          Chargement des positionsâ€¦
+        </div>
+      )}
       {viewMode === "list" ? (
         <PortefeuilleTable positions={filtered} onAssetClick={onAssetClick} />
       ) : (
@@ -2726,7 +3029,7 @@ const stateMetaLive = (signal) => {
   return { label: signal, color: T.inkTertiary, bg: T.bgSubtle };
 };
 
-const WatchlistLiveTable = ({ items, onAssetClick, onRemoveAsset, isOpportunity }) => (
+const WatchlistLiveTable = ({ items, onAssetClick, onRemoveRequest, isOpportunity }) => (
   <section>
     <div style={{
       display: "grid",
@@ -2801,15 +3104,18 @@ const WatchlistLiveTable = ({ items, onAssetClick, onRemoveAsset, isOpportunity 
           <ChevronRight size={14} color={T.inkQuaternary} strokeWidth={1.5}
             onClick={() => onAssetClick(it.ticker)} style={{ cursor: "pointer" }} />
           {!isOpportunity ? (
-            <button onClick={() => onRemoveAsset(it.asset_id)} style={{
+            <button
+              onClick={() => onRemoveRequest(it)}
+              aria-label="Plus d'actions"
+              style={{
               background: "transparent", border: "none", cursor: "pointer",
               padding: 4, color: T.inkQuaternary,
               transition: "color 200ms",
             }}
             onMouseEnter={(e) => e.currentTarget.style.color = T.burgundy}
             onMouseLeave={(e) => e.currentTarget.style.color = T.inkQuaternary}
-            title="Retirer">
-              <X size={14} strokeWidth={2} />
+            title="Plus d'actions">
+              <MoreHorizontal size={15} strokeWidth={2.2} />
             </button>
           ) : <span />}
         </div>
@@ -2818,7 +3124,7 @@ const WatchlistLiveTable = ({ items, onAssetClick, onRemoveAsset, isOpportunity 
   </section>
 );
 
-const WatchlistLiveCard = ({ item, onClick, onRemove, isOpportunity }) => {
+const WatchlistLiveCard = ({ item, onClick, onRemoveRequest, isOpportunity }) => {
   const sm = stateMetaLive(item.signal);
   const score = Number(item.opportunity_score ?? 0);
   const delta = Number(item.perf_1d_pct ?? 0);
@@ -2886,7 +3192,10 @@ const WatchlistLiveCard = ({ item, onClick, onRemove, isOpportunity }) => {
         )}
       </div>
       {!isOpportunity && (
-        <button onClick={(e) => { e.stopPropagation(); onRemove(item.asset_id); }} style={{
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemoveRequest(item); }}
+          aria-label="Plus d'actions"
+          style={{
           position: "absolute", top: 8, right: 8,
           background: "transparent", border: "none", cursor: "pointer",
           padding: 4, color: T.inkQuaternary,
@@ -2895,10 +3204,91 @@ const WatchlistLiveCard = ({ item, onClick, onRemove, isOpportunity }) => {
         }}
         onMouseEnter={(e) => { e.currentTarget.style.color = T.burgundy; e.currentTarget.style.opacity = "1"; }}
         onMouseLeave={(e) => { e.currentTarget.style.color = T.inkQuaternary; e.currentTarget.style.opacity = "0.6"; }}
-        title="Retirer">
-          <X size={13} strokeWidth={2} />
+        title="Plus d'actions">
+          <MoreHorizontal size={14} strokeWidth={2.2} />
         </button>
       )}
+    </div>
+  );
+};
+
+const RemoveAssetConfirmModal = ({ item, onClose, onConfirm }) => {
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (!item) return null;
+
+  const handleConfirm = async () => {
+    setRemoving(true);
+    setError(null);
+    try {
+      await onConfirm(item.asset_id);
+      onClose();
+    } catch (e) {
+      setError(e.message || "Erreur inattendue");
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 90,
+      backgroundColor: "rgba(10,10,10,0.32)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24,
+    }}>
+      <div style={{
+        width: "min(420px, 100%)",
+        backgroundColor: T.bgSurface,
+        border: `1px solid ${T.borderUltra}`,
+        borderRadius: 12,
+        boxShadow: "0 24px 80px rgba(0,0,0,0.22)",
+        padding: 24,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <Eyebrow color={T.burgundy}>Retirer de la watchlist</Eyebrow>
+          <button onClick={onClose} disabled={removing} style={{
+            background: "none", border: "none", cursor: removing ? "default" : "pointer",
+            padding: 4, color: T.inkTertiary,
+          }}><X size={18} strokeWidth={2} /></button>
+        </div>
+        <h3 style={{
+          margin: "0 0 8px", fontFamily: FONT_DISPLAY,
+          fontSize: 26, fontWeight: 400, color: T.inkPrimary,
+          letterSpacing: "-0.020em",
+        }}>Retirer {item.ticker} ?</h3>
+        <p style={{
+          margin: 0, fontFamily: FONT_SANS, fontSize: 13,
+          lineHeight: 1.55, color: T.inkSecondary,
+        }}>
+          {item.asset_name || item.name || item.ticker} sera retirÃ© de la watchlist. Tu pourras toujours le rÃ©ajouter plus tard.
+        </p>
+        {error && (
+          <div style={{
+            marginTop: 14, padding: "10px 12px",
+            backgroundColor: T.bgContre, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy,
+            fontWeight: 600,
+          }}>{error}</div>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 22 }}>
+          <button onClick={onClose} disabled={removing} style={{
+            padding: "10px 16px", border: `1px solid ${T.borderSubtle}`,
+            backgroundColor: T.bgSurface, borderRadius: 8,
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600,
+            color: T.inkSecondary, cursor: removing ? "default" : "pointer",
+          }}>Annuler</button>
+          <button onClick={handleConfirm} disabled={removing} style={{
+            padding: "10px 18px", border: "none",
+            backgroundColor: T.burgundy, color: T.inkOnDark,
+            borderRadius: 8, fontFamily: FONT_SANS,
+            fontSize: 13, fontWeight: 700,
+            cursor: removing ? "default" : "pointer",
+            opacity: removing ? 0.65 : 1,
+          }}>{removing ? "Suppression..." : "Retirer"}</button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -2909,6 +3299,7 @@ const WatchlistPage = ({ onAssetClick }) => {
   const [activeId, setActiveId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddAsset, setShowAddAsset] = useState(false);
+  const [itemToRemove, setItemToRemove] = useState(null);
 
   const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
 
@@ -3022,7 +3413,7 @@ const WatchlistPage = ({ onAssetClick }) => {
             <WatchlistLiveTable
               items={filtered}
               onAssetClick={onAssetClick}
-              onRemoveAsset={removeItem}
+              onRemoveRequest={setItemToRemove}
               isOpportunity={isOpportunity}
             />
           ) : (
@@ -3034,7 +3425,7 @@ const WatchlistPage = ({ onAssetClick }) => {
                   key={it.item_id || it.dynamic_key || it.asset_id}
                   item={it}
                   onClick={() => onAssetClick(it.ticker)}
-                  onRemove={removeItem}
+                  onRemoveRequest={setItemToRemove}
                   isOpportunity={isOpportunity}
                 />
               ))}
@@ -3042,6 +3433,13 @@ const WatchlistPage = ({ onAssetClick }) => {
           )}
         </div>
       </div>
+      {itemToRemove && (
+        <RemoveAssetConfirmModal
+          item={itemToRemove}
+          onClose={() => setItemToRemove(null)}
+          onConfirm={removeItem}
+        />
+      )}
     </main>
   );
 };
@@ -3846,9 +4244,24 @@ export default function NexialDesktopComplete() {
   const closeDetail = () => setDetailTicker(null);
   const navigate = (p) => { setDetailTicker(null); setCurrentPage(p); };
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const alertId = params.get("alert");
+    const modal = params.get("modal");
+
+    if (alertId) {
+      setDetailTicker(null);
+      setCurrentPage("today");
+      // TODO Phase 1: if modal=order, resolve alert_id -> ticker and open the order modal.
+      if (modal === "order") return;
+    }
+  }, []);
+
   const renderPage = () => {
     if (detailTicker) return <AssetDetailPage ticker={detailTicker} onBack={closeDetail} />;
-    if (currentPage === "dashboard") return <TableauPage />;
+    if (currentPage === "dashboard") return <TableauPage onNavigate={navigate} />;
     if (currentPage === "today") return <AujourdhuiPage />;
     if (currentPage === "orders") return <OrdresPage />;
     if (currentPage === "portfolio") return <PortefeuillePage onAssetClick={showDetail} />;

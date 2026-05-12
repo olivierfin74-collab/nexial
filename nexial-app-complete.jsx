@@ -16,6 +16,7 @@ import { useWatchlists } from "@/lib/hooks/useWatchlists";
 import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
 import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -887,11 +888,11 @@ const YourMoney = ({ patrimoine, loading }) => {
   );
 };
 
-const Timeline = () => (
+const Timeline = ({ onSeeAll }) => (
   <section style={{ marginTop: 36, padding: "0 20px 32px" }}>
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
       <Eyebrow>Depuis hier</Eyebrow>
-      <button style={{
+      <button onClick={onSeeAll} style={{
         background: "none", border: "none", fontFamily: FONT_SANS,
         fontSize: 12, color: T.inkPrimary, fontWeight: 600, cursor: "pointer",
         display: "flex", alignItems: "center", gap: 2, padding: 0,
@@ -929,7 +930,7 @@ const Timeline = () => (
   </section>
 );
 
-const DashboardPage = ({ onAssetClick }) => {
+const DashboardPage = ({ onAssetClick, onNavigate }) => {
   const { opportunities, patrimoine, loading } = useTodayDashboard();
   const dashboardOpportunities = useMemo(
     () => dedupeAssets(opportunities),
@@ -942,7 +943,7 @@ const DashboardPage = ({ onAssetClick }) => {
       <RegimeBanner />
       <SectionToDoToday onAssetClick={onAssetClick} opportunities={dashboardOpportunities} loading={loading} />
       <YourMoney patrimoine={patrimoine} loading={loading} />
-      <Timeline />
+      <Timeline onSeeAll={() => onNavigate("today")} />
     </>
   );
 };
@@ -1261,10 +1262,249 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
   );
 };
 
+const SUPPORTED_POSITION_CURRENCIES = ["EUR", "USD", "GBP", "CHF", "JPY", "HKD"];
+const nowForDatetimeInput = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+
+const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
+  const supabase = useMemo(() => createClient(), []);
+  const { patrimoine } = useTodayDashboard({ pollMs: 60000, limit: 1 });
+  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch();
+  const accounts = useMemo(
+    () => (patrimoine?.accounts || []).filter((a) => a.is_active && a.universe !== "PAPER_TRADING"),
+    [patrimoine]
+  );
+  const [kind, setKind] = useState("buy");
+  const [accountId, setAccountId] = useState("");
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [quantity, setQuantity] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [currency, setCurrency] = useState("EUR");
+  const [executedAt, setExecutedAt] = useState(nowForDatetimeInput);
+  const [fees, setFees] = useState("0");
+  const [notes, setNotes] = useState("");
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(null);
+
+  if (!open) return null;
+
+  const effectiveAccountId = accountId || accounts[0]?.account_id || "";
+  const selectedAccount = accounts.find((a) => a.account_id === effectiveAccountId);
+  const validate = () => {
+    const next = {};
+    const executed = new Date(executedAt);
+    const maxDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (!selectedAccount) next.account = "Compte requis";
+    if (!selectedAsset) next.asset = "Asset requis";
+    if (!(Number(quantity) > 0)) next.quantity = "QuantitÃ© > 0 requise";
+    if (!(Number(unitPrice) > 0)) next.unitPrice = "Prix unitaire > 0 requis";
+    if (!(Number(fees) >= 0)) next.fees = "Frais >= 0 requis";
+    if (!SUPPORTED_POSITION_CURRENCIES.includes(currency)) next.currency = "Devise non supportÃ©e";
+    if (!executedAt || Number.isNaN(executed.getTime()) || executed.getFullYear() < 2000 || executed > maxDate) {
+      next.executedAt = "Date d'exÃ©cution invalide";
+    }
+    return next;
+  };
+  const currentErrors = validate();
+  const submitDisabled = submitting || Object.keys(currentErrors).length > 0;
+
+  const selectAsset = (asset) => {
+    setSelectedAsset(asset);
+    setCurrency(asset.currency || "EUR");
+    setQuery(asset.ticker || asset.asset_name || "");
+    setErrors((prev) => ({ ...prev, asset: null }));
+  };
+
+  const handleSubmit = async () => {
+    const nextErrors = validate();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setSubmitting(true);
+    setSuccess(null);
+    try {
+      let assetId = selectedAsset.asset_id;
+      if (!assetId && selectedAsset.isExternal) {
+        assetId = await createUserAsset(selectedAsset);
+      }
+      const { data, error } = await supabase.schema("nx").rpc("fn_add_manual_position", {
+        p_account_id: selectedAccount.account_id,
+        p_asset_id: assetId,
+        p_event_kind: kind,
+        p_quantity: Number(quantity),
+        p_unit_price: Number(unitPrice),
+        p_currency: currency,
+        p_executed_at: new Date(executedAt).toISOString(),
+        p_fees: Number(fees) || 0,
+        p_taxes: 0,
+        p_notes: notes.trim() || null,
+      });
+      if (error) {
+        setErrors({ submit: error.message });
+        return;
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      setSuccess(`Position ${result?.ticker || selectedAsset.ticker} ajoutÃ©e sur ${result?.account_name || selectedAccount.account_name}`);
+      if (typeof onSuccess === "function") await onSuccess();
+      setTimeout(() => onClose(), 1500);
+    } catch (e) {
+      setErrors({ submit: e.message || "Erreur inattendue" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const fieldStyle = {
+    width: "100%", padding: "10px 12px",
+    border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+    fontFamily: FONT_SANS, fontSize: 14, color: T.inkPrimary,
+    backgroundColor: T.bgCanvas, outline: "none",
+  };
+  const labelStyle = {
+    display: "block", fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    color: T.inkTertiary, marginBottom: 6,
+  };
+  const errorText = (key) => (errors[key] ? (
+    <div style={{ marginTop: 5, fontFamily: FONT_SANS, fontSize: 11.5, color: T.burgundy, fontWeight: 600 }}>{errors[key]}</div>
+  ) : null);
+
+  return (
+    <div style={{
+      margin: "0 20px 16px", padding: 16,
+      backgroundColor: T.bgSurface, border: `1.5px solid ${T.forestGreen}`,
+      borderRadius: 12,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <Eyebrow variant="accent">Ajouter une position</Eyebrow>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: T.inkTertiary }}>
+          <X size={16} strokeWidth={2} />
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        {[
+          { value: "buy", label: "Buy", icon: TrendingUp },
+          { value: "sell", label: "Sell", icon: TrendingDown },
+        ].map((opt) => {
+          const Icon = opt.icon;
+          const active = kind === opt.value;
+          return (
+            <button key={opt.value} onClick={() => setKind(opt.value)} style={{
+              padding: "10px 8px", border: `1.5px solid ${active ? T.forestGreen : T.borderSubtle}`,
+              backgroundColor: active ? T.bgPour : T.bgCanvas,
+              borderRadius: 8, cursor: "pointer", fontFamily: FONT_SANS,
+              fontSize: 13, fontWeight: 700, color: active ? T.forestGreen : T.inkPrimary,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}>
+              <Icon size={14} strokeWidth={2.2} />{opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Compte</label>
+        <select value={effectiveAccountId} onChange={(e) => setAccountId(e.target.value)} style={fieldStyle}>
+          <option value="">Choisir un compte</option>
+          {accounts.map((a) => (
+            <option key={a.account_id} value={a.account_id}>{a.account_name}{a.broker ? ` - ${a.broker}` : ""}</option>
+          ))}
+        </select>
+        {errorText("account")}
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Asset</label>
+        <div style={{ position: "relative" }}>
+          <Search size={14} strokeWidth={2} color={T.inkTertiary} style={{ position: "absolute", left: 12, top: 12 }} />
+          <input type="text" value={query} onChange={(e) => { setQuery(e.target.value); setSelectedAsset(null); }}
+            placeholder="Ticker ou nom (ex: MELI)" style={{ ...fieldStyle, paddingLeft: 34 }} />
+        </div>
+        {selectedAsset && (
+          <div style={{ marginTop: 6, fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>
+            {selectedAsset.ticker} Â· {selectedAsset.asset_name}
+          </div>
+        )}
+        {errorText("asset")}
+        {searchError && <div style={{ marginTop: 5, fontFamily: FONT_SANS, fontSize: 11.5, color: T.burgundy }}>{searchError}</div>}
+        {loading && <div style={{ padding: "10px 0", fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>Rechercheâ€¦</div>}
+        {!loading && query.length >= 2 && (
+          <div style={{ marginTop: 6, maxHeight: 180, overflowY: "auto" }}>
+            {results.internal.map((r) => (
+              <SearchResultRow key={r.asset_id} ticker={r.ticker} name={r.asset_name}
+                meta={[r.exchange_mic, r.currency].filter(Boolean).join(" Â· ")}
+                isPremium={r.coverage_level === "NEXIAL_CORE"} onAdd={() => selectAsset(r)} />
+            ))}
+            {results.external.map((r) => {
+              const key = `ext:${r.ticker}:${r.exchange_mic}`;
+              return (
+                <SearchResultRow key={key} ticker={r.ticker} name={r.asset_name}
+                  meta={[r.exchange_mic, r.currency, r.country].filter(Boolean).join(" Â· ")}
+                  isTracked onAdd={() => selectAsset({ ...r, isExternal: true })} />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <label style={labelStyle}>QuantitÃ©</label>
+          <input type="number" step="0.01" min="0" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="1" style={fieldStyle} />
+          {errorText("quantity")}
+        </div>
+        <div>
+          <label style={labelStyle}>Prix unitaire ({currency})</label>
+          <input type="number" step="0.01" min="0" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} placeholder="1500" style={fieldStyle} />
+          {errorText("unitPrice")}
+        </div>
+        <div>
+          <label style={labelStyle}>Devise</label>
+          <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={fieldStyle}>
+            {SUPPORTED_POSITION_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {errorText("currency")}
+        </div>
+        <div>
+          <label style={labelStyle}>Date d'exÃ©cution</label>
+          <input type="datetime-local" value={executedAt} onChange={(e) => setExecutedAt(e.target.value)} style={fieldStyle} />
+          {errorText("executedAt")}
+        </div>
+        <div>
+          <label style={labelStyle}>Frais</label>
+          <input type="number" step="0.01" min="0" value={fees} onChange={(e) => setFees(e.target.value)} placeholder="0" style={fieldStyle} />
+          {errorText("fees")}
+        </div>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <label style={labelStyle}>Notes</label>
+        <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
+          placeholder="Contexte de l'achat, thÃ¨se..." style={{ ...fieldStyle, resize: "vertical" }} />
+      </div>
+      {errors.submit && <div style={{ marginTop: 10, fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy, fontWeight: 600 }}>{errors.submit}</div>}
+      {success && <div style={{ marginTop: 10, fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>{success}</div>}
+      <button onClick={handleSubmit} disabled={submitDisabled} style={{
+        marginTop: 14, width: "100%", padding: 12,
+        backgroundColor: T.inkPrimary, color: T.inkOnDark, border: "none",
+        borderRadius: 10, fontFamily: FONT_SANS, fontSize: 13.5, fontWeight: 700,
+        cursor: submitDisabled ? "default" : "pointer", opacity: submitDisabled ? 0.55 : 1,
+      }}>
+        {submitting ? "Ajoutâ€¦" : "Ajouter la position"}
+      </button>
+    </div>
+  );
+};
+
 const PortfolioPage = ({ onAssetClick }) => {
   const [viewMode, setViewMode] = useState("list");
   const [accountFilterId, setAccountFilterId] = useState(null);
-  const { positions, summary, loading, error } = usePortfolio({ accountFilter: accountFilterId });
+  const [showAddPosition, setShowAddPosition] = useState(false);
+  const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter: accountFilterId });
 
   // Adapter Supabase row -> PositionRow expected shape
   const adaptedPositions = useMemo(() => {
@@ -1291,15 +1531,32 @@ const PortfolioPage = ({ onAssetClick }) => {
         title={loading ? "Chargement…" : `€${fmtEur(totalValue)}`}
         subtitle={`${adaptedPositions.length} position${adaptedPositions.length > 1 ? "s" : ""}${filterLabel ? ` · ${filterLabel}` : ""}`}
         action={
-          <SegmentedControl
-            options={[
-              { value: "list", label: "", icon: <List size={14} strokeWidth={2} /> },
-              { value: "card", label: "", icon: <LayoutGrid size={14} strokeWidth={2} /> },
-            ]}
-            value={viewMode}
-            onChange={setViewMode}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => setShowAddPosition(true)}
+              style={{
+                padding: "8px 14px", backgroundColor: T.inkPrimary, color: T.inkOnDark,
+                border: "none", borderRadius: 8, fontFamily: FONT_SANS,
+                fontSize: 13, fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+              <Plus size={14} strokeWidth={2.2} />Ajouter
+            </button>
+            <SegmentedControl
+              options={[
+                { value: "list", label: "", icon: <List size={14} strokeWidth={2} /> },
+                { value: "card", label: "", icon: <LayoutGrid size={14} strokeWidth={2} /> },
+              ]}
+              value={viewMode}
+              onChange={setViewMode}
+            />
+          </div>
         }
+      />
+      <AddPositionAccordion
+        open={showAddPosition}
+        onClose={() => setShowAddPosition(false)}
+        onSuccess={refetch}
       />
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
         <FilterChip active={accountFilterId === null} onClick={() => setAccountFilterId(null)}>
@@ -1354,12 +1611,13 @@ const PortfolioPage = ({ onAssetClick }) => {
 // ============================================================
 // PAGE — WATCHLIST
 // ============================================================
-const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
+const WatchlistRow = ({ item, onClick, isLast, viewMode, onRemoveRequest, canRemove = true }) => {
   const variant = stateVariant(item.state);
 
   if (viewMode === "card") {
     return (
       <div onClick={onClick} style={{
+        position: "relative",
         padding: 14, backgroundColor: T.bgSurface,
         border: `1px solid ${T.borderSubtle}`, borderRadius: 10,
         cursor: "pointer", transition: "background-color 200ms",
@@ -1380,6 +1638,7 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
         <div style={{
           fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 500,
           marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          paddingRight: canRemove ? 28 : 0,
         }}>{item.name}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
           <MetricChip variant={variant} style={{ fontSize: 10.5 }}>
@@ -1402,6 +1661,21 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
             color: T.inkPrimary, letterSpacing: "-0.01em",
           }}>{Math.round(item.score)}</span>
         </div>
+        {canRemove && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveRequest(item);
+            }}
+            aria-label="Plus d'actions"
+            style={{
+              position: "absolute", top: 8, right: 8,
+              padding: 6, background: "transparent", border: "none",
+              cursor: "pointer", color: T.inkTertiary, borderRadius: 6,
+            }}>
+            <MoreHorizontal size={16} strokeWidth={2.2} />
+          </button>
+        )}
       </div>
     );
   }
@@ -1442,6 +1716,91 @@ const WatchlistRow = ({ item, onClick, isLast, viewMode }) => {
         <div style={{ fontFamily: FONT_SANS, fontSize: 9, color: T.inkTertiary,
           fontWeight: 600, letterSpacing: "0.08em", marginTop: 1,
         }}>SCORE</div>
+      </div>
+      {canRemove && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemoveRequest(item);
+          }}
+          aria-label="Plus d'actions"
+          style={{
+            padding: 8, background: "transparent", border: "none",
+            cursor: "pointer", color: T.inkTertiary, borderRadius: 6,
+            flexShrink: 0,
+          }}>
+          <MoreHorizontal size={17} strokeWidth={2.2} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+const RemoveAssetConfirmModal = ({ item, onClose, onConfirm }) => {
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (!item) return null;
+
+  const handleConfirm = async () => {
+    setRemoving(true);
+    setError(null);
+    try {
+      await onConfirm(item.asset_id);
+      onClose();
+    } catch (e) {
+      setError(e.message || "Erreur inattendue");
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 70,
+      backgroundColor: "rgba(10,10,10,0.32)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20,
+    }}>
+      <div style={{
+        width: "100%", maxWidth: 360,
+        backgroundColor: T.bgSurface,
+        border: `1px solid ${T.borderSubtle}`,
+        borderRadius: 12, padding: 18,
+        boxShadow: "0 18px 60px rgba(0,0,0,0.22)",
+      }}>
+        <Eyebrow variant="accent">Retirer de la watchlist</Eyebrow>
+        <h3 style={{
+          margin: "10px 0 6px", fontFamily: FONT_DISPLAY,
+          fontSize: 22, fontWeight: 500, color: T.inkPrimary,
+          letterSpacing: "-0.015em",
+        }}>Retirer {item.ticker} ?</h3>
+        <p style={{
+          margin: 0, fontFamily: FONT_SANS, fontSize: 13,
+          lineHeight: 1.5, color: T.inkSecondary,
+        }}>
+          {item.name || item.asset_name || item.ticker} sera retirÃ© de la watchlist. Tu pourras le rÃ©ajouter plus tard.
+        </p>
+        {error && (
+          <div style={{ marginTop: 12, fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy, fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button onClick={onClose} disabled={removing} style={{
+            padding: "9px 13px", backgroundColor: T.bgSurface,
+            color: T.inkSecondary, border: `1px solid ${T.borderSubtle}`,
+            borderRadius: 8, cursor: removing ? "default" : "pointer",
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600,
+          }}>Annuler</button>
+          <button onClick={handleConfirm} disabled={removing} style={{
+            padding: "9px 13px", backgroundColor: T.burgundy,
+            color: T.inkOnDark, border: "none", borderRadius: 8,
+            cursor: removing ? "default" : "pointer",
+            opacity: removing ? 0.65 : 1,
+            fontFamily: FONT_SANS, fontSize: 13, fontWeight: 700,
+          }}>{removing ? "Suppression..." : "Retirer"}</button>
+        </div>
       </div>
     </div>
   );
@@ -1925,6 +2284,7 @@ const WatchlistPage = ({ onAssetClick }) => {
   const [activeId, setActiveId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddAsset, setShowAddAsset] = useState(false);
+  const [itemToRemove, setItemToRemove] = useState(null);
 
   const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
 
@@ -1937,7 +2297,7 @@ const WatchlistPage = ({ onAssetClick }) => {
   }, [watchlists, activeId]);
 
   const activeWatchlist = watchlists.find((w) => w.watchlist_id === activeId);
-  const { items, loading: itemsLoading, error, addItem } = useWatchlistItems(activeId);
+  const { items, loading: itemsLoading, error, addItem, removeItem } = useWatchlistItems(activeId);
 
   React.useEffect(() => {
     setFilter("all");
@@ -2099,7 +2459,9 @@ const WatchlistPage = ({ onAssetClick }) => {
             filtered.map((w, i) => (
               <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="list"
                 isLast={i === filtered.length - 1}
-                onClick={() => onAssetClick(w.ticker)} />
+                onClick={() => onAssetClick(w.ticker)}
+                onRemoveRequest={setItemToRemove}
+                canRemove={!isOpportunityWl} />
             ))
           )}
         </div>
@@ -2110,9 +2472,18 @@ const WatchlistPage = ({ onAssetClick }) => {
         }}>
           {filtered.map((w) => (
             <WatchlistRow key={w.ticker + ":" + w.asset_id} item={w} viewMode="card"
-              onClick={() => onAssetClick(w.ticker)} />
+              onClick={() => onAssetClick(w.ticker)}
+              onRemoveRequest={setItemToRemove}
+              canRemove={!isOpportunityWl} />
           ))}
         </div>
+      )}
+      {itemToRemove && (
+        <RemoveAssetConfirmModal
+          item={itemToRemove}
+          onClose={() => setItemToRemove(null)}
+          onConfirm={removeItem}
+        />
       )}
       <div style={{ height: 32 }} />
     </>
@@ -2509,6 +2880,21 @@ export default function NexialApp() {
   const showDetail = (ticker) => setDetailTicker(ticker);
   const closeDetail = () => setDetailTicker(null);
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const alertId = params.get("alert");
+    const modal = params.get("modal");
+
+    if (alertId) {
+      setDetailTicker(null);
+      setCurrentPage("today");
+      // TODO Phase 1: if modal=order, resolve alert_id -> ticker and open the order modal.
+      if (modal === "order") return;
+    }
+  }, []);
+
   const { openConfirm, openEdit, ProposalActionModals } = useProposalActions({
     surface: "mobile",
   });
@@ -2578,7 +2964,7 @@ export default function NexialApp() {
               onModifyClick={handleModifyClick}
             />
           ) : currentPage === "dashboard" ? (
-            <DashboardPage onAssetClick={showDetail} />
+            <DashboardPage onAssetClick={showDetail} onNavigate={setCurrentPage} />
           ) : currentPage === "today" ? (
             <TodayPage onAssetClick={showDetail} />
           ) : currentPage === "orders" ? (
