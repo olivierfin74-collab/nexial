@@ -1563,6 +1563,60 @@ const DesktopDismissAlertModal = ({ alert, onClose, onConfirm }) => {
   );
 };
 
+const liveAlertNumber = (...values) => {
+  const value = values.find((item) => item !== undefined && item !== null && item !== "");
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatAlertTime = (input) => {
+  if (!input) return "";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+};
+
+const formatAlertKindLabel = (kind) => String(kind || "ALERT").replace(/_/g, " ").toLowerCase();
+
+const formatAlertPriceFreshness = (input) => {
+  if (!input) return "prix live";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "prix live";
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (minutes < 60) return `prix maj ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `prix maj ${hours} h`;
+  return `prix maj ${Math.round(hours / 24)} j`;
+};
+
+const normalizeTodayAlert = (alert) => {
+  const kind = alert.alert_kind || alert.kind || "ALERT";
+  const createdAt = alert.created_at || alert.detected_at || alert.updated_at || new Date().toISOString();
+  const priceFreshAt = alert.price_updated_at || alert.price_as_of || alert.priced_at || alert.updated_at || alert.created_at;
+  const price = liveAlertNumber(alert.live_price, alert.current_price, alert.price_now, alert.price, alert.price_at_creation);
+  const delta = liveAlertNumber(alert.price_change_since_alert_pct, alert.price_change_pct, alert.delta_pct, alert.perf_1d_pct, alert.delta);
+  return {
+    ...alert,
+    id: alert.id || alert.alert_id,
+    ticker: alert.ticker || alert.symbol || alert.asset_ticker,
+    kind,
+    status: alert.status || "NEW",
+    score: liveAlertNumber(alert.opportunity_score, alert.score) ?? 0,
+    opportunity_score: liveAlertNumber(alert.opportunity_score, alert.score) ?? 0,
+    price: price ?? 0,
+    delta: delta ?? 0,
+    price_fresh_at: priceFreshAt,
+    price_freshness_label: formatAlertPriceFreshness(priceFreshAt),
+    severity: alert.severity || alert.priority || "INFO",
+    created_at: createdAt,
+    time: alert.time || formatAlertTime(createdAt),
+    age_hours: liveAlertNumber(alert.age_hours),
+    message: alert.message || `${formatAlertKindLabel(kind)} - ${alert.ticker || alert.symbol || "actif"}`,
+    in_portfolio: alert.in_portfolio ?? alert.is_held ?? alert.isHeld,
+    isHeld: alert.isHeld ?? alert.in_portfolio ?? alert.is_held,
+  };
+};
+
 const SectionAlerts = () => {
   const supabase = useMemo(() => createClient(), []);
   const [alertFilters, setAlertFilters] = useState([]);
@@ -1575,6 +1629,24 @@ const SectionAlerts = () => {
     () => alerts.filter((a) => a.status !== "DISMISSED"),
     [alerts]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLiveAlerts = async () => {
+      try {
+        const response = await fetch("/api/today/alerts?limit=50");
+        const body = await response.json();
+        if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
+        if (cancelled || !Array.isArray(body?.alerts) || body.alerts.length === 0) return;
+        setAlerts(body.alerts.map(normalizeTodayAlert));
+      } catch {
+        if (!cancelled) setAlerts(MOCK.alerts.map(normalizeTodayAlert));
+      }
+    };
+    void loadLiveAlerts();
+    return () => { cancelled = true; };
+  }, []);
+
   const filteredAlerts = useMemo(() => {
     let next = [...visibleAlerts];
     if (alertFilters.includes("buy")) next = next.filter((a) => ["BUY_ZONE", "HOT_PULLBACK", "BUY"].some((k) => a.kind?.includes(k)));
@@ -1690,7 +1762,7 @@ const SectionAlerts = () => {
           <div key={a.id || i} style={{
             position: "relative",
             display: "grid",
-            gridTemplateColumns: "210px 1fr auto auto auto",
+            gridTemplateColumns: "210px 1fr auto auto auto auto",
             gap: 28, alignItems: "center",
             padding: "14px 16px 14px 18px",
             backgroundColor: sevBg,
@@ -1732,6 +1804,14 @@ const SectionAlerts = () => {
             <MetricChip variant={a.delta >= 0 ? "negative" : "positive"}>
               {fmtPct(a.delta)}
             </MetricChip>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.inkPrimary, fontWeight: 800 }}>
+                {a.price > 0 ? fmtUsd(a.price) : "-"}
+              </div>
+              <div style={{ marginTop: 2, fontFamily: FONT_MONO, fontSize: 10, color: T.inkTertiary, fontWeight: 700 }}>
+                {a.price_freshness_label || "prix live"}
+              </div>
+            </div>
             <ChevronRight size={15} color={sevColor} strokeWidth={2} />
             <div style={{ position: "relative" }}>
               <button

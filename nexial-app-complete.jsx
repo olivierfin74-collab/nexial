@@ -1149,6 +1149,54 @@ const normalizeDecisionAlert = (alert) => ({
   status: alert.status,
 });
 
+const liveAlertNumber = (...values) => {
+  const value = values.find((item) => item !== undefined && item !== null && item !== "");
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatAlertTime = (input) => {
+  if (!input) return "";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+};
+
+const formatAlertPriceFreshness = (input) => {
+  if (!input) return "prix live";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "prix live";
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (minutes < 60) return `prix maj ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `prix maj ${hours} h`;
+  return `prix maj ${Math.round(hours / 24)} j`;
+};
+
+const normalizeTodayAlert = (alert) => {
+  const kind = alert.alert_kind || alert.kind || "ALERT";
+  const createdAt = alert.created_at || alert.detected_at || alert.updated_at || new Date().toISOString();
+  const priceFreshAt = alert.price_updated_at || alert.price_as_of || alert.priced_at || alert.updated_at || alert.created_at;
+  return {
+    ...alert,
+    id: alert.id || alert.alert_id,
+    ticker: alert.ticker || alert.symbol || alert.asset_ticker,
+    name: alert.asset_name || alert.name || alert.ticker || alert.symbol || "Actif",
+    kind,
+    status: alert.status || "NEW",
+    score: liveAlertNumber(alert.opportunity_score, alert.score) ?? 0,
+    price: liveAlertNumber(alert.live_price, alert.current_price, alert.price_now, alert.price, alert.price_at_creation) ?? 0,
+    price_fresh_at: priceFreshAt,
+    price_freshness_label: formatAlertPriceFreshness(priceFreshAt),
+    severity: alert.severity || alert.priority || "INFO",
+    created_at: createdAt,
+    time: alert.time || formatAlertTime(createdAt),
+    age_hours: liveAlertNumber(alert.age_hours),
+    in_portfolio: alert.in_portfolio ?? alert.is_held ?? alert.isHeld,
+    isHeld: alert.isHeld ?? alert.in_portfolio ?? alert.is_held,
+  };
+};
+
 const useDecisionAlerts = (kinds, statuses) => {
   const supabase = useMemo(() => createClient(), []);
   const [alerts, setAlerts] = useState([]);
@@ -1424,7 +1472,7 @@ const AlertRow = ({ alert, onClick, isLast, menuOpen, onToggleMenu, onMarkSeen, 
         <div style={{
           fontFamily: FONT_MONO, fontSize: 11, color: T.inkTertiary,
           marginTop: 2, fontWeight: 600,
-        }}>score {Math.round(alert.score)}</div>
+        }}>{alert.price_freshness_label || `score ${Math.round(alert.score)}`}</div>
       </div>
       <ChevronRight size={16} strokeWidth={2} color={T.inkTertiary} style={{ flexShrink: 0 }} />
       <button
@@ -1481,6 +1529,24 @@ const TodayPage = ({ onAssetClick, onNavigate }) => {
     [alerts]
   );
   const { refreshing, handleRefresh } = useManualRefresh(async () => {});
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadLiveAlerts = async () => {
+      try {
+        const response = await fetch("/api/today/alerts?limit=50");
+        const body = await response.json();
+        if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
+        if (cancelled || !Array.isArray(body?.alerts) || body.alerts.length === 0) return;
+        setAlerts(body.alerts.map(normalizeTodayAlert));
+      } catch {
+        if (!cancelled) setAlerts(ALERTS_TODAY.map(normalizeTodayAlert));
+      }
+    };
+    void loadLiveAlerts();
+    return () => { cancelled = true; };
+  }, []);
+
   const filtered = useMemo(() => {
     let next = [...visibleAlerts];
     if (alertFilters.includes("buy")) next = next.filter((a) => ["BUY_ZONE", "HOT_PULLBACK", "HOT_PULLBACK_ENTERED"].some((k) => a.kind?.includes(k)));
