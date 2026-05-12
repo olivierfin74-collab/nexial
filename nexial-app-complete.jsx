@@ -759,9 +759,11 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
             color: T.inkTertiary, textTransform: "capitalize",
           }}>{fmtDate(today)}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <MarketStatusIndicator />
-          <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <MarketStatusIndicator />
+            <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
+          </div>
           <NotificationBellPanel />
         </div>
       </div>
