@@ -1824,6 +1824,11 @@ const formatPositionMoney = (value, currency = "EUR", digits = 2) => {
   return `${formatPositionNumber(n, digits)} ${currency || "EUR"}`;
 };
 
+const positionDayPerf = (position) => {
+  const n = Number(position.perf_1d_pct ?? position.day_perf_pct ?? position.change_1d_pct ?? position.price_change_pct);
+  return Number.isFinite(n) ? n : null;
+};
+
 const PortfolioPerfSummary = ({ positions }) => {
   const totalPositions = positions.length;
   const totalValue = positions.reduce((sum, p) => sum + Number(p.market_value_native || 0), 0);
@@ -1879,7 +1884,38 @@ const PositionStat = ({ label, value }) => (
   </div>
 );
 
-const PositionRow = ({ position, onClick, isLast, viewMode }) => {
+const PositionActions = ({ position, onPrepareOrder }) => (
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginTop: 10 }}>
+    {[
+      { side: "buy", label: "Renforcer +", tone: T.forestGreen },
+      { side: "sell", label: "Alleger -", tone: T.burgundy },
+    ].map((action) => (
+      <button
+        key={action.side}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPrepareOrder(position, action.side);
+        }}
+        style={{
+          border: `1px solid ${action.tone}`,
+          backgroundColor: action.side === "buy" ? T.bgPour : T.bgContre,
+          color: action.tone,
+          borderRadius: 8,
+          padding: "8px 7px",
+          fontFamily: FONT_SANS,
+          fontSize: 12,
+          fontWeight: 800,
+          cursor: "pointer",
+        }}
+      >
+        {action.label}
+      </button>
+    ))}
+  </div>
+);
+
+const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) => {
   const pnlPct = Number(position.unrealized_pnl_pct ?? position.pnlPct ?? 0);
   const positive = pnlPct >= 0;
   const pnlColor = positive ? T.forestGreen : T.burgundy;
@@ -1889,6 +1925,8 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
   const lastPrice = position.last_price ?? position.price;
   const marketValue = position.market_value_native ?? position.value;
   const pnlNative = position.unrealized_pnl_native ?? position.pnlNative ?? position.pnlEur;
+  const pnlEur = position.unrealized_pnl_eur;
+  const dayPerf = positionDayPerf(position);
   const name = position.asset_name || position.name;
   const account = position.account_name || position.account;
   const stats = [
@@ -1928,7 +1966,10 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
             <span>PRU {formatPositionMoney(avgCost, currency)}</span>
             <span>Prix {formatPositionMoney(lastPrice, currency)}</span>
             <span>Val. {formatPositionMoney(marketValue, currency, 0)}</span>
+            <span>P&L EUR {formatPositionMoney(pnlEur, "EUR", 0)}</span>
+            <span>Jour {dayPerf == null ? "-" : `${dayPerf >= 0 ? "+" : ""}${dayPerf.toFixed(2)}%`}</span>
           </div>
+          <PositionActions position={position} onPrepareOrder={onPrepareOrder} />
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{
@@ -1971,6 +2012,8 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
         {stats.map(([label, value]) => (
           <span key={label}>{label} {value}</span>
         ))}
+        <span>P&L EUR {formatPositionMoney(pnlEur, "EUR", 0)}</span>
+        <span>Jour {dayPerf == null ? "-" : `${dayPerf >= 0 ? "+" : ""}${dayPerf.toFixed(2)}%`}</span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 500,
@@ -1985,6 +2028,7 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
         marginTop: 5, fontFamily: FONT_MONO, fontSize: 11,
         color: pnlColor, fontWeight: 700,
       }}>{positive ? "+" : ""}{formatPositionMoney(pnlNative, currency, 0)}</div>
+      <PositionActions position={position} onPrepareOrder={onPrepareOrder} />
     </div>
   );
 };
@@ -2115,20 +2159,20 @@ const AssetSearchInput = ({ onSelect, onQueryChange, placeholder = "Rechercher u
   );
 };
 
-const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
+const AddPositionAccordion = ({ open, onClose, onSuccess, initialDraft = null }) => {
   const supabase = useMemo(() => createClient(), []);
   const { patrimoine } = useTodayDashboard({ pollMs: 60000, limit: 1 });
-  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch({ debounceMs: 250 });
+  const { query, results, loading, error: searchError, createUserAsset } = useAssetSearch({ debounceMs: 250 });
   const accounts = useMemo(
     () => (patrimoine?.accounts || []).filter((a) => a.is_active && a.universe !== "PAPER_TRADING"),
     [patrimoine]
   );
-  const [kind, setKind] = useState("buy");
-  const [accountId, setAccountId] = useState("");
-  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [kind, setKind] = useState(initialDraft?.side || "buy");
+  const [accountId, setAccountId] = useState(initialDraft?.accountId || "");
+  const [selectedAsset, setSelectedAsset] = useState(initialDraft?.asset || null);
   const [quantity, setQuantity] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [currency, setCurrency] = useState("EUR");
+  const [unitPrice, setUnitPrice] = useState(initialDraft?.unitPrice ? String(initialDraft.unitPrice) : "");
+  const [currency, setCurrency] = useState(initialDraft?.currency || "EUR");
   const [executedAt, setExecutedAt] = useState(nowForDatetimeInput);
   const [fees, setFees] = useState("0");
   const [notes, setNotes] = useState("");
@@ -2381,6 +2425,7 @@ const PortfolioPage = ({ onAssetClick }) => {
   const [portfolioFilters, setPortfolioFilters] = useState([]);
   const [portfolioSort, setPortfolioSort] = useState("value_desc");
   const [showAddPosition, setShowAddPosition] = useState(false);
+  const [orderDraft, setOrderDraft] = useState(null);
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter: accountFilterId });
   const { refreshing, handleRefresh } = useManualRefresh(refetch);
 
@@ -2421,6 +2466,23 @@ const PortfolioPage = ({ onAssetClick }) => {
     { value: "pnl_asc", label: "P&L % ASC" },
     { value: "ticker_asc", label: "Ticker A-Z" },
   ];
+  const openPositionOrder = (position = null, side = "buy") => {
+    setOrderDraft(position ? {
+      side,
+      accountId: position.account_id,
+      currency: position.asset_currency || position.currency || "EUR",
+      unitPrice: position.last_price ?? position.price,
+      asset: {
+        asset_id: position.asset_id,
+        id: position.asset_id,
+        ticker: position.ticker,
+        asset_name: position.asset_name || position.name,
+        currency: position.asset_currency || position.currency || "EUR",
+        exchange_mic: position.exchange_mic,
+      },
+    } : null);
+    setShowAddPosition(true);
+  };
 
   return (
     <>
@@ -2432,7 +2494,7 @@ const PortfolioPage = ({ onAssetClick }) => {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
             <button
-              onClick={() => setShowAddPosition(true)}
+              onClick={() => openPositionOrder()}
               style={{
                 padding: "8px 14px", backgroundColor: T.inkPrimary, color: T.inkOnDark,
                 border: "none", borderRadius: 8, fontFamily: FONT_SANS,
@@ -2453,8 +2515,13 @@ const PortfolioPage = ({ onAssetClick }) => {
         }
       />
       <AddPositionAccordion
+        key={orderDraft ? `${orderDraft.side}:${orderDraft.asset?.ticker || "asset"}` : "manual-position"}
         open={showAddPosition}
-        onClose={() => setShowAddPosition(false)}
+        initialDraft={orderDraft}
+        onClose={() => {
+          setShowAddPosition(false);
+          setOrderDraft(null);
+        }}
         onSuccess={refetch}
       />
       <FilterBar
@@ -2501,7 +2568,8 @@ const PortfolioPage = ({ onAssetClick }) => {
           {adaptedPositions.map((p, i) => (
             <PositionRow key={p.ticker + ":" + p.account_id} position={p} viewMode="list"
               isLast={i === adaptedPositions.length - 1}
-              onClick={() => onAssetClick(p.ticker)} />
+              onClick={() => onAssetClick(p.ticker)}
+              onPrepareOrder={openPositionOrder} />
           ))}
         </div>
       ) : (
@@ -2511,7 +2579,8 @@ const PortfolioPage = ({ onAssetClick }) => {
         }}>
           {adaptedPositions.map((p) => (
             <PositionRow key={p.ticker + ":" + p.account_id} position={p} viewMode="card"
-              onClick={() => onAssetClick(p.ticker)} />
+              onClick={() => onAssetClick(p.ticker)}
+              onPrepareOrder={openPositionOrder} />
           ))}
         </div>
       )}

@@ -2646,6 +2646,11 @@ const formatPositionMoney = (value, currency = "EUR", digits = 2) => {
   return `${formatPositionNumber(n, digits)} ${currency || "EUR"}`;
 };
 
+const positionDayPerf = (position) => {
+  const n = Number(position.perf1d ?? position.perf_1d_pct ?? position.day_perf_pct ?? position.change_1d_pct ?? position.price_change_pct);
+  return Number.isFinite(n) ? n : null;
+};
+
 const PortfolioPerfSummary = ({ positions }) => {
   const totalValue = positions.reduce((sum, p) => sum + Number(p.marketValueNative || p.value || 0), 0);
   const weightedPnl = positions.reduce((sum, p) => {
@@ -2769,32 +2774,65 @@ const PortefeuilleHeader = ({ totalValue, totalPositions, accounts, account, set
   </header>
 );
 
-const PortefeuilleTable = ({ positions, onAssetClick }) => (
+const PortfolioActionButtons = ({ position, onPrepareOrder }) => (
+  <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+    {[
+      { side: "buy", label: "Renforcer +", tone: T.forestGreen, bg: T.bgPour },
+      { side: "sell", label: "Alleger -", tone: T.burgundy, bg: T.bgContre },
+    ].map((action) => (
+      <button
+        key={action.side}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPrepareOrder(position, action.side);
+        }}
+        style={{
+          border: `1px solid ${action.tone}`,
+          backgroundColor: action.bg,
+          color: action.tone,
+          borderRadius: 7,
+          padding: "7px 8px",
+          fontFamily: FONT_SANS,
+          fontSize: 11,
+          fontWeight: 800,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {action.label}
+      </button>
+    ))}
+  </div>
+);
+
+const PortefeuilleTable = ({ positions, onAssetClick, onPrepareOrder }) => (
   <section style={{ paddingTop: 16, paddingBottom: 32 }}>
     {/* Header tableau */}
     <div style={{
       display: "grid",
-      gridTemplateColumns: "60px 1.35fr 0.9fr 60px 85px 85px 105px 100px 80px 90px 20px",
+      gridTemplateColumns: "60px 1.2fr 0.75fr 56px 76px 78px 92px 88px 70px 70px 86px 90px 150px 20px",
       gap: 12, alignItems: "center",
       padding: "12px 16px",
       borderBottom: `1px solid ${T.borderHair}`,
     }}>
-      {["Ticker", "Nom", "Compte", "Qty", "PRU", "Prix", "Valeur", "P&L", "P&L %", "90 jours", ""].map((h, i) => (
+      {["Ticker", "Nom", "Compte", "Qty", "PRU", "Prix", "Valeur", "P&L", "P&L %", "Jour", "P&L EUR", "90 jours", "Actions", ""].map((h, i) => (
         <span key={i} style={{
           fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
           letterSpacing: "0.10em", textTransform: "uppercase",
           color: T.inkTertiary,
-          textAlign: ["Qty", "PRU", "Prix", "Valeur", "P&L"].includes(h) ? "right" : "left",
+          textAlign: ["Qty", "PRU", "Prix", "Valeur", "P&L", "P&L %", "Jour", "P&L EUR", "90 jours", "Actions"].includes(h) ? "right" : "left",
         }}>{h}</span>
       ))}
     </div>
     {positions.map((p, i) => {
       const isPos = p.pnlPct >= 0;
       const accent = isPos ? T.forestGreen : T.burgundy;
+      const dayPerf = positionDayPerf(p);
       return (
         <div key={p.ticker} onClick={() => onAssetClick(p.ticker)} style={{
           display: "grid",
-          gridTemplateColumns: "60px 1.35fr 0.9fr 60px 85px 85px 105px 100px 80px 90px 20px",
+          gridTemplateColumns: "60px 1.2fr 0.75fr 56px 76px 78px 92px 88px 70px 70px 86px 90px 150px 20px",
           gap: 12, alignItems: "center",
           padding: "12px 16px",
           borderBottom: `1px solid ${T.borderUltra}`,
@@ -2842,10 +2880,22 @@ const PortefeuilleTable = ({ positions, onAssetClick }) => (
           <div style={{ textAlign: "right" }}>
             <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(p.pnlPct)}</MetricChip>
           </div>
+          <div style={{ textAlign: "right" }}>
+            {dayPerf == null ? (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.inkTertiary, fontWeight: 700 }}>-</span>
+            ) : (
+              <MetricChip variant={dayPerf >= 0 ? "positive" : "negative"}>{fmtPct(dayPerf)}</MetricChip>
+            )}
+          </div>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 12, color: accent,
+            fontWeight: 700, textAlign: "right",
+          }}>{isPos ? "+" : ""}{formatPositionMoney(p.pnlEur, "EUR", 0)}</span>
           <div style={{ width: 110, height: 28 }}>
             <Sparkline data={p.series} height={28} color={accent}
               showFinalDot={false} strokeWidth={1.2} id={`pos-${i}`} />
           </div>
+          <PortfolioActionButtons position={p} onPrepareOrder={onPrepareOrder} />
           <ChevronRight size={14} color={T.inkQuaternary} strokeWidth={1.5} />
         </div>
       );
@@ -2853,10 +2903,11 @@ const PortefeuilleTable = ({ positions, onAssetClick }) => (
   </section>
 );
 
-const PortefeuilleCard = ({ position, onClick, index }) => {
+const PortefeuilleCard = ({ position, onClick, index, onPrepareOrder }) => {
   const isPos = position.pnlPct >= 0;
   const accent = isPos ? T.forestGreen : T.burgundy;
   const bg = isPos ? T.bgPour : T.bgContre;
+  const dayPerf = positionDayPerf(position);
   return (
     <div onClick={onClick} style={{
       position: "relative",
@@ -2895,6 +2946,8 @@ const PortefeuilleCard = ({ position, onClick, index }) => {
         <span>PRU {formatPositionMoney(position.avgCost, position.currency)}</span>
         <span>Prix {formatPositionMoney(position.price, position.currency)}</span>
         <span>Val. {formatPositionMoney(position.marketValueNative, position.currency, 0)}</span>
+        <span>P&L EUR {formatPositionMoney(position.pnlEur, "EUR", 0)}</span>
+        <span>Jour {dayPerf == null ? "-" : `${dayPerf >= 0 ? "+" : ""}${dayPerf.toFixed(2)}%`}</span>
       </div>
       <div style={{
         fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
@@ -2907,6 +2960,9 @@ const PortefeuilleCard = ({ position, onClick, index }) => {
       <div style={{ marginTop: 10, height: 32 }}>
         <Sparkline data={position.series} height={32} color={accent}
           fillGradient strokeWidth={1.3} id={`card-${index}`} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <PortfolioActionButtons position={position} onPrepareOrder={onPrepareOrder} />
       </div>
     </div>
   );
@@ -3012,20 +3068,20 @@ const AssetSearchInput = ({ onSelect, onQueryChange, placeholder = "Rechercher u
   );
 };
 
-const AddPositionModal = ({ open, onClose, onSuccess }) => {
+const AddPositionModal = ({ open, onClose, onSuccess, initialDraft = null }) => {
   const supabase = useMemo(() => createClient(), []);
   const { patrimoine } = useTodayDashboard({ pollMs: 60000, limit: 1 });
-  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch({ debounceMs: 250 });
+  const { query, results, loading, error: searchError, createUserAsset } = useAssetSearch({ debounceMs: 250 });
   const accounts = useMemo(
     () => (patrimoine?.accounts || []).filter((a) => a.is_active && a.universe !== "PAPER_TRADING"),
     [patrimoine]
   );
-  const [kind, setKind] = useState("buy");
-  const [accountId, setAccountId] = useState("");
-  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [kind, setKind] = useState(initialDraft?.side || "buy");
+  const [accountId, setAccountId] = useState(initialDraft?.accountId || "");
+  const [selectedAsset, setSelectedAsset] = useState(initialDraft?.asset || null);
   const [quantity, setQuantity] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [currency, setCurrency] = useState("EUR");
+  const [unitPrice, setUnitPrice] = useState(initialDraft?.unitPrice ? String(initialDraft.unitPrice) : "");
+  const [currency, setCurrency] = useState(initialDraft?.currency || "EUR");
   const [executedAt, setExecutedAt] = useState(nowForDatetimeInput);
   const [fees, setFees] = useState("0");
   const [notes, setNotes] = useState("");
@@ -3054,6 +3110,7 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
   };
   const currentErrors = validate();
   const submitDisabled = submitting || Object.keys(currentErrors).length > 0;
+  const submitLabel = kind === "sell" ? "Enregistrer la vente" : "Ajouter la position";
 
   const selectAsset = (asset) => {
     setSelectedAsset(asset);
@@ -3175,6 +3232,7 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
           <label style={labelStyle}>Asset</label>
           <AssetSearchInput
             placeholder="Ticker, nom ou theme (ex: Hermes, ASML, tech)"
+            initialValue={selectedAsset ? `${selectedAsset.ticker} - ${selectedAsset.asset_name || ""}`.trim() : ""}
             onSelect={selectAsset}
             onQueryChange={() => setSelectedAsset(null)}
           />
@@ -3240,7 +3298,7 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
             border: "none", borderRadius: 8, fontFamily: FONT_SANS,
             fontSize: 13, fontWeight: 700, cursor: submitDisabled ? "default" : "pointer",
             opacity: submitDisabled ? 0.55 : 1,
-          }}>{submitting ? "Ajoutâ€¦" : "Ajouter la position"}</button>
+          }}>{submitting ? "Enregistrement..." : submitLabel}</button>
         </div>
       </div>
     </div>
@@ -3253,11 +3311,14 @@ const PortefeuillePage = ({ onAssetClick }) => {
   const [portfolioFilters, setPortfolioFilters] = useState([]);
   const [portfolioSort, setPortfolioSort] = useState("value_desc");
   const [showAddPosition, setShowAddPosition] = useState(false);
+  const [orderDraft, setOrderDraft] = useState(null);
   const accountFilter = account === "all" ? null : account;
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter });
   const { refreshing, handleRefresh } = useManualRefresh(refetch);
   const filtered = useMemo(() => {
     let next = (positions || []).map((p) => ({
+    account_id: p.account_id,
+    asset_id: p.asset_id,
     ticker: p.ticker,
     name: p.asset_name,
     account: p.account_name,
@@ -3270,6 +3331,10 @@ const PortefeuillePage = ({ onAssetClick }) => {
     pnlNative: Number(p.unrealized_pnl_native ?? 0),
     pnlEur: Number(p.unrealized_pnl_eur ?? 0),
     pnlPct: Number(p.unrealized_pnl_pct ?? 0),
+    perf_1d_pct: p.perf_1d_pct,
+    day_perf_pct: p.day_perf_pct,
+    change_1d_pct: p.change_1d_pct,
+    price_change_pct: p.price_change_pct,
     sector: p.asset_class || "",
     series: genSeries(
       Number(p.avg_cost_per_unit || p.last_price || 1),
@@ -3293,6 +3358,22 @@ const PortefeuillePage = ({ onAssetClick }) => {
   const togglePortfolioFilter = (key) => setPortfolioFilters((current) => (
     current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
   ));
+  const openPositionOrder = (position = null, side = "buy") => {
+    setOrderDraft(position ? {
+      side,
+      accountId: position.account_id,
+      currency: position.currency || "EUR",
+      unitPrice: position.price,
+      asset: {
+        asset_id: position.asset_id,
+        id: position.asset_id,
+        ticker: position.ticker,
+        asset_name: position.name,
+        currency: position.currency || "EUR",
+      },
+    } : null);
+    setShowAddPosition(true);
+  };
   return (
     <main style={{
       maxWidth: CONTAINER_MAX, margin: "0 auto",
@@ -3309,11 +3390,16 @@ const PortefeuillePage = ({ onAssetClick }) => {
         setAccount={setAccount}
         viewMode={viewMode}
         setViewMode={setViewMode}
-        onAddPosition={() => setShowAddPosition(true)}
+        onAddPosition={() => openPositionOrder()}
       />
       <AddPositionModal
+        key={orderDraft ? `${orderDraft.side}:${orderDraft.asset?.ticker || "asset"}` : "manual-position"}
         open={showAddPosition}
-        onClose={() => setShowAddPosition(false)}
+        initialDraft={orderDraft}
+        onClose={() => {
+          setShowAddPosition(false);
+          setOrderDraft(null);
+        }}
         onSuccess={refetch}
       />
       <FilterBar
@@ -3348,7 +3434,7 @@ const PortefeuillePage = ({ onAssetClick }) => {
         </div>
       )}
       {viewMode === "list" ? (
-        <PortefeuilleTable positions={filtered} onAssetClick={onAssetClick} />
+        <PortefeuilleTable positions={filtered} onAssetClick={onAssetClick} onPrepareOrder={openPositionOrder} />
       ) : (
         <section style={{
           paddingTop: 24, paddingBottom: 32,
@@ -3356,7 +3442,8 @@ const PortefeuillePage = ({ onAssetClick }) => {
         }}>
           {filtered.map((p, i) => (
             <PortefeuilleCard key={p.ticker} position={p} index={i}
-              onClick={() => onAssetClick(p.ticker)} />
+              onClick={() => onAssetClick(p.ticker)}
+              onPrepareOrder={openPositionOrder} />
           ))}
         </section>
       )}
