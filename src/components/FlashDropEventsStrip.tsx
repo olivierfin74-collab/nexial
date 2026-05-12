@@ -14,6 +14,10 @@ type FlashDropEvent = {
   price_vs_vwap_pct: number | null;
   signal_strength: "MEDIUM" | "HIGH" | "EXTREME";
   severity: "MEDIUM" | "HIGH" | "CRITICAL";
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  in_watchlist: boolean;
+  in_portfolio: boolean;
+  is_tier1_watchlist: boolean;
 };
 
 const pct = (value: number | null) => (
@@ -57,10 +61,15 @@ export default function FlashDropEventsStrip() {
               <div className="flex items-center justify-between gap-3">
                 <span className="font-bold text-gray-900">{event.ticker}</span>
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
-                  {event.severity}
+                  {event.priority}
                 </span>
               </div>
               <div className="mt-1 truncate text-xs font-semibold text-red-800">{event.message_text}</div>
+              <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-bold uppercase text-gray-600">
+                {event.in_watchlist && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">Watchlist</span>}
+                {event.in_portfolio && <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-800">Portfolio</span>}
+                {event.is_tier1_watchlist && <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-800">Tier 1</span>}
+              </div>
               <div className="mt-1 text-xs text-gray-600">
                 Intraday {pct(event.intraday_change_pct)} · C/C {pct(event.close_to_close_pct)} · VWAP {pct(event.price_vs_vwap_pct)}
               </div>
