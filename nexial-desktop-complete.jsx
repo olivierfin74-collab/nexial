@@ -3859,6 +3859,104 @@ const WatchlistPage = ({ onAssetClick }) => {
 /* ============================================================
    PAGE — DÉTAIL ASSET (fiche d'analyse magazine 2 colonnes)
    ============================================================ */
+const detailMoney = (value, currency = "EUR", digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toLocaleString("fr-FR", { maximumFractionDigits: digits })} ${currency || "EUR"}`;
+};
+
+const DetailMetric = ({ label, value, sub, color = T.inkPrimary }) => (
+  <div style={{
+    padding: "12px 14px", backgroundColor: T.bgSurface,
+    border: `1px solid ${T.borderUltra}`, borderRadius: 8,
+  }}>
+    <div style={{
+      fontFamily: FONT_SANS, fontSize: 9.5, color: T.inkTertiary,
+      fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
+    }}>{label}</div>
+    <div style={{
+      marginTop: 5, fontFamily: FONT_MONO, fontSize: 14,
+      color, fontWeight: 700,
+    }}>{value}</div>
+    {sub && (
+      <div style={{ marginTop: 3, fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary }}>
+        {sub}
+      </div>
+    )}
+  </div>
+);
+
+const rsiInterpretation = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "Non disponible";
+  if (n < 30) return "Survente";
+  if (n > 70) return "Surachat";
+  return "Neutre";
+};
+
+const EnrichedDetailPanel = ({ a }) => {
+  const currency = a.currency || "EUR";
+  const rsi = a.indicators?.find((i) => i.label === "RSI 14")?.value;
+  const zones = (a.paliers || []).slice(0, 3).map((p, i) => ({ label: `Z${i + 1}`, price: p.price }));
+  const activeAlerts = [
+    a.state ? { id: "state", label: a.state, status: "ACTIVE" } : null,
+    ...(a.paliers || []).map((p) => ({ id: p.rank, label: `${p.rank} ${a.currency}${p.price}`, status: "ORDER_ZONE" })),
+  ].filter(Boolean);
+
+  return (
+    <section style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div>
+        <Eyebrow style={{ display: "block", marginBottom: 10 }}>Techniques</Eyebrow>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+          <DetailMetric label="RSI 14" value={rsi || "-"} sub={rsiInterpretation(Number(rsi))} />
+          <DetailMetric label="Drawdown" value={`${Number(a.delta || 0).toFixed(1)}%`} color={T.burgundy} />
+          <DetailMetric label="vs EMA200" value="-" sub="Non disponible" />
+          <DetailMetric label="Volume vs 20j" value="-" sub="Non disponible" />
+        </div>
+      </div>
+      <div style={{ padding: 16, backgroundColor: T.bgPour, border: `1px solid ${T.borderUltra}`, borderRadius: 12 }}>
+        <Eyebrow color={T.forestGreen}>Zones de buy</Eyebrow>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 12 }}>
+          {zones.map((z) => <DetailMetric key={z.label} label={z.label} value={detailMoney(z.price, currency)} sub="Palier surveille" />)}
+        </div>
+      </div>
+      {a.isHeld && (
+        <div style={{ padding: 16, backgroundColor: T.bgSurface, border: `1px solid ${T.borderUltra}`, borderRadius: 12 }}>
+          <Eyebrow>Ma position</Eyebrow>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 12 }}>
+            <DetailMetric label="Quantite" value="-" />
+            <DetailMetric label="PRU" value="-" />
+            <DetailMetric label="Valeur" value="-" />
+            <DetailMetric label="P&L" value="-" />
+          </div>
+        </div>
+      )}
+      <div style={{ padding: 16, backgroundColor: T.bgSurface, border: `1px solid ${T.borderUltra}`, borderRadius: 12 }}>
+        <Eyebrow>Alertes actives</Eyebrow>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {activeAlerts.length === 0 ? (
+            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>Aucune alerte active</span>
+          ) : activeAlerts.map((alert) => (
+            <div key={alert.id} style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary,
+            }}>
+              <span>{alert.label}</span>
+              <Badge variant="soft">{alert.status}</Badge>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: 16, backgroundColor: T.bgSurface, border: `1px solid ${T.borderUltra}`, borderRadius: 12 }}>
+        <Eyebrow>Historique transactions</Eyebrow>
+        <div style={{ marginTop: 10, fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>
+          Historique detaille non disponible dans l'API actuelle.
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const AssetDetailPage = ({ ticker, onBack }) => {
   const a = MOCK.assetDetail;
   const accent = a.score >= 8 ? T.forestGreen : a.score >= 6 ? T.gold : T.burgundy;
@@ -4037,6 +4135,7 @@ const AssetDetailPage = ({ ticker, onBack }) => {
               );
             })}
           </div>
+          <EnrichedDetailPanel a={a} />
         </div>
 
         {/* Col droite · prix + chart + paliers + CTAs + alertes passées */}

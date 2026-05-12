@@ -3201,6 +3201,144 @@ const DetailActions = ({ paliers, ticker, currency, onConfirmAll, onModifyClick 
   );
 };
 
+const detailMoney = (value, currency = "EUR", digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toLocaleString("fr-FR", { maximumFractionDigits: digits })} ${currency || "EUR"}`;
+};
+
+const rsiInterpretation = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "Non disponible";
+  if (n < 30) return "Survente";
+  if (n > 70) return "Surachat";
+  return "Neutre";
+};
+
+const DetailMetric = ({ label, value, sub, color = T.inkPrimary }) => (
+  <div style={{
+    padding: 12, backgroundColor: T.bgSurface,
+    border: `1px solid ${T.borderSubtle}`, borderRadius: 10,
+  }}>
+    <div style={{
+      fontFamily: FONT_SANS, fontSize: 10, color: T.inkTertiary,
+      fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+    }}>{label}</div>
+    <div style={{
+      marginTop: 5, fontFamily: FONT_MONO, fontSize: 14,
+      color, fontWeight: 700,
+    }}>{value}</div>
+    {sub && (
+      <div style={{ marginTop: 3, fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary }}>
+        {sub}
+      </div>
+    )}
+  </div>
+);
+
+const ZoneIndicator = ({ label, price, currency, currentPrice }) => {
+  const dist = Number(currentPrice) > 0 && Number(price) > 0
+    ? ((Number(price) - Number(currentPrice)) / Number(currentPrice)) * 100
+    : null;
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontFamily: FONT_MONO, fontSize: 11, fontWeight: 800, color: T.forestGreen }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 3, fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary, fontWeight: 700 }}>
+        {detailMoney(price, currency)}
+      </div>
+      <div style={{ marginTop: 2, fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary }}>
+        {dist == null ? "-" : `${dist >= 0 ? "+" : ""}${dist.toFixed(1)}%`}
+      </div>
+    </div>
+  );
+};
+
+const EnrichedAssetSections = ({ asset, liveAsset }) => {
+  const currency = asset.currency || liveAsset?.currency || "EUR";
+  const currentPrice = Number(asset.currentPrice ?? liveAsset?.current_price ?? 0);
+  const pnlPct = Number(liveAsset?.pnl_pct ?? 0);
+  const pnlPositive = pnlPct >= 0;
+  const zones = [
+    { label: "Z1", price: liveAsset?.z1_price ?? asset.paliers?.[0]?.price },
+    { label: "Z2", price: liveAsset?.z2_price ?? asset.paliers?.[1]?.price },
+    { label: "Z3", price: liveAsset?.z3_price ?? asset.paliers?.[2]?.price },
+  ].filter((z) => z.price != null);
+  const activeAlerts = [
+    liveAsset?.signal ? { id: "signal", label: liveAsset.signal, status: liveAsset.freshness_status || "ACTIVE" } : null,
+    ...(liveAsset?.active_proposals || []).map((p) => ({
+      id: p.proposal_id,
+      label: `${p.side || "ORDER"} ${detailMoney(p.proposed_price, p.proposed_currency || currency)}`,
+      status: p.status,
+    })),
+  ].filter(Boolean);
+
+  return (
+    <section style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <DetailMetric label="RSI 14" value={asset.rsi14 ? asset.rsi14.toFixed(1) : "-"} sub={rsiInterpretation(asset.rsi14)} />
+        <DetailMetric label="Drawdown" value={`${Number(asset.dist52wHigh ?? 0).toFixed(1)}%`} color={T.burgundy} />
+        <DetailMetric label="vs EMA200" value="-" sub="Non disponible" />
+        <DetailMetric label="Volume vs 20j" value="-" sub="Non disponible" />
+      </div>
+
+      {zones.length > 0 && (
+        <div style={{
+          padding: 14, backgroundColor: T.bgPour,
+          border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+        }}>
+          <Eyebrow>Zones de buy</Eyebrow>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 10 }}>
+            {zones.map((z) => (
+              <ZoneIndicator key={z.label} {...z} currency={currency} currentPrice={currentPrice} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {asset.isHeld && (
+        <div style={{
+          padding: 14, backgroundColor: T.bgSurface,
+          border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+        }}>
+          <Eyebrow>Ma position</Eyebrow>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+            <DetailMetric label="Quantite" value={Number(liveAsset?.held_quantity ?? 0).toFixed(2)} />
+            <DetailMetric label="PRU" value={liveAsset?.held_quantity ? detailMoney(Number(liveAsset.total_invested || 0) / Number(liveAsset.held_quantity || 1), currency) : "-"} />
+            <DetailMetric label="Valeur" value={detailMoney(liveAsset?.current_market_value, currency, 0)} />
+            <DetailMetric label="P&L" value={`${pnlPositive ? "+" : ""}${pnlPct.toFixed(2)}%`} color={pnlPositive ? T.forestGreen : T.burgundy} />
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: 14, backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`, borderRadius: 12 }}>
+        <Eyebrow>Alertes actives</Eyebrow>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          {activeAlerts.length === 0 ? (
+            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>Aucune alerte active</span>
+          ) : activeAlerts.map((alert) => (
+            <div key={alert.id} style={{
+              display: "flex", justifyContent: "space-between", gap: 10,
+              fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary,
+            }}>
+              <span>{alert.label}</span>
+              <Badge variant="soft">{alert.status}</Badge>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: 14, backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`, borderRadius: 12 }}>
+        <Eyebrow>Historique transactions</Eyebrow>
+        <div style={{ marginTop: 10, fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>
+          Historique detaille non disponible dans l'API actuelle.
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
   const { asset: liveAsset, loading } = useAssetDetail(ticker);
 
@@ -3308,6 +3446,7 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
       <DetailScoreCard asset={asset} />
       <ThesisCard asset={asset} />
       <PourContre asset={asset} />
+      <EnrichedAssetSections asset={asset} liveAsset={liveAsset} />
       <OrderPlanCard asset={asset} />
       <TechIndicators asset={asset} />
       <DetailActions
