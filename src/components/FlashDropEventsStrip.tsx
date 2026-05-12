@@ -6,22 +6,28 @@ import { Zap } from "lucide-react";
 type FlashDropEvent = {
   id: string;
   ticker: string;
-  deeplink_url: string;
-  message_text: string;
-  price: number | null;
-  intraday_change_pct: number | null;
-  close_to_close_pct: number | null;
-  price_vs_vwap_pct: number | null;
-  signal_strength: "MEDIUM" | "HIGH" | "EXTREME";
-  severity: "MEDIUM" | "HIGH" | "CRITICAL";
+  opportunity_type: "FLASH_DROP";
+  reason: string;
   priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  in_watchlist: boolean;
-  in_portfolio: boolean;
-  is_tier1_watchlist: boolean;
+  suggested_action: "WATCH" | "PREPARE_LADDER" | "WAIT";
+  latest_price: number | null;
+  drop_pct: number | null;
+  ladder: {
+    z1_price: number;
+    z2_price: number;
+    z3_price: number;
+    z1_weight: number;
+    z2_weight: number;
+    z3_weight: number;
+  } | null;
 };
 
 const pct = (value: number | null) => (
   typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "-"
+);
+
+const price = (value: number | null) => (
+  typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "-"
 );
 
 export default function FlashDropEventsStrip() {
@@ -29,10 +35,10 @@ export default function FlashDropEventsStrip() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/flash-drops/alerts?limit=5")
+    fetch("/api/opportunities/feed?limit=5")
       .then((res) => res.json())
       .then((json) => {
-        if (!cancelled) setEvents(json.alerts || []);
+        if (!cancelled) setEvents(json.items || []);
       })
       .catch(() => {
         if (!cancelled) setEvents([]);
@@ -55,24 +61,46 @@ export default function FlashDropEventsStrip() {
           {events.map((event) => (
             <a
               key={event.id}
-              href={event.deeplink_url}
-              className="min-w-44 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm transition-colors hover:border-red-400"
+              href={`/aujourdhui?alert=${encodeURIComponent(event.id)}`}
+              className="min-w-[260px] max-w-[320px] rounded-lg border border-red-200 bg-white px-3 py-2 text-sm transition-colors hover:border-red-400"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="font-bold text-gray-900">{event.ticker}</span>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-red-700">Flash Drop</div>
+                  <div className="truncate font-bold text-gray-900">{event.ticker}</div>
+                </div>
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
                   {event.priority}
                 </span>
               </div>
-              <div className="mt-1 truncate text-xs font-semibold text-red-800">{event.message_text}</div>
-              <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-bold uppercase text-gray-600">
-                {event.in_watchlist && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">Watchlist</span>}
-                {event.in_portfolio && <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-800">Portfolio</span>}
-                {event.is_tier1_watchlist && <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-800">Tier 1</span>}
+
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded bg-red-50 px-2 py-1">
+                  <div className="font-bold text-red-800">{pct(event.drop_pct)}</div>
+                  <div className="text-[10px] uppercase text-gray-500">Drop</div>
+                </div>
+                <div className="rounded bg-gray-50 px-2 py-1">
+                  <div className="font-bold text-gray-900">{event.suggested_action}</div>
+                  <div className="text-[10px] uppercase text-gray-500">Posture</div>
+                </div>
               </div>
-              <div className="mt-1 text-xs text-gray-600">
-                Intraday {pct(event.intraday_change_pct)} · C/C {pct(event.close_to_close_pct)} · VWAP {pct(event.price_vs_vwap_pct)}
+
+              <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[11px]">
+                <div className="rounded border border-gray-100 px-1.5 py-1">
+                  <div className="font-bold text-gray-900">{price(event.ladder?.z1_price ?? null)}</div>
+                  <div className="text-[10px] text-gray-500">Z1 40%</div>
+                </div>
+                <div className="rounded border border-gray-100 px-1.5 py-1">
+                  <div className="font-bold text-gray-900">{price(event.ladder?.z2_price ?? null)}</div>
+                  <div className="text-[10px] text-gray-500">Z2 35%</div>
+                </div>
+                <div className="rounded border border-gray-100 px-1.5 py-1">
+                  <div className="font-bold text-gray-900">{price(event.ladder?.z3_price ?? null)}</div>
+                  <div className="text-[10px] text-gray-500">Z3 25%</div>
+                </div>
               </div>
+
+              <div className="mt-2 truncate text-xs text-gray-600">{event.reason}</div>
             </a>
           ))}
         </div>
