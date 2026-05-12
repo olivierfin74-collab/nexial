@@ -764,9 +764,11 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
             <MarketStatusIndicator />
             <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
           </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, maxWidth: "100%" }}>
-            <SystemFreshnessBadge />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, maxWidth: 148 }}>
             <NotificationBellPanel compact />
+            <div style={{ maxWidth: 112, transform: "scale(0.86)", transformOrigin: "top right" }}>
+              <SystemFreshnessBadge />
+            </div>
           </div>
         </div>
       </div>
