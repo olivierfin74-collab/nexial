@@ -2186,6 +2186,60 @@ const OrdresPage = () => (
 /* ============================================================
    PAGE — PORTEFEUILLE (tableau dense / cartes, sparklines inline)
    ============================================================ */
+const formatPositionNumber = (value, digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return n.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+};
+
+const formatPositionMoney = (value, currency = "EUR", digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${formatPositionNumber(n, digits)} ${currency || "EUR"}`;
+};
+
+const PortfolioPerfSummary = ({ positions }) => {
+  const totalValue = positions.reduce((sum, p) => sum + Number(p.marketValueNative || p.value || 0), 0);
+  const weightedPnl = positions.reduce((sum, p) => {
+    const weight = totalValue > 0 ? Number(p.marketValueNative || p.value || 0) / totalValue : 0;
+    return sum + weight * Number(p.pnlPct || 0);
+  }, 0);
+  const winners = positions.filter((p) => Number(p.pnlPct || 0) >= 0).length;
+  const losers = positions.filter((p) => Number(p.pnlPct || 0) < 0).length;
+  const positive = weightedPnl >= 0;
+
+  return (
+    <section style={{
+      marginTop: 18, padding: "14px 16px", backgroundColor: T.bgSurface,
+      border: `1px solid ${T.borderUltra}`, borderRadius: 8,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 24,
+    }}>
+      <div>
+        <Eyebrow color={T.inkTertiary}>Synthese portefeuille</Eyebrow>
+        <div style={{
+          marginTop: 5, fontFamily: FONT_SANS, fontSize: 13,
+          color: T.inkSecondary, fontWeight: 600,
+        }}>{positions.length} positions - {winners} gagnantes / {losers} perdantes</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{
+          fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 400,
+          color: positive ? T.forestGreen : T.burgundy,
+          letterSpacing: "-0.02em",
+        }}>{positive ? "+" : ""}{weightedPnl.toFixed(2)}%</div>
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary,
+          fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
+        }}>P&L moyen pondere</div>
+      </div>
+    </section>
+  );
+};
+
 const PortefeuilleHeader = ({ totalValue, totalPositions, accounts, account, setAccount, viewMode, setViewMode, onAddPosition }) => (
   <header style={{
     paddingTop: 36, paddingBottom: 24,
@@ -2275,17 +2329,17 @@ const PortefeuilleTable = ({ positions, onAssetClick }) => (
     {/* Header tableau */}
     <div style={{
       display: "grid",
-      gridTemplateColumns: "60px 1.5fr 1fr 60px 80px 100px 100px 80px 110px 20px",
+      gridTemplateColumns: "60px 1.35fr 0.9fr 60px 85px 85px 105px 100px 80px 90px 20px",
       gap: 12, alignItems: "center",
       padding: "12px 16px",
       borderBottom: `1px solid ${T.borderHair}`,
     }}>
-      {["Ticker", "Nom", "Compte", "Qty", "Prix", "Valeur", "P&L €", "P&L %", "90 jours", ""].map((h, i) => (
+      {["Ticker", "Nom", "Compte", "Qty", "PRU", "Prix", "Valeur", "P&L", "P&L %", "90 jours", ""].map((h, i) => (
         <span key={i} style={{
           fontFamily: FONT_SANS, fontSize: 10, fontWeight: 700,
           letterSpacing: "0.10em", textTransform: "uppercase",
           color: T.inkTertiary,
-          textAlign: ["Qty", "Prix", "Valeur", "P&L €"].includes(h) ? "right" : "left",
+          textAlign: ["Qty", "PRU", "Prix", "Valeur", "P&L"].includes(h) ? "right" : "left",
         }}>{h}</span>
       ))}
     </div>
@@ -2295,7 +2349,7 @@ const PortefeuilleTable = ({ positions, onAssetClick }) => (
       return (
         <div key={p.ticker} onClick={() => onAssetClick(p.ticker)} style={{
           display: "grid",
-          gridTemplateColumns: "60px 1.5fr 1fr 60px 80px 100px 100px 80px 110px 20px",
+          gridTemplateColumns: "60px 1.35fr 0.9fr 60px 85px 85px 105px 100px 80px 90px 20px",
           gap: 12, alignItems: "center",
           padding: "12px 16px",
           borderBottom: `1px solid ${T.borderUltra}`,
@@ -2323,19 +2377,23 @@ const PortefeuilleTable = ({ positions, onAssetClick }) => (
           <span style={{
             fontFamily: FONT_MONO, fontSize: 12, color: T.inkSecondary,
             fontWeight: 600, textAlign: "right",
-          }}>{p.qty}</span>
+          }}>{formatPositionNumber(p.qty, 4)}</span>
           <span style={{
             fontFamily: FONT_MONO, fontSize: 12, color: T.inkSecondary,
             fontWeight: 600, textAlign: "right",
-          }}>€{p.price.toFixed(2)}</span>
+          }}>{formatPositionMoney(p.avgCost, p.currency)}</span>
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 12, color: T.inkSecondary,
+            fontWeight: 600, textAlign: "right",
+          }}>{formatPositionMoney(p.price, p.currency)}</span>
           <span style={{
             fontFamily: FONT_MONO, fontSize: 13, color: T.inkPrimary,
             fontWeight: 700, textAlign: "right",
-          }}>€{fmtEur(p.value)}</span>
+          }}>{formatPositionMoney(p.marketValueNative, p.currency, 0)}</span>
           <span style={{
             fontFamily: FONT_MONO, fontSize: 12, color: accent,
             fontWeight: 700, textAlign: "right",
-          }}>{isPos ? "+" : ""}€{fmtEur(p.pnlEur)}</span>
+          }}>{isPos ? "+" : ""}{formatPositionMoney(p.pnlNative, p.currency, 0)}</span>
           <div style={{ textAlign: "right" }}>
             <MetricChip variant={isPos ? "positive" : "negative"}>{fmtPct(p.pnlPct)}</MetricChip>
           </div>
@@ -2383,6 +2441,16 @@ const PortefeuilleCard = ({ position, onClick, index }) => {
         fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkSecondary,
         fontWeight: 500, marginBottom: 12,
       }}>{position.name}</div>
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
+        marginBottom: 12, fontFamily: FONT_MONO, fontSize: 10.5,
+        color: T.inkSecondary, fontWeight: 700,
+      }}>
+        <span>Qty {formatPositionNumber(position.qty, 4)}</span>
+        <span>PRU {formatPositionMoney(position.avgCost, position.currency)}</span>
+        <span>Prix {formatPositionMoney(position.price, position.currency)}</span>
+        <span>Val. {formatPositionMoney(position.marketValueNative, position.currency, 0)}</span>
+      </div>
       <div style={{
         fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 400,
         color: T.inkPrimary, letterSpacing: "-0.020em", lineHeight: 1,
@@ -2653,8 +2721,12 @@ const PortefeuillePage = ({ onAssetClick }) => {
     name: p.asset_name,
     account: p.account_name,
     qty: Number(p.total_quantity ?? 0),
+    avgCost: Number(p.avg_cost_per_unit ?? 0),
     price: Number(p.last_price ?? 0),
+    currency: p.asset_currency || "EUR",
+    marketValueNative: Number(p.market_value_native ?? 0),
     value: Number(p.market_value_eur ?? 0),
+    pnlNative: Number(p.unrealized_pnl_native ?? 0),
     pnlEur: Number(p.unrealized_pnl_eur ?? 0),
     pnlPct: Number(p.unrealized_pnl_pct ?? 0),
     sector: p.asset_class || "",
@@ -2665,7 +2737,7 @@ const PortefeuillePage = ({ onAssetClick }) => {
       0.01,
       `${p.account_id}:${p.ticker}`
     ),
-  })), [positions]);
+  })).sort((a, b) => Number(b.marketValueNative || b.value || 0) - Number(a.marketValueNative || a.value || 0)), [positions]);
   const totalValue = Number(summary?.total_value_eur ?? filtered.reduce((s, p) => s + p.value, 0));
   const accounts = summary?.by_account ?? [];
   const totalPositions = Number(summary?.total_positions ?? filtered.length);
@@ -2689,6 +2761,9 @@ const PortefeuillePage = ({ onAssetClick }) => {
         onClose={() => setShowAddPosition(false)}
         onSuccess={refetch}
       />
+      {!loading && !error && filtered.length > 0 && (
+        <PortfolioPerfSummary positions={filtered} />
+      )}
       {error && (
         <div style={{ padding: "14px 0", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
           Erreur de chargement du portefeuille.

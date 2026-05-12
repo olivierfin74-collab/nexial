@@ -1409,13 +1409,99 @@ const OrdersPage = ({ onAssetClick }) => {
 // ============================================================
 // PAGE — PORTEFEUILLE (positions)
 // ============================================================
+const formatPositionNumber = (value, digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return n.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+};
+
+const formatPositionMoney = (value, currency = "EUR", digits = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${formatPositionNumber(n, digits)} ${currency || "EUR"}`;
+};
+
+const PortfolioPerfSummary = ({ positions }) => {
+  const totalPositions = positions.length;
+  const totalValue = positions.reduce((sum, p) => sum + Number(p.market_value_native || 0), 0);
+  const weightedPnl = positions.reduce((sum, p) => {
+    const weight = totalValue > 0 ? Number(p.market_value_native || 0) / totalValue : 0;
+    return sum + weight * Number(p.unrealized_pnl_pct || 0);
+  }, 0);
+  const winners = positions.filter((p) => Number(p.unrealized_pnl_pct || 0) >= 0).length;
+  const losers = positions.filter((p) => Number(p.unrealized_pnl_pct || 0) < 0).length;
+  const positive = weightedPnl >= 0;
+
+  return (
+    <div style={{
+      margin: "0 20px 14px", padding: "13px 14px",
+      backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`,
+      borderRadius: 12, display: "flex", alignItems: "center",
+      justifyContent: "space-between", gap: 12,
+    }}>
+      <div>
+        <div style={{
+          fontFamily: FONT_MONO, fontSize: 11, fontWeight: 700,
+          color: T.inkTertiary, textTransform: "uppercase", letterSpacing: "0.08em",
+        }}>{totalPositions} positions</div>
+        <div style={{
+          marginTop: 3, fontFamily: FONT_SANS, fontSize: 12,
+          color: T.inkSecondary, fontWeight: 600,
+        }}>{winners} gagnantes / {losers} perdantes</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{
+          fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 500,
+          color: positive ? T.forestGreen : T.burgundy, letterSpacing: "-0.015em",
+        }}>{positive ? "+" : ""}{weightedPnl.toFixed(2)}%</div>
+        <div style={{
+          fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary,
+          fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+        }}>P&L pondere</div>
+      </div>
+    </div>
+  );
+};
+
+const PositionStat = ({ label, value }) => (
+  <div>
+    <div style={{
+      fontFamily: FONT_SANS, fontSize: 9.5, color: T.inkTertiary,
+      fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+    }}>{label}</div>
+    <div style={{
+      marginTop: 2, fontFamily: FONT_MONO, fontSize: 10.5,
+      color: T.inkSecondary, fontWeight: 700,
+    }}>{value}</div>
+  </div>
+);
+
 const PositionRow = ({ position, onClick, isLast, viewMode }) => {
-  const positive = position.pnlPct >= 0;
+  const pnlPct = Number(position.unrealized_pnl_pct ?? position.pnlPct ?? 0);
+  const positive = pnlPct >= 0;
+  const pnlColor = positive ? T.forestGreen : T.burgundy;
+  const currency = position.asset_currency || "EUR";
+  const quantity = Number(position.total_quantity ?? position.qty ?? 0);
+  const avgCost = position.avg_cost_per_unit;
+  const lastPrice = position.last_price ?? position.price;
+  const marketValue = position.market_value_native ?? position.value;
+  const pnlNative = position.unrealized_pnl_native ?? position.pnlNative ?? position.pnlEur;
+  const name = position.asset_name || position.name;
+  const account = position.account_name || position.account;
+  const stats = [
+    ["Qty", formatPositionNumber(quantity, 4)],
+    ["PRU", formatPositionMoney(avgCost, currency)],
+    ["Prix", formatPositionMoney(lastPrice, currency)],
+    ["Valeur", formatPositionMoney(marketValue, currency, 0)],
+  ];
   if (viewMode === "list") {
     return (
       <div onClick={onClick} style={{
         padding: "12px 16px", borderBottom: isLast ? "none" : `1px solid ${T.borderSubtle}`,
-        display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+        display: "grid", gridTemplateColumns: "1fr auto", gap: 12, cursor: "pointer",
         transition: "background-color 200ms",
       }}
       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
@@ -1428,20 +1514,34 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
             <span style={{
               fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkTertiary, fontWeight: 500,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>{position.name}</span>
+            }}>{name}</span>
           </div>
           <div style={{ fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary, marginTop: 2,
             fontWeight: 600, letterSpacing: "0.05em",
-          }}>{position.account}</div>
+          }}>{account}</div>
+          <div style={{
+            display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
+            marginTop: 8, fontFamily: FONT_MONO, fontSize: 10.5,
+            color: T.inkSecondary, fontWeight: 600,
+          }}>
+            <span>Qty {formatPositionNumber(quantity, 4)}</span>
+            <span>PRU {formatPositionMoney(avgCost, currency)}</span>
+            <span>Prix {formatPositionMoney(lastPrice, currency)}</span>
+            <span>Val. {formatPositionMoney(marketValue, currency, 0)}</span>
+          </div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{
             fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 500,
             color: T.inkPrimary, letterSpacing: "-0.01em",
-          }}>€{fmtEur(position.value)}</div>
+          }}>{formatPositionMoney(marketValue, currency, 0)}</div>
           <MetricChip variant={positive ? "positive" : "negative"} style={{ marginTop: 3, fontSize: 11 }}>
-            {positive ? "+" : ""}{position.pnlPct.toFixed(1)}%
+            {positive ? "+" : ""}{pnlPct.toFixed(2)}%
           </MetricChip>
+          <div style={{
+            marginTop: 4, fontFamily: FONT_MONO, fontSize: 10.5,
+            color: pnlColor, fontWeight: 700,
+          }}>{positive ? "+" : ""}{formatPositionMoney(pnlNative, currency, 0)}</div>
         </div>
       </div>
     );
@@ -1458,21 +1558,33 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
         <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: T.inkPrimary }}>
           {position.ticker}
         </span>
-        <Badge variant="soft" style={{ fontSize: 8.5 }}>{position.account}</Badge>
+        <Badge variant="soft" style={{ fontSize: 8.5 }}>{account}</Badge>
       </div>
       <div style={{
         fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, fontWeight: 500,
         marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>{position.name}</div>
+      }}>{name}</div>
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 10,
+        fontFamily: FONT_MONO, fontSize: 10.5, color: T.inkSecondary, fontWeight: 600,
+      }}>
+        {stats.map(([label, value]) => (
+          <span key={label}>{label} {value}</span>
+        ))}
+      </div>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 500,
           color: T.inkPrimary, letterSpacing: "-0.01em" }}>
-          €{fmtEur(position.value)}
+          {formatPositionMoney(marketValue, currency, 0)}
         </div>
         <MetricChip variant={positive ? "positive" : "negative"} style={{ fontSize: 11.5 }}>
-          {positive ? "+" : ""}{position.pnlPct.toFixed(1)}%
+          {positive ? "+" : ""}{pnlPct.toFixed(2)}%
         </MetricChip>
       </div>
+      <div style={{
+        marginTop: 5, fontFamily: FONT_MONO, fontSize: 11,
+        color: pnlColor, fontWeight: 700,
+      }}>{positive ? "+" : ""}{formatPositionMoney(pnlNative, currency, 0)}</div>
     </div>
   );
 };
@@ -1721,19 +1833,21 @@ const PortfolioPage = ({ onAssetClick }) => {
   const [showAddPosition, setShowAddPosition] = useState(false);
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter: accountFilterId });
 
-  // Adapter Supabase row -> PositionRow expected shape
   const adaptedPositions = useMemo(() => {
-    return (positions || []).map((p) => ({
-      ticker: p.ticker,
+    return [...(positions || [])].map((p) => ({
+      ...p,
       name: p.asset_name,
       account: p.account_name,
-      account_id: p.account_id,
-      value: Number(p.market_value_eur ?? 0),
+      value: Number(p.market_value_native ?? 0),
       pnlPct: Number(p.unrealized_pnl_pct ?? 0),
-    }));
+      pnlNative: Number(p.unrealized_pnl_native ?? 0),
+    })).sort((a, b) => (
+      Number(b.market_value_native ?? b.market_value_eur ?? 0) -
+      Number(a.market_value_native ?? a.market_value_eur ?? 0)
+    ));
   }, [positions]);
 
-  const totalValue = adaptedPositions.reduce((sum, p) => sum + p.value, 0);
+  const totalValue = adaptedPositions.reduce((sum, p) => sum + Number(p.market_value_eur ?? 0), 0);
   const accountsForChips = summary?.by_account ?? [];
   const filterLabel = accountFilterId
     ? (accountsForChips.find((a) => a.account_id === accountFilterId)?.account_name || "")
@@ -1791,6 +1905,9 @@ const PortfolioPage = ({ onAssetClick }) => {
         <div style={{ padding: "12px 20px", color: T.burgundy, fontFamily: FONT_SANS, fontSize: 13 }}>
           Erreur de chargement — réessai automatique dans 60s.
         </div>
+      )}
+      {!loading && !error && adaptedPositions.length > 0 && (
+        <PortfolioPerfSummary positions={adaptedPositions} />
       )}
       {!loading && !error && adaptedPositions.length === 0 ? (
         <div style={{ padding: "32px 20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
