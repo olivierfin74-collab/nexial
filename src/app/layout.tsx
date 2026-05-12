@@ -1,6 +1,17 @@
 import './globals.css'
 import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { BrowserNotificationsRuntime } from '@/components/BrowserNotifications'
+
+export const metadata = {
+  title: 'Nexial',
+  description: 'Nexial investment cockpit',
+  manifest: '/manifest.json',
+}
+
+export const viewport = {
+  themeColor: '#1F4A2E',
+}
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -28,6 +39,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={`${fraunces.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen overflow-x-hidden" style={{ backgroundColor: '#FBF9F4', color: '#1F2937' }}>
+        <BrowserNotificationsRuntime />
         {children}
         <Toaster
           position="top-right"

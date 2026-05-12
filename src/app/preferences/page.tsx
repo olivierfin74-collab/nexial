@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import PreferencesForm from '@/components/PreferencesForm'
 import DeletePreferenceButton from '@/components/DeletePreferenceButton'
+import BrowserNotificationsSettings from '@/components/BrowserNotifications'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,6 +18,13 @@ type Preference = {
   target_weight: number | null
   max_weight: number | null
   note: string | null
+}
+
+type PortfolioAsset = {
+  asset_name: string
+  ticker: string | null
+  account_name: string | null
+  account_type: string | null
 }
 
 export default async function PreferencesPage() {
@@ -56,6 +64,8 @@ export default async function PreferencesPage() {
         <h2 className="font-semibold mb-4">Ajouter une préférence</h2>
         <PreferencesForm assets={assets} />
       </section>
+
+      <BrowserNotificationsSettings />
 
       <section className="rounded-xl border p-4 bg-white">
         <h2 className="font-semibold mb-4">Préférences actives</h2>
@@ -101,9 +111,9 @@ export default async function PreferencesPage() {
   )
 }
 
-function dedupeAssets(rows: any[]) {
+function dedupeAssets(rows: PortfolioAsset[]) {
   const seen = new Set<string>()
-  const output: any[] = []
+  const output: PortfolioAsset[] = []
 
   for (const row of rows) {
     const key = `${row.asset_name}|||${row.ticker ?? '-'}`
