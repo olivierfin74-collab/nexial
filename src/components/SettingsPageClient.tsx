@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BrowserNotificationsSettings from "@/components/BrowserNotifications";
 
@@ -40,6 +41,15 @@ type SettingsUpdate = {
   system?: Partial<SettingsState["system"]>;
 };
 
+type ManualPricingAsset = Record<string, unknown>;
+
+type ManualPriceForm = {
+  ticker: string;
+  price: string;
+  priceDate: string;
+  currency: string;
+};
+
 const DEFAULT_SETTINGS: SettingsState = {
   telegram: {
     is_active: false,
@@ -73,6 +83,35 @@ const asString = <T extends string>(value: unknown, fallback: T) => (
 const asBoolean = (value: unknown, fallback: boolean) => (
   typeof value === "boolean" ? value : fallback
 );
+
+const todayInputValue = () => new Date().toISOString().slice(0, 10);
+
+const textValue = (row: ManualPricingAsset, keys: string[], fallback = "-") => {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return fallback;
+};
+
+const numberValue = (row: ManualPricingAsset, keys: string[]) => {
+  for (const key of keys) {
+    const value = row[key];
+    const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+
+const booleanValue = (row: ManualPricingAsset, keys: string[]) => (
+  keys.some((key) => row[key] === true || row[key] === "true" || row[key] === 1)
+);
+
+const formatManualPrice = (value: number | null, currency: string) => {
+  if (value === null) return "-";
+  return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 4 })} ${currency || ""}`.trim();
+};
 
 function mergeSettings(data: SettingsResponse): SettingsState {
   const telegram = data.telegram || {};
@@ -142,6 +181,184 @@ function Toggle({
   );
 }
 
+function ManualPricingSection() {
+  const [assets, setAssets] = useState<ManualPricingAsset[]>([]);
+  const [form, setForm] = useState<ManualPriceForm>({
+    ticker: "",
+    price: "",
+    priceDate: todayInputValue(),
+    currency: "EUR",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAssets = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/pricing/manual");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setAssets(Array.isArray(json.assets) ? json.assets : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur chargement prix manuels");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void loadAssets();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [loadAssets]);
+
+  const sortedAssets = useMemo(() => (
+    [...assets].sort((a, b) => Number(booleanValue(b, ["is_held", "held", "in_portfolio"])) - Number(booleanValue(a, ["is_held", "held", "in_portfolio"])))
+  ), [assets]);
+
+  const selectAsset = (row: ManualPricingAsset) => {
+    setForm((current) => ({
+      ...current,
+      ticker: textValue(row, ["ticker", "symbol"], current.ticker).toUpperCase(),
+      currency: textValue(row, ["currency", "asset_currency"], current.currency).toUpperCase(),
+    }));
+  };
+
+  const saveManualPrice = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setStatus(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/pricing/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticker: form.ticker,
+          price: Number(form.price),
+          priceDate: form.priceDate,
+          currency: form.currency,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setStatus("Prix manuel enregistre.");
+      setForm((current) => ({ ...current, price: "" }));
+      await loadAssets();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur enregistrement prix manuel");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="Prix manuels">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        Workflow temporaire avant migration EODHD. Aucun scraping, aucune logique broker, aucun pricing automatique.
+      </div>
+
+      {status && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{status}</div>}
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
+
+      <form onSubmit={saveManualPrice} className="grid gap-3 md:grid-cols-4">
+        <Field label="Ticker">
+          <input
+            value={form.ticker}
+            onChange={(e) => setForm((current) => ({ ...current, ticker: e.target.value.toUpperCase() }))}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            placeholder="INPST"
+            required
+          />
+        </Field>
+        <Field label="Prix">
+          <input
+            type="number"
+            min="0"
+            step="0.0001"
+            value={form.price}
+            onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            required
+          />
+        </Field>
+        <Field label="Date">
+          <input
+            type="date"
+            value={form.priceDate}
+            onChange={(e) => setForm((current) => ({ ...current, priceDate: e.target.value }))}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            required
+          />
+        </Field>
+        <Field label="Currency">
+          <input
+            value={form.currency}
+            onChange={(e) => setForm((current) => ({ ...current, currency: e.target.value.toUpperCase() }))}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+            placeholder="EUR"
+            required
+          />
+        </Field>
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-lg bg-[#1F4A2E] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 md:col-span-4"
+        >
+          {saving ? "Enregistrement..." : "Enregistrer"}
+        </button>
+      </form>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold">Assets necessitant prix manuel</div>
+          <button type="button" onClick={loadAssets} className="rounded-lg border px-3 py-1.5 text-xs font-semibold">
+            Rafraichir
+          </button>
+        </div>
+        {loading ? (
+          <div className="rounded-lg border p-3 text-sm text-gray-500">Chargement...</div>
+        ) : sortedAssets.length === 0 ? (
+          <div className="rounded-lg border p-3 text-sm text-gray-500">Aucun asset a traiter.</div>
+        ) : (
+          <div className="divide-y rounded-lg border">
+            {sortedAssets.map((row, index) => {
+              const ticker = textValue(row, ["ticker", "symbol"], "N/A").toUpperCase();
+              const name = textValue(row, ["name", "asset_name", "asset_label"], ticker);
+              const currency = textValue(row, ["currency", "asset_currency"], "");
+              const held = booleanValue(row, ["is_held", "held", "in_portfolio"]);
+              const lastPrice = numberValue(row, ["last_manual_price", "manual_price", "last_price", "current_price"]);
+              const lastDate = textValue(row, ["last_manual_price_date", "manual_price_date", "price_date", "priced_at", "updated_at"], "-");
+              return (
+                <button
+                  key={`${ticker}:${index}`}
+                  type="button"
+                  onClick={() => selectAsset(row)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left text-sm"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-mono font-bold">{ticker}</span>
+                    <span className="block truncate text-xs text-gray-500">{name}</span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    {held && <span className="mb-1 inline-flex rounded border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase text-green-800">Held</span>}
+                    <span className="block font-mono text-xs">{formatManualPrice(lastPrice, currency)}</span>
+                    <span className="block text-[11px] text-gray-500">{lastDate}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </SettingsSection>
+  );
+}
+
 export default function SettingsPageClient() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [systemSnapshot, setSystemSnapshot] = useState<Record<string, unknown> | null>(null);
@@ -169,7 +386,10 @@ export default function SettingsPageClient() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const id = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [load]);
 
   const patch = useCallback(async (next: SettingsUpdate) => {
@@ -317,6 +537,8 @@ export default function SettingsPageClient() {
             </select>
           </Field>
         </SettingsSection>
+
+        <ManualPricingSection />
 
         <SettingsSection title="Comportement">
           <Toggle
