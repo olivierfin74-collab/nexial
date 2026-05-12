@@ -758,15 +758,15 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
             fontFamily: FONT_SANS, fontSize: 13, fontWeight: 500,
             color: T.inkTertiary, textTransform: "capitalize",
           }}>{fmtDate(today)}</div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ marginTop: 12, maxWidth: "100%", overflow: "hidden" }}>
             <MarketStatusIndicator />
-            <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
           </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, maxWidth: 148 }}>
-            <NotificationBellPanel compact />
-            <div style={{ maxWidth: 112, transform: "scale(0.86)", transformOrigin: "top right" }}>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, flexShrink: 0, width: 44 }}>
+          <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
+          <NotificationBellPanel compact />
+          <div style={{ width: 44, display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ width: 108, transform: "scale(0.78)", transformOrigin: "top right" }}>
               <SystemFreshnessBadge />
             </div>
           </div>
