@@ -50,6 +50,43 @@ function text(value: unknown, fallback = "-") {
   return fallback;
 }
 
+function friendlyError(value: unknown) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || raw.toLowerCase() === "internal error") {
+    return "Données de fraîcheur indisponibles";
+  }
+  if (raw.startsWith("HTTP ")) {
+    return "Pipeline freshness temporairement indisponible";
+  }
+  return raw;
+}
+
+function displayText(value: unknown, fallback = "-") {
+  return friendlyError(text(value, fallback));
+}
+
+function optionalMessage(value: unknown) {
+  const raw = text(value, "");
+  return raw ? friendlyError(raw) : "";
+}
+
+function fallbackRecord(message: string): FreshnessRecord {
+  return {
+    status: "stale",
+    badge: "stale",
+    label: "stale",
+    message,
+    last_pipeline_run: null,
+    flash_scout_freshness: message,
+    stale_tickers: [],
+    details: {
+      last_pipeline_run: null,
+      flash_scout_freshness: message,
+      source: "frontend_fallback",
+    },
+  };
+}
+
 function formatTime(value: unknown) {
   if (typeof value !== "string") return text(value);
   const date = new Date(value);
@@ -95,10 +132,20 @@ export default function SystemFreshnessBadge() {
     try {
       const response = await fetch("/api/system/freshness-badge");
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
-      setFreshness(payload(body?.freshness));
+      if (!response.ok) {
+        const message = friendlyError(body?.error || `HTTP ${response.status}`);
+        setFreshness(fallbackRecord(message));
+        setError(message);
+        return;
+      }
+      const nextFreshness = payload(body?.freshness);
+      setFreshness(Object.keys(nextFreshness).length > 0
+        ? nextFreshness
+        : fallbackRecord("Données de fraîcheur indisponibles"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Freshness indisponible");
+      const message = friendlyError(err instanceof Error ? err.message : null);
+      setFreshness(fallbackRecord(message));
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -116,12 +163,14 @@ export default function SystemFreshnessBadge() {
     const status = error ? "stale" : normalizeStatus(record);
     const details = asObject(firstValue(record, ["details", "freshness", "pipeline_freshness"]));
     const staleTickers = asArray(firstValue(record, ["stale_tickers", "tickers_stale"]));
+    const message = optionalMessage(firstValue(record, ["message", "error"]) ?? firstValue(details, ["message", "error"]));
     return {
       status,
       tone: palette[status],
-      label: loading && !freshness ? "..." : text(firstValue(record, ["badge", "label"]), palette[status].label),
+      label: loading && !freshness ? "..." : displayText(firstValue(record, ["badge", "label"]), palette[status].label),
       lastPipelineRun: formatTime(firstValue(record, ["last_pipeline_run", "pipeline_last_run", "last_run_at"]) ?? firstValue(details, ["last_pipeline_run", "last_run_at"])),
-      flashScoutFreshness: text(firstValue(record, ["flash_scout_freshness", "flash_scout_status"]) ?? firstValue(details, ["flash_scout_freshness", "flash_scout_status"])),
+      flashScoutFreshness: displayText(firstValue(record, ["flash_scout_freshness", "flash_scout_status"]) ?? firstValue(details, ["flash_scout_freshness", "flash_scout_status"])),
+      message,
       staleTickers: staleTickers.map((item) => text(item)).filter((item) => item !== "-").slice(0, 8),
     };
   }, [error, freshness, loading]);
@@ -214,9 +263,9 @@ export default function SystemFreshnessBadge() {
             </header>
 
             <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-              {error && (
+              {(error || view.message) && (
                 <div style={{ borderRadius: 8, background: "#F7EAEA", color: "#7A2E2E", padding: 10, fontSize: 12, fontWeight: 700 }}>
-                  {error}
+                  {error || view.message}
                 </div>
               )}
               <DetailRow label="Last pipeline run" value={view.lastPipelineRun} />
