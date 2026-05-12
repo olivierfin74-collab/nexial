@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type Position = {
   account_id: string;
@@ -45,35 +45,42 @@ export function usePortfolio(opts?: { accountFilter?: string | null; pollMs?: nu
   const [error, setError] = useState<string | null>(null);
 
   const pollMs = opts?.pollMs ?? 60000;
+  const accountFilter = opts?.accountFilter ?? null;
+
+  const fetchOnce = useCallback(async (cancelled?: () => boolean) => {
+    try {
+      const params = new URLSearchParams();
+      if (accountFilter) params.set("account_id", accountFilter);
+      const res = await fetch(`/api/portfolio/positions?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (cancelled?.()) return;
+      setPositions(json.positions || []);
+      setSummary(json.summary || null);
+      setError(null);
+    } catch (err: any) {
+      if (cancelled?.()) return;
+      setError(err.message || "Fetch error");
+    } finally {
+      if (!cancelled?.()) setLoading(false);
+    }
+  }, [accountFilter]);
 
   useEffect(() => {
     let cancelled = false;
-    const fetchOnce = async () => {
-      try {
-        const params = new URLSearchParams();
-        if (opts?.accountFilter) params.set("account_id", opts.accountFilter);
-        const res = await fetch(`/api/portfolio/positions?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (cancelled) return;
-        setPositions(json.positions || []);
-        setSummary(json.summary || null);
-        setError(null);
-      } catch (err: any) {
-        if (cancelled) return;
-        setError(err.message || "Fetch error");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
 
-    fetchOnce();
-    const id = setInterval(fetchOnce, pollMs);
+    fetchOnce(() => cancelled);
+    const id = setInterval(() => fetchOnce(() => cancelled), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [opts?.accountFilter, pollMs]);
+  }, [fetchOnce, pollMs]);
 
-  return { positions, summary, loading, error };
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    await fetchOnce();
+  }, [fetchOnce]);
+
+  return { positions, summary, loading, error, refetch };
 }
