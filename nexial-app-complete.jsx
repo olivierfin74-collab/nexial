@@ -17,6 +17,7 @@ import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
 import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 import { createClient } from "@/lib/supabase/client";
+import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -4166,6 +4167,7 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
   return (
     <>
       <DetailHeader asset={asset} onBack={onBack} />
+      <AssetDebugAdminCard ticker={asset.ticker} />
       <DetailScoreCard asset={asset} />
       <ThesisCard asset={asset} />
       <PourContre asset={asset} />
