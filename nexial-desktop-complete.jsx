@@ -3324,7 +3324,7 @@ const PortefeuillePage = ({ onAssetClick }) => {
     account: p.account_name,
     qty: Number(p.total_quantity ?? 0),
     avgCost: Number(p.avg_cost_per_unit ?? 0),
-    price: Number(p.last_price ?? 0),
+    price: Number(p.current_price ?? p.last_price ?? 0),
     currency: p.asset_currency || "EUR",
     marketValueNative: Number(p.market_value_native ?? 0),
     value: Number(p.market_value_eur ?? 0),

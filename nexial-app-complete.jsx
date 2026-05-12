@@ -1991,7 +1991,7 @@ const PositionRow = ({ position, onClick, isLast, viewMode, onPrepareOrder }) =>
   const currency = position.asset_currency || "EUR";
   const quantity = Number(position.total_quantity ?? position.qty ?? 0);
   const avgCost = position.avg_cost_per_unit;
-  const lastPrice = position.last_price ?? position.price;
+  const lastPrice = position.current_price ?? position.last_price ?? position.price;
   const marketValue = position.market_value_native ?? position.value;
   const pnlNative = position.unrealized_pnl_native ?? position.pnlNative ?? position.pnlEur;
   const pnlEur = position.unrealized_pnl_eur;
@@ -2506,6 +2506,7 @@ const PortfolioPage = ({ onAssetClick }) => {
       value: Number(p.market_value_native ?? 0),
       pnlPct: Number(p.unrealized_pnl_pct ?? 0),
       pnlNative: Number(p.unrealized_pnl_native ?? 0),
+      price: Number(p.current_price ?? p.last_price ?? 0),
     }));
     if (portfolioFilters.includes("eur")) next = next.filter((p) => (p.asset_currency || "").toUpperCase() === "EUR");
     if (portfolioFilters.includes("usd")) next = next.filter((p) => (p.asset_currency || "").toUpperCase() === "USD");
@@ -2540,7 +2541,7 @@ const PortfolioPage = ({ onAssetClick }) => {
       side,
       accountId: position.account_id,
       currency: position.asset_currency || position.currency || "EUR",
-      unitPrice: position.last_price ?? position.price,
+      unitPrice: position.current_price ?? position.last_price ?? position.price,
       asset: {
         asset_id: position.asset_id,
         id: position.asset_id,

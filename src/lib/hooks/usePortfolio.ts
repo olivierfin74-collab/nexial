@@ -8,17 +8,25 @@ export type Position = {
   account_kind: string;
   broker: string | null;
   ticker: string;
+  asset_id?: string | null;
   asset_name: string;
   asset_class: string;
   total_quantity: number;
   avg_cost_per_unit: number;
   last_price: number;
+  current_price?: number | null;
   market_value_native: number;
   market_value_eur: number;
   unrealized_pnl_native: number;
   unrealized_pnl_eur: number;
   unrealized_pnl_pct: number;
   asset_currency: string;
+  perf_1d_pct?: number | null;
+  day_perf_pct?: number | null;
+  change_1d_pct?: number | null;
+  price_change_pct?: number | null;
+  price_updated_at?: string | null;
+  freshness_status?: string | null;
 };
 
 export type AccountSummary = {
@@ -58,9 +66,9 @@ export function usePortfolio(opts?: { accountFilter?: string | null; pollMs?: nu
       setPositions(json.positions || []);
       setSummary(json.summary || null);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       if (cancelled?.()) return;
-      setError(err.message || "Fetch error");
+      setError(err instanceof Error ? err.message : "Fetch error");
     } finally {
       if (!cancelled?.()) setLoading(false);
     }
@@ -69,10 +77,13 @@ export function usePortfolio(opts?: { accountFilter?: string | null; pollMs?: nu
   useEffect(() => {
     let cancelled = false;
 
-    fetchOnce(() => cancelled);
+    const timeout = window.setTimeout(() => {
+      void fetchOnce(() => cancelled);
+    }, 0);
     const id = setInterval(() => fetchOnce(() => cancelled), pollMs);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
       clearInterval(id);
     };
   }, [fetchOnce, pollMs]);
