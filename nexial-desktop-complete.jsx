@@ -2764,10 +2764,103 @@ const nowForDatetimeInput = () => {
   return d.toISOString().slice(0, 16);
 };
 
+const AssetSearchInput = ({ onSelect, onQueryChange, placeholder = "Rechercher un asset...", initialValue = "" }) => {
+  const { query, setQuery, results, loading, error } = useAssetSearch({ debounceMs: 250 });
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (initialValue) setQuery(initialValue);
+  }, [initialValue, setQuery]);
+
+  const handleSelect = (asset, isExternal = false) => {
+    const selected = isExternal ? { ...asset, isExternal: true } : asset;
+    setQuery(`${asset.ticker} - ${asset.asset_name || asset.name || ""}`.trim());
+    setShowSuggestions(false);
+    onSelect(selected);
+  };
+
+  const suggestions = [
+    ...(results.internal || []).map((asset) => ({ asset, isExternal: false, key: asset.asset_id || asset.id })),
+    ...(results.external || []).map((asset) => ({ asset, isExternal: true, key: `ext:${asset.ticker}:${asset.exchange_mic || ""}` })),
+  ];
+
+  return (
+    <div style={{ position: "relative" }}>
+      <Search size={14} strokeWidth={2} color={T.inkTertiary} style={{ position: "absolute", left: 12, top: 12, zIndex: 1 }} />
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setShowSuggestions(true);
+          if (typeof onQueryChange === "function") onQueryChange(e.target.value);
+        }}
+        onFocus={() => setShowSuggestions(true)}
+        onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
+        placeholder={placeholder}
+        style={{
+          width: "100%", padding: "10px 34px",
+          border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+          fontFamily: FONT_SANS, fontSize: 13, color: T.inkPrimary,
+          backgroundColor: T.bgCanvas, outline: "none",
+        }}
+      />
+      {loading && (
+        <span style={{
+          position: "absolute", right: 12, top: 11,
+          fontFamily: FONT_MONO, fontSize: 12, color: T.inkTertiary,
+        }}>...</span>
+      )}
+      {showSuggestions && query.trim().length >= 2 && suggestions.length > 0 && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          marginTop: 4, maxHeight: 320, overflowY: "auto",
+          backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`,
+          borderRadius: 8, boxShadow: "0 12px 36px rgba(10,10,10,0.12)",
+        }}>
+          {suggestions.map(({ asset, isExternal, key }) => (
+            <div
+              key={key}
+              onMouseDown={() => handleSelect(asset, isExternal)}
+              style={{
+                padding: "10px 12px", cursor: "pointer",
+                borderBottom: `1px solid ${T.borderSubtle}`,
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = T.bgHover}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = T.bgSurface}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <strong style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkPrimary }}>{asset.ticker}</strong>
+                <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary, whiteSpace: "nowrap" }}>
+                  {[asset.exchange_mic, asset.currency].filter(Boolean).join(" - ")}
+                </span>
+              </div>
+              <div style={{ marginTop: 2, fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary }}>
+                {asset.asset_name || asset.name}
+              </div>
+              {(asset.sector || asset.asset_class) && (
+                <div style={{ marginTop: 2, fontFamily: FONT_SANS, fontSize: 10.5, color: T.inkTertiary }}>
+                  {asset.sector || asset.asset_class}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {showSuggestions && query.trim().length >= 2 && !loading && suggestions.length === 0 && !error && (
+        <div style={{ marginTop: 6, fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>
+          Aucun asset trouve.
+        </div>
+      )}
+      {error && <div style={{ marginTop: 5, fontFamily: FONT_SANS, fontSize: 11.5, color: T.burgundy }}>{error}</div>}
+    </div>
+  );
+};
+
 const AddPositionModal = ({ open, onClose, onSuccess }) => {
   const supabase = useMemo(() => createClient(), []);
   const { patrimoine } = useTodayDashboard({ pollMs: 60000, limit: 1 });
-  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch();
+  const { query, setQuery, results, loading, error: searchError, createUserAsset } = useAssetSearch({ debounceMs: 250 });
   const accounts = useMemo(
     () => (patrimoine?.accounts || []).filter((a) => a.is_active && a.universe !== "PAPER_TRADING"),
     [patrimoine]
@@ -2810,7 +2903,6 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
   const selectAsset = (asset) => {
     setSelectedAsset(asset);
     setCurrency(asset.currency || "EUR");
-    setQuery(asset.ticker || asset.asset_name || "");
     setErrors((prev) => ({ ...prev, asset: null }));
   };
 
@@ -2821,7 +2913,7 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
     setSubmitting(true);
     setSuccess(null);
     try {
-      let assetId = selectedAsset.asset_id;
+      let assetId = selectedAsset.asset_id || selectedAsset.id;
       if (!assetId && selectedAsset.isExternal) assetId = await createUserAsset(selectedAsset);
       const { data, error } = await supabase.schema("nx").rpc("fn_add_manual_position", {
         p_account_id: selectedAccount.account_id,
@@ -2926,11 +3018,11 @@ const AddPositionModal = ({ open, onClose, onSuccess }) => {
         </div>
         <div style={{ marginTop: 16 }}>
           <label style={labelStyle}>Asset</label>
-          <div style={{ position: "relative" }}>
-            <Search size={14} strokeWidth={2} color={T.inkTertiary} style={{ position: "absolute", left: 12, top: 12 }} />
-            <input type="text" value={query} onChange={(e) => { setQuery(e.target.value); setSelectedAsset(null); }}
-              placeholder="Ticker ou nom (ex: MELI)" style={{ ...fieldStyle, paddingLeft: 34 }} />
-          </div>
+          <AssetSearchInput
+            placeholder="Ticker, nom ou theme (ex: Hermes, ASML, tech)"
+            onSelect={selectAsset}
+            onQueryChange={() => setSelectedAsset(null)}
+          />
           {selectedAsset && (
             <div style={{ marginTop: 6, fontFamily: FONT_SANS, fontSize: 12, color: T.forestGreen, fontWeight: 700 }}>
               {selectedAsset.ticker} Â· {selectedAsset.asset_name}
