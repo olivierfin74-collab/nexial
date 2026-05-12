@@ -527,6 +527,72 @@ const useManualRefresh = (refetch) => {
   return { refreshing, handleRefresh };
 };
 
+const getMarketStatus = () => {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const utcTime = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  if (day === 0 || day === 6) {
+    return {
+      eu: { status: "CLOSED", label: "Ferme weekend", color: "#828794" },
+      us: { status: "CLOSED", label: "Ferme weekend", color: "#828794" },
+    };
+  }
+
+  const euOpen = 7 * 60;
+  const euClose = 15 * 60 + 30;
+  const eu = (utcTime >= euOpen && utcTime <= euClose)
+    ? { status: "OPEN", label: "Ouvert", color: "#2D5F3F" }
+    : utcTime < euOpen
+      ? { status: "PRE_MARKET", label: "Pre-market", color: "#C9A14A" }
+      : { status: "CLOSED", label: "Ferme", color: "#828794" };
+
+  const usOpen = 13 * 60 + 30;
+  const usClose = 20 * 60;
+  const usPreMarketStart = 8 * 60;
+  const us = (utcTime >= usOpen && utcTime <= usClose)
+    ? { status: "OPEN", label: "Ouvert", color: "#2D5F3F" }
+    : (utcTime >= usPreMarketStart && utcTime < usOpen)
+      ? { status: "PRE_MARKET", label: "Pre-market", color: "#C9A14A" }
+      : (utcTime > usClose)
+        ? { status: "AFTER_HOURS", label: "After-hours", color: "#C9A14A" }
+        : { status: "CLOSED", label: "Ferme", color: "#828794" };
+
+  return { eu, us };
+};
+
+const MarketStatusPill = ({ label, status }) => (
+  <div style={{
+    display: "inline-flex", alignItems: "center", gap: 5,
+    fontFamily: FONT_MONO, fontSize: 10.5, fontWeight: 700,
+    color: status.color, whiteSpace: "nowrap",
+  }}>
+    <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: status.color }} />
+    <span>{label}</span>
+    <span style={{ color: T.inkTertiary }}>{status.label}</span>
+  </div>
+);
+
+const MarketStatusIndicator = () => {
+  const [status, setStatus] = useState(getMarketStatus);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => setStatus(getMarketStatus()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "7px 9px", backgroundColor: T.bgSurface,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+    }}>
+      <MarketStatusPill label="EU" status={status.eu} />
+      <MarketStatusPill label="US" status={status.us} />
+    </div>
+  );
+};
+
 // SegmentedControl pour toggles (carte/liste, filtres)
 const SegmentedControl = ({ options, value, onChange }) => (
   <div style={{
@@ -645,6 +711,7 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
           }}>{fmtDate(today)}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <MarketStatusIndicator />
           <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
           <button aria-label="Notifications" style={{
             display: "flex", alignItems: "center", justifyContent: "center",
