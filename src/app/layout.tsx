@@ -2,6 +2,7 @@ import './globals.css'
 import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { BrowserNotificationsRuntime } from '@/components/BrowserNotifications'
+import GuidedOnboardingTour from '@/components/GuidedOnboardingTour'
 
 export const metadata = {
   title: 'Nexial',
@@ -41,6 +42,7 @@ export default function RootLayout({
       <body className="min-h-screen overflow-x-hidden" style={{ backgroundColor: '#FBF9F4', color: '#1F2937' }}>
         <BrowserNotificationsRuntime />
         {children}
+        <GuidedOnboardingTour />
         <Toaster
           position="top-right"
           expand={false}

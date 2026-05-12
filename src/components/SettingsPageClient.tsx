@@ -367,6 +367,9 @@ export default function SettingsPageClient() {
           <Link href="/desktop" className="inline-flex rounded-lg border px-4 py-2 text-sm font-semibold">
             Ouvrir dashboard dev
           </Link>
+          <Link href="/aide" className="ml-2 inline-flex rounded-lg border px-4 py-2 text-sm font-semibold">
+            Aide
+          </Link>
         </SettingsSection>
       </div>
     </main>
