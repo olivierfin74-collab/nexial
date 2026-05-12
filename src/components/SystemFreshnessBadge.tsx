@@ -13,13 +13,13 @@ const palette = {
     color: "#1F4A2E",
   },
   stale: {
-    label: "⚠ stale",
+    label: "Données de clôture",
     border: "#E5C878",
     bg: "#FFF8E6",
     color: "#7A5A00",
   },
   pipeline: {
-    label: "⚠ pipeline stale",
+    label: "Mise à jour en attente",
     border: "#E2A15D",
     bg: "#FFF1E2",
     color: "#8A4B0B",
@@ -52,6 +52,9 @@ function text(value: unknown, fallback = "-") {
 
 function friendlyError(value: unknown) {
   const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || raw.toLowerCase() === "internal error" || raw.startsWith("HTTP ")) {
+    return "Erreur de refresh";
+  }
   if (!raw || raw.toLowerCase() === "internal error") {
     return "Données de fraîcheur indisponibles";
   }
@@ -62,7 +65,13 @@ function friendlyError(value: unknown) {
 }
 
 function displayText(value: unknown, fallback = "-") {
-  return friendlyError(text(value, fallback));
+  const valueText = friendlyError(text(value, fallback));
+  const raw = valueText.toLowerCase();
+  if (raw.includes("pipeline")) return "Mise à jour en attente";
+  if (raw.includes("stale") || raw.includes("delay") || raw.includes("warn")) {
+    return isMarketOpen() ? "Mise à jour en attente" : "Données de clôture";
+  }
+  return valueText;
 }
 
 function optionalMessage(value: unknown) {
@@ -73,8 +82,8 @@ function optionalMessage(value: unknown) {
 function fallbackRecord(message: string): FreshnessRecord {
   return {
     status: "stale",
-    badge: "stale",
-    label: "stale",
+    badge: "Erreur de refresh",
+    label: "Erreur de refresh",
     message,
     last_pipeline_run: null,
     flash_scout_freshness: message,
@@ -105,6 +114,47 @@ function normalizeStatus(record: FreshnessRecord): keyof typeof palette {
   if (raw.includes("pipeline")) return "pipeline";
   if (raw.includes("stale") || raw.includes("warn") || raw.includes("delay")) return "stale";
   return "ok";
+}
+
+function parisNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+}
+
+function isMarketOpen(date = parisNow()) {
+  const day = date.getDay();
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return day >= 1 && day <= 5 && minutes >= 9 * 60 && minutes < 22 * 60;
+}
+
+function hasRefreshError(record: FreshnessRecord, details: FreshnessRecord, message: string, error: string | null) {
+  const source = String(firstValue(details, ["source"]) || "").toLowerCase();
+  const raw = [
+    firstValue(record, ["status", "badge", "label", "error"]),
+    firstValue(details, ["status", "error"]),
+    message,
+    error,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+  return Boolean(error)
+    || source.includes("fallback")
+    || raw.includes("internal error")
+    || raw.includes("rpc")
+    || raw.includes("indisponible")
+    || raw.includes("failed")
+    || raw.includes("error");
+}
+
+function userLabel(record: FreshnessRecord, details: FreshnessRecord, message: string, error: string | null) {
+  if (hasRefreshError(record, details, message, error)) return "Erreur de refresh";
+  const status = normalizeStatus(record);
+  if (status === "ok") return "À jour";
+  return isMarketOpen() ? "Mise à jour en attente" : "Données de clôture";
+}
+
+function userExplanation(label: string, technicalMessage: string) {
+  if (label === "Erreur de refresh") return technicalMessage || "Le contrôle de fraîcheur est temporairement indisponible.";
+  if (label === "Mise à jour en attente") return "Les marchés semblent ouverts; les dernières données attendent un refresh.";
+  if (label === "Données de clôture") return "Marché fermé: les données affichées correspondent probablement à la dernière clôture disponible.";
+  return "Les dernières données disponibles sont fraîches.";
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -163,14 +213,15 @@ export default function SystemFreshnessBadge() {
     const status = error ? "stale" : normalizeStatus(record);
     const details = asObject(firstValue(record, ["details", "freshness", "pipeline_freshness"]));
     const staleTickers = asArray(firstValue(record, ["stale_tickers", "tickers_stale"]));
-    const message = optionalMessage(firstValue(record, ["message", "error"]) ?? firstValue(details, ["message", "error"]));
+    const technicalMessage = optionalMessage(firstValue(record, ["message", "error"]) ?? firstValue(details, ["message", "error"]));
+    const label = loading && !freshness ? "..." : userLabel(record, details, technicalMessage, error);
     return {
       status,
       tone: palette[status],
-      label: loading && !freshness ? "..." : displayText(firstValue(record, ["badge", "label"]), palette[status].label),
+      label,
       lastPipelineRun: formatTime(firstValue(record, ["last_pipeline_run", "pipeline_last_run", "last_run_at"]) ?? firstValue(details, ["last_pipeline_run", "last_run_at"])),
       flashScoutFreshness: displayText(firstValue(record, ["flash_scout_freshness", "flash_scout_status"]) ?? firstValue(details, ["flash_scout_freshness", "flash_scout_status"])),
-      message,
+      message: loading && !freshness ? "" : userExplanation(label, technicalMessage),
       staleTickers: staleTickers.map((item) => text(item)).filter((item) => item !== "-").slice(0, 8),
     };
   }, [error, freshness, loading]);
@@ -180,8 +231,8 @@ export default function SystemFreshnessBadge() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Freshness systeme"
-        aria-label="Freshness systeme"
+        title="État des données"
+        aria-label="État des données"
         style={{
           minHeight: 32,
           maxWidth: 148,
@@ -207,7 +258,7 @@ export default function SystemFreshnessBadge() {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Details freshness"
+          aria-label="Détails de fraîcheur des données"
           onClick={() => setOpen(false)}
           style={{
             position: "fixed",
@@ -236,7 +287,7 @@ export default function SystemFreshnessBadge() {
             <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 850, textTransform: "uppercase", color: "#6B6B6B", letterSpacing: "0.08em" }}>
-                  Freshness
+                  Fraîcheur des données
                 </div>
                 <div style={{ marginTop: 3, fontSize: 18, fontWeight: 850, color: view.tone.color }}>
                   {view.label}
@@ -268,15 +319,15 @@ export default function SystemFreshnessBadge() {
                   {error || view.message}
                 </div>
               )}
-              <DetailRow label="Last pipeline run" value={view.lastPipelineRun} />
-              <DetailRow label="Flash scout freshness" value={view.flashScoutFreshness} />
+              <DetailRow label="Dernier pipeline" value={view.lastPipelineRun} />
+              <DetailRow label="Flash scout" value={view.flashScoutFreshness} />
               <div>
                 <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#6B6B6B", letterSpacing: "0.06em" }}>
-                  Stale tickers
+                  Tickers à rafraîchir
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
                   {view.staleTickers.length === 0 ? (
-                    <span style={{ fontSize: 13, color: "#6B6B6B" }}>Aucun ticker stale.</span>
+                    <span style={{ fontSize: 13, color: "#6B6B6B" }}>Aucun ticker à rafraîchir.</span>
                   ) : view.staleTickers.map((ticker) => (
                     <span
                       key={ticker}
