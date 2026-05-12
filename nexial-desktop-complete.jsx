@@ -77,26 +77,35 @@ const CONTAINER_PAD = 40;
 /* ---------- Helpers ---------- */
 const fmtEur = (n) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(n);
 const fmtPct = (n, withSign = true) => (withSign && n > 0 ? "+" : "") + n.toFixed(1) + "%";
-const assetIdentityKey = (asset) => {
-  const value = [
+const normalizeAssetIdentity = (value) => (
+  value === undefined || value === null ? "" : String(value).trim().toUpperCase()
+);
+
+const assetIdentityKeys = (asset) => {
+  const strongKeys = [
     asset?.asset_id,
     asset?.assetId,
     asset?.ticker,
     asset?.symbol,
+  ].map(normalizeAssetIdentity).filter(Boolean);
+
+  const fallbackKeys = [
     asset?.asset_name,
     asset?.name,
-  ].find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+  ].map(normalizeAssetIdentity).filter(Boolean);
 
-  return value ? String(value).trim().toUpperCase() : "";
+  return [...new Set(strongKeys.length > 0 ? strongKeys : fallbackKeys)];
 };
+
+const assetIdentityKey = (asset) => assetIdentityKeys(asset)[0] || "";
 const dedupeAssetGroups = (...groups) => {
   const seen = new Set();
   return groups.map((items = []) => (
     (items || []).filter((item) => {
-      const key = assetIdentityKey(item);
-      if (!key) return true;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      const keys = assetIdentityKeys(item);
+      if (keys.length === 0) return true;
+      if (keys.some((key) => seen.has(key))) return false;
+      keys.forEach((key) => seen.add(key));
       return true;
     })
   ));

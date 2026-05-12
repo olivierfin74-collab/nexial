@@ -54,25 +54,34 @@ const FONT_DISPLAY = '"Fraunces", "Tobias", "Playfair Display", Georgia, serif';
 const FONT_SANS = '"Inter", "Söhne", system-ui, sans-serif';
 const FONT_MONO = '"JetBrains Mono", "SF Mono", ui-monospace, monospace';
 
-const assetIdentityKey = (asset) => {
-  const value = [
+const normalizeAssetIdentity = (value) => (
+  value === undefined || value === null ? "" : String(value).trim().toUpperCase()
+);
+
+const assetIdentityKeys = (asset) => {
+  const strongKeys = [
     asset?.asset_id,
     asset?.assetId,
     asset?.ticker,
     asset?.symbol,
+  ].map(normalizeAssetIdentity).filter(Boolean);
+
+  const fallbackKeys = [
     asset?.asset_name,
     asset?.name,
-  ].find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+  ].map(normalizeAssetIdentity).filter(Boolean);
 
-  return value ? String(value).trim().toUpperCase() : "";
+  return [...new Set(strongKeys.length > 0 ? strongKeys : fallbackKeys)];
 };
+
+const assetIdentityKey = (asset) => assetIdentityKeys(asset)[0] || "";
 
 const dedupeAssets = (items = [], seen = new Set()) => (
   (items || []).filter((item) => {
-    const key = assetIdentityKey(item);
-    if (!key) return true;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const keys = assetIdentityKeys(item);
+    if (keys.length === 0) return true;
+    if (keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
     return true;
   })
 );
