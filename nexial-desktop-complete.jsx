@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import {
-  Bell, ChevronRight, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown,
+  ChevronRight, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown,
   ArrowLeft, LayoutGrid, List, Filter, Eye, Activity, Sparkles,
   CheckCircle2, XCircle, Award, Clock, AlertCircle,
   Plus, X, Trash2, Edit3, MoreHorizontal, Search, RefreshCw,
@@ -12,6 +12,7 @@ import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { usePortfolio } from "@/lib/hooks/usePortfolio";
 import { useTodayDashboard } from "@/lib/hooks/useTodayDashboard";
 import { createClient } from "@/lib/supabase/client";
+import NotificationBellPanel from "@/components/NotificationBellPanel";
 
 /* ============================================================
    NEXIAL DESKTOP — PROTO COMPLET V2 (5 pages + détail asset + dev/admin)
@@ -671,22 +672,7 @@ const TopNav = ({ active = "today", onNavigate = () => {} }) => (
             letterSpacing: "0.04em", fontWeight: 600,
           }}>{MOCK.date.short}</div>
         </div>
-        <button aria-label="Notifications" style={{
-          position: "relative", width: 38, height: 38,
-          border: `1px solid ${T.borderSubtle}`, background: T.bgSurface,
-          borderRadius: 8, cursor: "pointer", display: "flex",
-          alignItems: "center", justifyContent: "center", color: T.inkPrimary,
-        }}>
-          <Bell size={16} strokeWidth={2} />
-          <span style={{
-            position: "absolute", top: -4, right: -4,
-            minWidth: 18, height: 18, padding: "0 4px",
-            borderRadius: 9, backgroundColor: T.burgundy,
-            color: T.inkOnDark, fontSize: 10, fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            border: `2px solid ${T.bgCanvas}`, fontFamily: FONT_MONO,
-          }}>5</span>
-        </button>
+        <NotificationBellPanel compact />
       </div>
     </div>
   </nav>

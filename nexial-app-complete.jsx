@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import {
-  ArrowUpRight, ChevronRight, Bell, Wallet, Sparkles, Activity,
+  ArrowUpRight, ChevronRight, Wallet, Sparkles, Activity,
   ArrowLeft, Home, ListChecks, Eye, Briefcase, ChevronDown,
   Award, LayoutGrid, List, Filter, Clock, CheckCircle2, XCircle,
   TrendingUp, TrendingDown, AlertCircle, Search,
@@ -19,6 +19,7 @@ import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 import { createClient } from "@/lib/supabase/client";
 import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
 import SystemFreshnessBadge from "@/components/SystemFreshnessBadge";
+import NotificationBellPanel from "@/components/NotificationBellPanel";
 import { toast } from "sonner";
 
 /**
@@ -758,18 +759,7 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <MarketStatusIndicator />
           <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
-          <button aria-label="Notifications" style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
-            width: 42, height: 42, borderRadius: "50%", backgroundColor: T.bgSurface,
-            border: `1.5px solid ${T.inkPrimary}`, cursor: "pointer", position: "relative",
-          }}>
-            <Bell size={17} strokeWidth={2} color={T.inkPrimary} />
-            <span style={{
-              position: "absolute", top: 8, right: 10, width: 8, height: 8,
-              borderRadius: "50%", backgroundColor: T.burgundy,
-              border: `2px solid ${T.bgCanvas}`,
-            }} />
-          </button>
+          <NotificationBellPanel />
         </div>
       </div>
     </header>
