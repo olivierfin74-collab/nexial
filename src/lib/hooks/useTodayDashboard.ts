@@ -29,6 +29,14 @@ export type TodayOpportunity = {
   rank_score: number;
 };
 
+export type TodayTradingContext = {
+  mode: "PEA" | "CTO";
+  label: string;
+  focus: string;
+  opportunityFocus: string;
+  watchlistFocus: string;
+};
+
 export type CashBalance = {
   currency: string;
   balance: number;
@@ -80,39 +88,47 @@ export type Patrimoine = {
   accounts: PatrimoineAccount[];
 };
 
-export function useTodayDashboard(opts?: { pollMs?: number; limit?: number }) {
+export function useTodayDashboard(opts?: { pollMs?: number; limit?: number; context?: "PEA" | "CTO" | null }) {
   const [opportunities, setOpportunities] = useState<TodayOpportunity[]>([]);
   const [patrimoine, setPatrimoine] = useState<Patrimoine | null>(null);
+  const [context, setContext] = useState<TodayTradingContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const pollMs = opts?.pollMs ?? 60000;
   const limit = opts?.limit ?? 10;
+  const contextOverride = opts?.context || null;
 
   const fetchOnce = useCallback(async (cancelled?: () => boolean) => {
     try {
-      const res = await fetch(`/api/today/dashboard?limit=${limit}`);
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (contextOverride) params.set("context", contextOverride);
+      const res = await fetch(`/api/today/dashboard?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (cancelled?.()) return;
       setOpportunities(json.opportunities || []);
       setPatrimoine(json.patrimoine || null);
+      setContext(json.context || null);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       if (cancelled?.()) return;
-      setError(err.message || "Fetch error");
+      setError(err instanceof Error ? err.message : "Fetch error");
     } finally {
       if (!cancelled?.()) setLoading(false);
     }
-  }, [limit]);
+  }, [limit, contextOverride]);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetchOnce(() => cancelled);
+    const timeout = window.setTimeout(() => {
+      void fetchOnce(() => cancelled);
+    }, 0);
     const id = setInterval(() => fetchOnce(() => cancelled), pollMs);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
       clearInterval(id);
     };
   }, [fetchOnce, pollMs]);
@@ -122,5 +138,5 @@ export function useTodayDashboard(opts?: { pollMs?: number; limit?: number }) {
     await fetchOnce();
   }, [fetchOnce]);
 
-  return { opportunities, patrimoine, loading, error, refetch };
+  return { opportunities, patrimoine, context, loading, error, refetch };
 }

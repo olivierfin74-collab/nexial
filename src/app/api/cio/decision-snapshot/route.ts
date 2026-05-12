@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildCioDecisionSnapshot } from "@/lib/cioDecisionSnapshot";
 import { buildOpportunityFeedItem, rankOpportunityFeed } from "@/lib/opportunityFeed";
+import { getTradingContext, rankForTradingContext } from "@/lib/tradingContext";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -79,8 +80,9 @@ export async function GET() {
     if (regimeRes.error && !["42P01", "PGRST116"].includes(regimeRes.error.code || "")) throw regimeRes.error;
 
     const regime = typeof regimeRes.data?.regime === "string" ? regimeRes.data.regime : "NEUTRAL";
+    const tradingContext = getTradingContext();
     const laddersByEvent = new Map((laddersRes.data || []).map((plan) => [plan.flash_drop_event_id, plan]));
-    const feed = rankOpportunityFeed((eventsRes.data || []).map((event) => {
+    const feed = rankForTradingContext(rankOpportunityFeed((eventsRes.data || []).map((event) => {
       const ticker = String(event.ticker || "UNKNOWN").toUpperCase();
       const ladder = laddersByEvent.get(event.id);
 
@@ -107,9 +109,9 @@ export async function GET() {
           z3_weight: ladder.z3_weight,
         } : null,
       });
-    }));
+    })), tradingContext.mode);
 
-    return NextResponse.json({ snapshot: buildCioDecisionSnapshot(regime, feed) });
+    return NextResponse.json({ context: tradingContext, snapshot: buildCioDecisionSnapshot(regime, feed) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/cio/decision-snapshot GET] error:", err);

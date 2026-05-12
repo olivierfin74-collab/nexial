@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildOpportunityFeedItem, rankOpportunityFeed } from "@/lib/opportunityFeed";
+import { getTradingContext, rankForTradingContext } from "@/lib/tradingContext";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -67,9 +68,10 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Math.max(Number(searchParams.get("limit") || 20), 1), 50);
+    const tradingContext = getTradingContext(new Date(), searchParams.get("context"));
     const supabase = sb();
 
-    const [eventsRes, laddersRes, regimeRes, context] = await Promise.all([
+    const [eventsRes, laddersRes, regimeRes, feedContext] = await Promise.all([
       supabase.from("flash_drop_events").select("*").order("detected_at", { ascending: false }).limit(100),
       supabase.from("ladder_plans").select("*").order("created_at", { ascending: false }).limit(100),
       supabase.from("vw_latest_market_regime").select("*").maybeSingle(),
@@ -92,16 +94,16 @@ export async function GET(req: NextRequest) {
       return buildOpportunityFeedItem({
         id: event.id,
         ticker,
-        name: context.names.get(ticker) || null,
+        name: feedContext.names.get(ticker) || null,
         price: event.price,
         intraday_change_pct: event.intraday_change_pct,
         close_to_close_pct: event.close_to_close_pct,
         price_vs_vwap_pct: event.price_vs_vwap_pct,
         signal_strength: event.signal_strength,
         trigger_reason: event.trigger_reason,
-        in_watchlist: context.watchlistTickers.has(ticker),
-        in_portfolio: context.portfolioTickers.has(ticker),
-        is_tier1_watchlist: context.tier1Tickers.has(ticker),
+        in_watchlist: feedContext.watchlistTickers.has(ticker),
+        in_portfolio: feedContext.portfolioTickers.has(ticker),
+        is_tier1_watchlist: feedContext.tier1Tickers.has(ticker),
         regime,
         ladder: ladder ? {
           z1_price: ladder.z1_price,
@@ -114,8 +116,11 @@ export async function GET(req: NextRequest) {
       });
     });
 
+    const ranked = rankForTradingContext(rankOpportunityFeed(items), tradingContext.mode);
+
     return NextResponse.json({
-      items: rankOpportunityFeed(items).slice(0, limit),
+      context: tradingContext,
+      items: ranked.slice(0, limit),
       regime,
     });
   } catch (err) {

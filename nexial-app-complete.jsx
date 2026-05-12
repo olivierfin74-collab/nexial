@@ -17,10 +17,13 @@ import { useWatchlistItems } from "@/lib/hooks/useWatchlistItems";
 import { useAssetSearch } from "@/lib/hooks/useAssetSearch";
 import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 import { createClient } from "@/lib/supabase/client";
+import { getTradingContext, matchesTradingContext } from "@/lib/tradingContext";
 import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
 import SystemFreshnessBadge from "@/components/SystemFreshnessBadge";
 import NotificationBellPanel from "@/components/NotificationBellPanel";
 import { toast } from "sonner";
+
+const DEFAULT_TRADING_CONTEXT = getTradingContext();
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -839,7 +842,55 @@ const ActionCard = ({ action, isLast, onClick }) => {
   );
 };
 
-const SectionToDoToday = ({ onAssetClick, opportunities, loading }) => {
+const ContextToggle = ({ value, onChange }) => (
+  <div style={{ display: "flex", gap: 6, padding: "0 20px 12px", overflowX: "auto" }}>
+    {[
+      { value: null, label: "Auto" },
+      { value: "PEA", label: "PEA" },
+      { value: "CTO", label: "CTO" },
+    ].map((option) => {
+      const active = value === option.value;
+      return (
+        <button
+          key={option.label}
+          type="button"
+          onClick={() => onChange(option.value)}
+          style={{
+            border: `1px solid ${active ? T.forestGreen : T.borderSubtle}`,
+            backgroundColor: active ? T.bgPour : T.bgSurface,
+            color: active ? T.forestGreen : T.inkSecondary,
+            borderRadius: 999,
+            padding: "7px 11px",
+            fontFamily: FONT_SANS,
+            fontSize: 11.5,
+            fontWeight: 800,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {option.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const TradingContextNote = ({ context }) => {
+  const c = context || DEFAULT_TRADING_CONTEXT;
+  return (
+    <div style={{
+      margin: "0 20px 14px", padding: "10px 12px",
+      backgroundColor: T.bgPour, border: `1px solid ${T.borderSubtle}`,
+      borderRadius: 10, fontFamily: FONT_SANS, fontSize: 12,
+      color: T.inkSecondary, lineHeight: 1.45,
+    }}>
+      <strong style={{ color: T.forestGreen }}>{c.label}</strong>
+      {" - "}{c.opportunityFocus} · {c.watchlistFocus}
+    </div>
+  );
+};
+
+const SectionToDoToday = ({ onAssetClick, opportunities, loading, context }) => {
   const items = opportunities || [];
   // Adapter Supabase row -> ActionCard expected shape
   const adapted = items.slice(0, 5).map((o) => ({
@@ -860,6 +911,11 @@ const SectionToDoToday = ({ onAssetClick, opportunities, loading }) => {
           {loading ? "Chargement…" : `${adapted.length} ${adapted.length > 1 ? "opportunités" : "opportunité"}`}
         </HeroNumber>
       </div>
+      {context && (
+        <div style={{ margin: "-8px 20px 12px", fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, fontWeight: 600 }}>
+          {context.focus}
+        </div>
+      )}
       {!loading && adapted.length === 0 ? (
         <div style={{ margin: "0 20px", padding: "20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
           Aucune opportunité détectée pour le moment.
@@ -1098,7 +1154,8 @@ const Timeline = ({ onSeeAll }) => (
 );
 
 const DashboardPage = ({ onAssetClick, onNavigate }) => {
-  const { opportunities, patrimoine, loading, refetch } = useTodayDashboard();
+  const [contextOverride, setContextOverride] = useState(null);
+  const { opportunities, patrimoine, context, loading, refetch } = useTodayDashboard({ context: contextOverride });
   const { refreshing, handleRefresh } = useManualRefresh(refetch);
   const dashboardOpportunities = useMemo(
     () => dedupeAssets(opportunities),
@@ -1109,7 +1166,9 @@ const DashboardPage = ({ onAssetClick, onNavigate }) => {
     <>
       <DashboardHeader onRefresh={handleRefresh} refreshing={refreshing} />
       <RegimeBanner />
-      <SectionToDoToday onAssetClick={onAssetClick} opportunities={dashboardOpportunities} loading={loading} />
+      <TradingContextNote context={context} />
+      <ContextToggle value={contextOverride} onChange={setContextOverride} />
+      <SectionToDoToday onAssetClick={onAssetClick} opportunities={dashboardOpportunities} loading={loading} context={context} />
       <YourMoney patrimoine={patrimoine} loading={loading} />
       <Timeline onSeeAll={() => onNavigate("today")} />
     </>
@@ -3457,7 +3516,9 @@ const WatchlistPage = ({ onAssetClick }) => {
   // Auto-sélection: default watchlist au premier load
   React.useEffect(() => {
     if (!activeId && watchlists.length > 0) {
-      const def = watchlists.find((w) => w.is_default) || watchlists[0];
+      const context = getTradingContext();
+      const contextual = watchlists.find((w) => matchesTradingContext(w, context.mode));
+      const def = contextual || watchlists.find((w) => w.is_default) || watchlists[0];
       setActiveId(def.watchlist_id);
     }
   }, [watchlists, activeId]);
