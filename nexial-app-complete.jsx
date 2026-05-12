@@ -4502,8 +4502,8 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
 // ============================================================
 // APP ROOT
 // ============================================================
-export default function NexialApp() {
-  const [currentPage, setCurrentPage] = useState("dashboard");
+export default function NexialApp({ initialPage = "dashboard" } = {}) {
+  const [currentPage, setCurrentPage] = useState(initialPage);
   const [detailTicker, setDetailTicker] = useState(null);
   const showDetail = (ticker) => setDetailTicker(ticker);
   const closeDetail = () => setDetailTicker(null);

@@ -9,7 +9,7 @@ export default function AujourdhuiPage() {
     <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
       <MorningBriefCard />
       <FlashDropEventsStrip />
-      <NexialApp />
+      <NexialApp initialPage="today" />
     </div>
   )
 }
