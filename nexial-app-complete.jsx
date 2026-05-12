@@ -4,7 +4,7 @@ import {
   ArrowLeft, Home, ListChecks, Eye, Briefcase, ChevronDown,
   Award, LayoutGrid, List, Filter, Clock, CheckCircle2, XCircle,
   TrendingUp, TrendingDown, AlertCircle, Search,
-  Plus, X, Trash2, Edit3, MoreHorizontal,
+  Plus, X, Trash2, Edit3, MoreHorizontal, RefreshCw,
   Zap, Flame, Repeat, ShieldCheck,
 } from "lucide-react";
 import { useProposalActions } from "@/lib/hooks/useProposalActions";
@@ -492,6 +492,41 @@ const PageHeader = ({ eyebrow, title, subtitle, action }) => (
   </header>
 );
 
+const RefreshButton = ({ onRefresh, refreshing = false }) => (
+  <button
+    type="button"
+    onClick={onRefresh}
+    disabled={refreshing}
+    aria-label="Rafraichir"
+    title="Rafraichir"
+    style={{
+      width: 36, height: 36, borderRadius: 8,
+      border: `1px solid ${T.borderSubtle}`, backgroundColor: T.bgSurface,
+      color: refreshing ? T.forestGreen : T.inkSecondary,
+      cursor: refreshing ? "default" : "pointer",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      opacity: refreshing ? 0.75 : 1,
+    }}
+  >
+    <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    <RefreshCw size={16} strokeWidth={2.2} style={{ animation: refreshing ? "spin 900ms linear infinite" : "none" }} />
+  </button>
+);
+
+const useManualRefresh = (refetch) => {
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (typeof refetch === "function") await refetch();
+    } finally {
+      setTimeout(() => setRefreshing(false), 500);
+    }
+  };
+  return { refreshing, handleRefresh };
+};
+
 // SegmentedControl pour toggles (carte/liste, filtres)
 const SegmentedControl = ({ options, value, onChange }) => (
   <div style={{
@@ -596,7 +631,7 @@ const BottomNav = ({ currentPage, onNavigate }) => (
 // ============================================================
 // PAGE — DASHBOARD (validé V2)
 // ============================================================
-const DashboardHeader = () => {
+const DashboardHeader = ({ onRefresh, refreshing }) => {
   const today = useMemo(() => new Date(), []);
   return (
     <header style={{ padding: "28px 20px 24px" }}>
@@ -609,18 +644,21 @@ const DashboardHeader = () => {
             color: T.inkTertiary, textTransform: "capitalize",
           }}>{fmtDate(today)}</div>
         </div>
-        <button aria-label="Notifications" style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          width: 42, height: 42, borderRadius: "50%", backgroundColor: T.bgSurface,
-          border: `1.5px solid ${T.inkPrimary}`, cursor: "pointer", position: "relative",
-        }}>
-          <Bell size={17} strokeWidth={2} color={T.inkPrimary} />
-          <span style={{
-            position: "absolute", top: 8, right: 10, width: 8, height: 8,
-            borderRadius: "50%", backgroundColor: T.burgundy,
-            border: `2px solid ${T.bgCanvas}`,
-          }} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
+          <button aria-label="Notifications" style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 42, height: 42, borderRadius: "50%", backgroundColor: T.bgSurface,
+            border: `1.5px solid ${T.inkPrimary}`, cursor: "pointer", position: "relative",
+          }}>
+            <Bell size={17} strokeWidth={2} color={T.inkPrimary} />
+            <span style={{
+              position: "absolute", top: 8, right: 10, width: 8, height: 8,
+              borderRadius: "50%", backgroundColor: T.burgundy,
+              border: `2px solid ${T.bgCanvas}`,
+            }} />
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -958,7 +996,8 @@ const Timeline = ({ onSeeAll }) => (
 );
 
 const DashboardPage = ({ onAssetClick, onNavigate }) => {
-  const { opportunities, patrimoine, loading } = useTodayDashboard();
+  const { opportunities, patrimoine, loading, refetch } = useTodayDashboard();
+  const { refreshing, handleRefresh } = useManualRefresh(refetch);
   const dashboardOpportunities = useMemo(
     () => dedupeAssets(opportunities),
     [opportunities]
@@ -966,7 +1005,7 @@ const DashboardPage = ({ onAssetClick, onNavigate }) => {
 
   return (
     <>
-      <DashboardHeader />
+      <DashboardHeader onRefresh={handleRefresh} refreshing={refreshing} />
       <RegimeBanner />
       <SectionToDoToday onAssetClick={onAssetClick} opportunities={dashboardOpportunities} loading={loading} />
       <YourMoney patrimoine={patrimoine} loading={loading} />
@@ -1157,6 +1196,7 @@ const TodayPage = ({ onAssetClick }) => {
     () => alerts.filter((a) => a.status !== "DISMISSED"),
     [alerts]
   );
+  const { refreshing, handleRefresh } = useManualRefresh(async () => {});
   const filtered = useMemo(() => {
     if (filter === "flash") return visibleAlerts.filter(a => a.kind === "FLASH_DROP");
     if (filter === "overbought") return visibleAlerts.filter(a => a.kind.includes("OVERBOUGHT"));
@@ -1207,6 +1247,9 @@ const TodayPage = ({ onAssetClick }) => {
         title={`${visibleAlerts.length} alertes`}
         subtitle="Signaux détectés sur les dernières 24 heures"
       />
+      <div style={{ padding: "0 20px 12px", display: "flex", justifyContent: "flex-end" }}>
+        <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+      </div>
       <div style={{
         padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto",
       }}>
@@ -1832,6 +1875,7 @@ const PortfolioPage = ({ onAssetClick }) => {
   const [accountFilterId, setAccountFilterId] = useState(null);
   const [showAddPosition, setShowAddPosition] = useState(false);
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter: accountFilterId });
+  const { refreshing, handleRefresh } = useManualRefresh(refetch);
 
   const adaptedPositions = useMemo(() => {
     return [...(positions || [])].map((p) => ({
@@ -1861,6 +1905,7 @@ const PortfolioPage = ({ onAssetClick }) => {
         subtitle={`${adaptedPositions.length} position${adaptedPositions.length > 1 ? "s" : ""}${filterLabel ? ` · ${filterLabel}` : ""}`}
         action={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
             <button
               onClick={() => setShowAddPosition(true)}
               style={{
@@ -2618,7 +2663,7 @@ const WatchlistPage = ({ onAssetClick }) => {
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [itemToRemove, setItemToRemove] = useState(null);
 
-  const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
+  const { watchlists, loading: wlLoading, refetch: refetchWatchlists, create: createWatchlist } = useWatchlists();
 
   // Auto-sélection: default watchlist au premier load
   React.useEffect(() => {
@@ -2629,7 +2674,10 @@ const WatchlistPage = ({ onAssetClick }) => {
   }, [watchlists, activeId]);
 
   const activeWatchlist = watchlists.find((w) => w.watchlist_id === activeId);
-  const { items, loading: itemsLoading, error, addItem, removeItem } = useWatchlistItems(activeId);
+  const { items, loading: itemsLoading, error, refetch: refetchItems, addItem, removeItem } = useWatchlistItems(activeId);
+  const { refreshing, handleRefresh } = useManualRefresh(async () => {
+    await Promise.all([refetchWatchlists(), refetchItems()]);
+  });
 
   React.useEffect(() => {
     setFilter("all");
@@ -2681,7 +2729,10 @@ const WatchlistPage = ({ onAssetClick }) => {
   return (
     <>
       <header style={{ padding: "28px 20px 16px" }}>
-        <Eyebrow>Watchlist</Eyebrow>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <Eyebrow>Watchlist</Eyebrow>
+          <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+        </div>
         <div style={{ marginTop: 10, marginBottom: 12 }}>
           <WatchlistSwitcher
             watchlists={watchlists}

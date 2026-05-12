@@ -3,7 +3,7 @@ import {
   Bell, ChevronRight, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown,
   ArrowLeft, LayoutGrid, List, Filter, Eye, Activity, Sparkles,
   CheckCircle2, XCircle, Award, Clock, AlertCircle,
-  Plus, X, Trash2, Edit3, MoreHorizontal, Search,
+  Plus, X, Trash2, Edit3, MoreHorizontal, Search, RefreshCw,
   Zap, Flame, Repeat, ShieldCheck,
 } from "lucide-react";
 import { useWatchlists } from "@/lib/hooks/useWatchlists";
@@ -681,6 +681,41 @@ const TopNav = ({ active = "today", onNavigate = () => {} }) => (
     </div>
   </nav>
 );
+
+const RefreshButton = ({ onRefresh, refreshing = false, label = "Rafraichir" }) => (
+  <button
+    type="button"
+    onClick={onRefresh}
+    disabled={refreshing}
+    aria-label={label}
+    title={label}
+    style={{
+      width: 38, height: 38, borderRadius: 8,
+      border: `1px solid ${T.borderSubtle}`, backgroundColor: T.bgSurface,
+      color: refreshing ? T.forestGreen : T.inkSecondary,
+      cursor: refreshing ? "default" : "pointer",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      opacity: refreshing ? 0.75 : 1,
+    }}
+  >
+    <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    <RefreshCw size={16} strokeWidth={2.2} style={{ animation: refreshing ? "spin 900ms linear infinite" : "none" }} />
+  </button>
+);
+
+const useManualRefresh = (refetch) => {
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (typeof refetch === "function") await refetch();
+    } finally {
+      setTimeout(() => setRefreshing(false), 500);
+    }
+  };
+  return { refreshing, handleRefresh };
+};
 
 /* ============================================================
    SECTION 1 — Hero éditorial asymétrique
@@ -1651,20 +1686,26 @@ const SectionHorizon = () => (
 /* ============================================================
    PAGE — AUJOURD'HUI (cockpit éditorial v3 validé)
    ============================================================ */
-const AujourdhuiPage = () => (
-  <main style={{
-    maxWidth: CONTAINER_MAX, margin: "0 auto",
-    padding: `0 ${CONTAINER_PAD}px`,
-  }}>
-    <HeroEditorial />
-    <SignaturePortfolio />
-    <SectionContext />
-    <SectionActions />
-    <SectionMovers />
-    <SectionAlerts />
-    <SectionHorizon />
-  </main>
-);
+const AujourdhuiPage = () => {
+  const { refreshing, handleRefresh } = useManualRefresh(async () => {});
+  return (
+    <main style={{
+      maxWidth: CONTAINER_MAX, margin: "0 auto",
+      padding: `0 ${CONTAINER_PAD}px`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 18 }}>
+        <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+      </div>
+      <HeroEditorial />
+      <SignaturePortfolio />
+      <SectionContext />
+      <SectionActions />
+      <SectionMovers />
+      <SectionAlerts />
+      <SectionHorizon />
+    </main>
+  );
+};
 
 /* ============================================================
    PAGE — TABLEAU (vue résumé desktop, dense, 2 cols)
@@ -1892,6 +1933,7 @@ const TableauTimeline = ({ onSeeAll }) => (
 );
 
 const TableauPage = ({ onNavigate }) => {
+  const { refreshing, handleRefresh } = useManualRefresh(async () => {});
   const [dashboardContributors, dashboardDetractors] = useMemo(
     () => dedupeAssetGroups(MOCK.contributors, MOCK.detractors),
     []
@@ -1902,6 +1944,9 @@ const TableauPage = ({ onNavigate }) => {
     maxWidth: CONTAINER_MAX, margin: "0 auto",
     padding: `0 ${CONTAINER_PAD}px`,
   }}>
+    <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 18 }}>
+      <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+    </div>
     <TableauHeader />
     <TableauKPIs />
     <div style={{
@@ -2716,6 +2761,7 @@ const PortefeuillePage = ({ onAssetClick }) => {
   const [showAddPosition, setShowAddPosition] = useState(false);
   const accountFilter = account === "all" ? null : account;
   const { positions, summary, loading, error, refetch } = usePortfolio({ accountFilter });
+  const { refreshing, handleRefresh } = useManualRefresh(refetch);
   const filtered = useMemo(() => (positions || []).map((p) => ({
     ticker: p.ticker,
     name: p.asset_name,
@@ -2746,6 +2792,9 @@ const PortefeuillePage = ({ onAssetClick }) => {
       maxWidth: CONTAINER_MAX, margin: "0 auto",
       padding: `0 ${CONTAINER_PAD}px`,
     }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 18 }}>
+        <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+      </div>
       <PortefeuilleHeader
         totalValue={totalValue}
         totalPositions={totalPositions}
@@ -3591,7 +3640,7 @@ const WatchlistPage = ({ onAssetClick }) => {
   const [showAddAsset, setShowAddAsset] = useState(false);
   const [itemToRemove, setItemToRemove] = useState(null);
 
-  const { watchlists, loading: wlLoading, create: createWatchlist } = useWatchlists();
+  const { watchlists, loading: wlLoading, refetch: refetchWatchlists, create: createWatchlist } = useWatchlists();
 
   useEffect(() => {
     if (!activeId && watchlists.length > 0) {
@@ -3607,7 +3656,10 @@ const WatchlistPage = ({ onAssetClick }) => {
 
   const activeWatchlist = watchlists.find((w) => w.watchlist_id === activeId);
   const isOpportunity = activeWatchlist?.kind === "OPPORTUNITY";
-  const { items, loading: itemsLoading, error, addItem, removeItem } = useWatchlistItems(activeId);
+  const { items, loading: itemsLoading, error, refetch: refetchItems, addItem, removeItem } = useWatchlistItems(activeId);
+  const { refreshing, handleRefresh } = useManualRefresh(async () => {
+    await Promise.all([refetchWatchlists(), refetchItems()]);
+  });
 
   const filterCounts = useMemo(() => {
     const all = items.length;
@@ -3648,6 +3700,9 @@ const WatchlistPage = ({ onAssetClick }) => {
           loading={wlLoading}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
+          </div>
           <WatchlistMainHeader
             activeWatchlist={activeWatchlist}
             itemsCount={items.length}

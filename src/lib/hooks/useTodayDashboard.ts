@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type TodayOpportunity = {
   asset_id: string;
@@ -89,32 +89,38 @@ export function useTodayDashboard(opts?: { pollMs?: number; limit?: number }) {
   const pollMs = opts?.pollMs ?? 60000;
   const limit = opts?.limit ?? 10;
 
+  const fetchOnce = useCallback(async (cancelled?: () => boolean) => {
+    try {
+      const res = await fetch(`/api/today/dashboard?limit=${limit}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (cancelled?.()) return;
+      setOpportunities(json.opportunities || []);
+      setPatrimoine(json.patrimoine || null);
+      setError(null);
+    } catch (err: any) {
+      if (cancelled?.()) return;
+      setError(err.message || "Fetch error");
+    } finally {
+      if (!cancelled?.()) setLoading(false);
+    }
+  }, [limit]);
+
   useEffect(() => {
     let cancelled = false;
-    const fetchOnce = async () => {
-      try {
-        const res = await fetch(`/api/today/dashboard?limit=${limit}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (cancelled) return;
-        setOpportunities(json.opportunities || []);
-        setPatrimoine(json.patrimoine || null);
-        setError(null);
-      } catch (err: any) {
-        if (cancelled) return;
-        setError(err.message || "Fetch error");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
 
-    fetchOnce();
-    const id = setInterval(fetchOnce, pollMs);
+    fetchOnce(() => cancelled);
+    const id = setInterval(() => fetchOnce(() => cancelled), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [pollMs, limit]);
+  }, [fetchOnce, pollMs]);
 
-  return { opportunities, patrimoine, loading, error };
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    await fetchOnce();
+  }, [fetchOnce]);
+
+  return { opportunities, patrimoine, loading, error, refetch };
 }
