@@ -1667,8 +1667,17 @@ const TodayPage = ({ onAssetClick, onNavigate }) => {
 // ============================================================
 // PAGE — ORDRES (paper + réels)
 // ============================================================
+const orderStatusKey = (status) => {
+  const value = String(status || "").toUpperCase();
+  if (["FILLED", "EXECUTED", "DONE"].includes(value)) return "filled";
+  if (["EXPIRED", "CANCELLED", "CANCELED"].includes(value)) return "expired";
+  return "pending";
+};
+
 const OrderRow = ({ order, onClick, isLast }) => {
   const distNeg = order.dist < 0;
+  const statusLabel = order.status === "filled" ? "EXÉCUTÉ" : order.status === "expired" ? "EXPIRÉ" : "EN ATTENTE";
+  const statusVariant = order.status === "filled" ? "success" : order.status === "expired" ? "warning" : "soft";
   return (
     <div onClick={onClick} style={{
       padding: "14px 16px", borderBottom: isLast ? "none" : `1px solid ${T.borderSubtle}`,
@@ -1685,7 +1694,7 @@ const OrderRow = ({ order, onClick, isLast }) => {
           fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700,
           letterSpacing: "0.1em", textTransform: "uppercase", color: T.inkTertiary,
         }}>Palier {order.palier}</span>
-        <Badge variant="soft" style={{ marginLeft: "auto" }}>EN ATTENTE</Badge>
+        <Badge variant={statusVariant} style={{ marginLeft: "auto" }}>{statusLabel}</Badge>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
         <span style={{
@@ -1709,18 +1718,15 @@ const OrderRow = ({ order, onClick, isLast }) => {
 };
 
 const OrdersPage = ({ onAssetClick }) => {
-  const [filter, setFilter] = useState("pending");
-  const statusFilter = filter === "pending" ? "PROPOSED"
-    : filter === "filled" ? "FILLED"
-    : filter === "expired" ? "EXPIRED"
-    : null;
-  const { orders, summary, loading, error } = useActiveOrders({ statusFilter });
+  const [filterStatus, setFilterStatus] = useState("pending");
+  const { orders, summary, loading, error } = useActiveOrders();
 
   // Adapter Supabase row -> OrderRow expected shape
   const adaptedOrders = useMemo(() => {
     return (orders || []).map((o) => ({
       ticker: o.ticker,
       palier: 1,
+      status: orderStatusKey(o.status),
       limit: Number(o.effective_price ?? 0),
       qty: Number(o.effective_quantity ?? 0),
       dist: Number(o.price_change_since_proposal_pct ?? 0),
@@ -1730,35 +1736,39 @@ const OrdersPage = ({ onAssetClick }) => {
     }));
   }, [orders]);
 
+  const filteredOrders = useMemo(() => (
+    adaptedOrders.filter((o) => o.status === filterStatus)
+  ), [adaptedOrders, filterStatus]);
+
   const grouped = useMemo(() => {
     const g = {};
-    adaptedOrders.forEach((o) => {
+    filteredOrders.forEach((o) => {
       if (!g[o.ticker]) g[o.ticker] = [];
       g[o.ticker].push(o);
     });
     return g;
-  }, [adaptedOrders]);
+  }, [filteredOrders]);
 
-  const totalPending = summary?.pending ?? 0;
-  const totalFilled = summary?.filled ?? 0;
-  const totalExpired = summary?.expired ?? 0;
+  const totalPending = summary?.pending ?? adaptedOrders.filter((o) => o.status === "pending").length;
+  const totalFilled = summary?.filled ?? adaptedOrders.filter((o) => o.status === "filled").length;
+  const totalExpired = summary?.expired ?? adaptedOrders.filter((o) => o.status === "expired").length;
   const tickerCount = Object.keys(grouped).length;
 
   return (
     <>
       <PageHeader
         eyebrow="Ordres"
-        title={loading ? "Chargement…" : `${adaptedOrders.length} ${filter === "pending" ? "en attente" : filter === "filled" ? "exécutés" : "expirés"}`}
+        title={loading ? "Chargement…" : `${filteredOrders.length} ${filterStatus === "pending" ? "en attente" : filterStatus === "filled" ? "exécutés" : "expirés"}`}
         subtitle="Paper trading et ordres réels"
       />
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
-        <FilterChip active={filter === "pending"} onClick={() => setFilter("pending")} count={totalPending}>
+        <FilterChip active={filterStatus === "pending"} onClick={() => setFilterStatus("pending")} count={totalPending}>
           En attente
         </FilterChip>
-        <FilterChip active={filter === "filled"} onClick={() => setFilter("filled")} count={totalFilled}>
+        <FilterChip active={filterStatus === "filled"} onClick={() => setFilterStatus("filled")} count={totalFilled}>
           Exécutés
         </FilterChip>
-        <FilterChip active={filter === "expired"} onClick={() => setFilter("expired")} count={totalExpired}>
+        <FilterChip active={filterStatus === "expired"} onClick={() => setFilterStatus("expired")} count={totalExpired}>
           Expirés
         </FilterChip>
       </div>
@@ -1769,7 +1779,7 @@ const OrdersPage = ({ onAssetClick }) => {
       )}
       {!loading && !error && tickerCount === 0 && (
         <div style={{ padding: "32px 20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
-          Aucun ordre {filter === "pending" ? "en attente" : filter === "filled" ? "exécuté" : "expiré"}.
+          Aucun ordre {filterStatus === "pending" ? "en attente" : filterStatus === "filled" ? "exécuté" : "expiré"}.
         </div>
       )}
       {Object.entries(grouped).map(([ticker, ordersForTicker]) => (
