@@ -19,6 +19,7 @@ import { useAssetDetail } from "@/lib/hooks/useAssetDetail";
 import { createClient } from "@/lib/supabase/client";
 import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
 import SystemFreshnessBadge from "@/components/SystemFreshnessBadge";
+import { toast } from "sonner";
 
 /**
  * NEXIAL — APP PROTOTYPE COMPLÈTE V2
@@ -1924,11 +1925,37 @@ const PositionRow = ({ position, onClick, isLast, viewMode }) => {
 };
 
 const SUPPORTED_POSITION_CURRENCIES = ["EUR", "USD", "GBP", "CHF", "JPY", "HKD"];
+const POSITION_DUPLICATE_WINDOW_MS = 5000;
+let lastPositionSubmit = { payload: null, at: 0 };
 const nowForDatetimeInput = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 };
+
+const buildPositionSubmitPayload = ({
+  kind,
+  accountId,
+  selectedAsset,
+  quantity,
+  unitPrice,
+  currency,
+  executedAt,
+  fees,
+  notes,
+}) => JSON.stringify({
+  kind,
+  accountId,
+  assetId: selectedAsset?.asset_id || selectedAsset?.id || null,
+  ticker: selectedAsset?.ticker || null,
+  exchange: selectedAsset?.exchange_mic || null,
+  quantity: Number(quantity),
+  unitPrice: Number(unitPrice),
+  currency,
+  executedAt: new Date(executedAt).toISOString(),
+  fees: Number(fees) || 0,
+  notes: notes.trim() || null,
+});
 
 const AssetSearchInput = ({ onSelect, onQueryChange, placeholder = "Rechercher un asset...", initialValue = "" }) => {
   const { query, setQuery, results, loading, error } = useAssetSearch({ debounceMs: 250 });
@@ -2043,6 +2070,7 @@ const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
+  const pendingPayloadRef = React.useRef(null);
 
   if (!open) return null;
 
@@ -2065,6 +2093,7 @@ const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
   };
   const currentErrors = validate();
   const submitDisabled = submitting || Object.keys(currentErrors).length > 0;
+  const submitLabel = kind === "sell" ? "Enregistrer la vente" : "Ajouter la position";
 
   const selectAsset = (asset) => {
     setSelectedAsset(asset);
@@ -2073,10 +2102,33 @@ const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
   };
 
   const handleSubmit = async () => {
+    if (submitting || pendingPayloadRef.current) return;
+
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
+    const payload = buildPositionSubmitPayload({
+      kind,
+      accountId: selectedAccount.account_id,
+      selectedAsset,
+      quantity,
+      unitPrice,
+      currency,
+      executedAt,
+      fees,
+      notes,
+    });
+    const now = Date.now();
+    if (lastPositionSubmit.payload === payload && now - lastPositionSubmit.at < POSITION_DUPLICATE_WINDOW_MS) {
+      const message = "Action deja envoyee. Attendez quelques secondes avant de recommencer.";
+      setErrors({ submit: message });
+      toast.warning(message);
+      return;
+    }
+
+    pendingPayloadRef.current = payload;
+    lastPositionSubmit = { payload, at: now };
     setSubmitting(true);
     setSuccess(null);
     try {
@@ -2101,12 +2153,17 @@ const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
         return;
       }
       const result = Array.isArray(data) ? data[0] : data;
-      setSuccess(`Position ${result?.ticker || selectedAsset.ticker} ajoutÃ©e sur ${result?.account_name || selectedAccount.account_name}`);
+      const successMessage = kind === "sell"
+        ? `Vente ${result?.ticker || selectedAsset.ticker} enregistree sur ${result?.account_name || selectedAccount.account_name}`
+        : `Position ${result?.ticker || selectedAsset.ticker} ajoutee sur ${result?.account_name || selectedAccount.account_name}`;
+      setSuccess(successMessage);
+      toast.success(successMessage);
       if (typeof onSuccess === "function") await onSuccess();
       setTimeout(() => onClose(), 1500);
     } catch (e) {
       setErrors({ submit: e.message || "Erreur inattendue" });
     } finally {
+      pendingPayloadRef.current = null;
       setSubmitting(false);
     }
   };
@@ -2247,7 +2304,7 @@ const AddPositionAccordion = ({ open, onClose, onSuccess }) => {
         borderRadius: 10, fontFamily: FONT_SANS, fontSize: 13.5, fontWeight: 700,
         cursor: submitDisabled ? "default" : "pointer", opacity: submitDisabled ? 0.55 : 1,
       }}>
-        {submitting ? "Ajoutâ€¦" : "Ajouter la position"}
+        {submitting ? "Enregistrement..." : submitLabel}
       </button>
     </div>
   );
