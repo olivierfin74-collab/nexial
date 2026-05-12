@@ -9,6 +9,26 @@ const ALERT_VIEW = 'vw_mobile_top_alert_v1'
 const ALERTS_VIEW = 'vw_alerts_active_v1'
 const ORDERS_VIEW = 'vw_execution_orders_ui_v1'
 const AUTO_REFRESH_MS = 60000
+const VALID_DASHBOARD_ROUTES = new Set([
+  '/aide',
+  '/aujourdhui',
+  '/cio-brief',
+  '/desktop',
+  '/login',
+  '/mobile',
+  '/onboarding',
+  '/performance',
+  '/preferences',
+  '/reset-password',
+  '/settings',
+  '/update-password',
+])
+const LEGACY_DASHBOARD_ROUTES: Record<string, string> = {
+  '/alerts': '/aujourdhui',
+  '/orders': '/aujourdhui',
+  '/patrimoine': '/performance',
+  '/dashboard': '/aujourdhui',
+}
 
 type Patrimoine = {
   patrimoine_total_eur: number
@@ -197,10 +217,21 @@ function actionReason(alert: Alert | null, order: Order | null) {
 }
 
 function actionHref(alert: Alert | null, order: Order | null) {
-  if (alert?.action_href) return alert.action_href
-  if (alert?.order_id) return '/orders'
-  if (order) return '/orders'
-  return '/patrimoine'
+  if (alert?.action_href) return safeDashboardHref(alert.action_href)
+  if (alert?.order_id) return safeDashboardHref('/orders')
+  if (order) return safeDashboardHref('/orders')
+  return safeDashboardHref('/patrimoine')
+}
+
+function safeDashboardHref(href: string) {
+  const [pathname, suffix = ''] = href.split(/(?=[?#])/)
+  const normalized = LEGACY_DASHBOARD_ROUTES[pathname] || pathname
+
+  if (VALID_DASHBOARD_ROUTES.has(normalized)) {
+    return `${normalized}${suffix}`
+  }
+
+  return '/aujourdhui'
 }
 
 function actionLabel(alert: Alert | null, order: Order | null) {
@@ -496,7 +527,7 @@ export default function MobileHomePage() {
             </div>
 
             <Link
-              href="/orders"
+              href={safeDashboardHref('/orders')}
               className="rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-xs font-semibold text-slate-200"
             >
               Voir
@@ -530,10 +561,10 @@ export default function MobileHomePage() {
         </section>
 
         <nav className="grid grid-cols-2 gap-3">
-          <NavCard href="/alerts" label="Alertes" count={alerts.length} />
-          <NavCard href="/orders" label="Ordres" count={activeOrders.length} />
-          <NavCard href="/patrimoine" label="Patrimoine" />
-          <NavCard href="/dashboard" label="Dashboard" />
+          <NavCard href={safeDashboardHref('/alerts')} label="Alertes" count={alerts.length} />
+          <NavCard href={safeDashboardHref('/orders')} label="Ordres" count={activeOrders.length} />
+          <NavCard href={safeDashboardHref('/patrimoine')} label="Patrimoine" />
+          <NavCard href={safeDashboardHref('/dashboard')} label="Dashboard" />
         </nav>
 
         <button
