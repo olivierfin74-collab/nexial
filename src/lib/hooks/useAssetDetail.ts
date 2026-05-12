@@ -15,6 +15,7 @@ export type AssetActiveProposal = {
 };
 
 export type AssetDetail = {
+  asset_id: string | null;
   ticker: string;
   asset_name: string | null;
   currency: string;

@@ -1084,6 +1084,177 @@ const DashboardPage = ({ onAssetClick, onNavigate }) => {
 // ============================================================
 // PAGE — AUJOURD'HUI (alertes du jour)
 // ============================================================
+const HOT_DECISION_KINDS = ["FLASH_DROP", "HOT_PULLBACK_ENTERED", "REVERSAL_HIGH", "OPPORTUNITY_DEEPENED"];
+const RISK_DECISION_KINDS = ["DOWNTREND_DANGER_DETECTED", "OVERBOUGHT_HOLD_WARNING", "OVERBOUGHT_HOLD"];
+const NEW_DECISION_STATUS = ["NEW"];
+const ACTIVE_DECISION_STATUS = ["NEW", "SEEN"];
+const REGIME_COLORS = {
+  BULL: T.forestGreen,
+  BULL_LIGHT: T.forestGreenLight,
+  NEUTRAL: T.inkSecondary,
+  CORRECTION: "#C9A14A",
+  STRESS: T.burgundy,
+};
+
+const normalizeDecisionAlert = (alert) => ({
+  id: alert.id,
+  ticker: alert.ticker,
+  alert_kind: alert.alert_kind || alert.kind,
+  opportunity_score: Number(alert.opportunity_score ?? alert.score ?? 0),
+  status: alert.status,
+});
+
+const useDecisionAlerts = (kinds, statuses) => {
+  const supabase = useMemo(() => createClient(), []);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const fetchAlerts = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .schema("nx")
+        .from("investment_alerts")
+        .select("id,ticker,alert_kind,status,opportunity_score,created_at,severity")
+        .in("alert_kind", kinds)
+        .in("status", statuses)
+        .order("opportunity_score", { ascending: false, nullsFirst: false })
+        .limit(5);
+
+      if (cancelled) return;
+      if (error || !data?.length) {
+        const fallback = ALERTS_TODAY
+          .map(normalizeDecisionAlert)
+          .filter((a) => kinds.includes(a.alert_kind) && statuses.includes(a.status))
+          .sort((a, b) => b.opportunity_score - a.opportunity_score)
+          .slice(0, 5);
+        setAlerts(fallback);
+      } else {
+        setAlerts(data.map(normalizeDecisionAlert));
+      }
+      setLoading(false);
+    };
+
+    fetchAlerts();
+    return () => { cancelled = true; };
+  }, [kinds, statuses, supabase]);
+
+  return { alerts, loading };
+};
+
+const MarketRegimeDecisionCard = ({ onClick }) => {
+  const supabase = useMemo(() => createClient(), []);
+  const [regime, setRegime] = useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    supabase.rpc("fn_get_latest_market_regime").then(({ data }) => {
+      if (cancelled) return;
+      const row = Array.isArray(data) ? data[0] : data;
+      setRegime(row || { market_regime: "BULL_LIGHT", suggested_sizing_multiplier: 0.85 });
+    });
+    return () => { cancelled = true; };
+  }, [supabase]);
+
+  const label = regime?.market_regime || "Chargement";
+  const color = REGIME_COLORS[label] || T.inkSecondary;
+  const multiplier = regime?.suggested_sizing_multiplier ?? regime?.sizing_multiplier;
+
+  return (
+    <button type="button" onClick={onClick} style={{
+      textAlign: "left", padding: 14, backgroundColor: T.bgSurface,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+      cursor: "pointer", minHeight: 128,
+    }}>
+      <Eyebrow>Regime marche</Eyebrow>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%", backgroundColor: color }} />
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.inkPrimary, lineHeight: 1 }}>{label}</span>
+      </div>
+      <div style={{ marginTop: 12, fontFamily: FONT_MONO, fontSize: 12, color, fontWeight: 800 }}>
+        {multiplier ? `sizing x${Number(multiplier).toFixed(2)}` : "sizing a verifier"}
+      </div>
+    </button>
+  );
+};
+
+const AlertsDecisionCard = ({ title, kinds, statuses, tone = "hot", onClick, onAssetClick }) => {
+  const { alerts, loading } = useDecisionAlerts(kinds, statuses);
+  const color = tone === "risk" ? T.burgundy : T.forestGreen;
+
+  return (
+    <button type="button" onClick={onClick} style={{
+      textAlign: "left", padding: 14, backgroundColor: tone === "risk" ? T.bgContre : T.bgPour,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+      cursor: "pointer", minHeight: 128,
+    }}>
+      <Eyebrow color={color}>{title} ({loading ? "..." : alerts.length})</Eyebrow>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 12 }}>
+        {alerts.length === 0 ? (
+          <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>
+            {loading ? "Chargement..." : "Aucun signal"}
+          </span>
+        ) : alerts.map((alert) => (
+          <div key={alert.id} onClick={(e) => { e.stopPropagation(); onAssetClick(alert.ticker); }} style={{
+            display: "grid", gridTemplateColumns: "54px 1fr auto", gap: 8, alignItems: "center",
+            fontFamily: FONT_SANS, fontSize: 12, color: T.inkPrimary,
+          }}>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 800 }}>{alert.ticker}</span>
+            <span style={{ color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.alert_kind}</span>
+            <span style={{ fontFamily: FONT_MONO, color, fontWeight: 800 }}>{Math.round(alert.opportunity_score)}</span>
+          </div>
+        ))}
+      </div>
+    </button>
+  );
+};
+
+const WealthDecisionCard = ({ onClick }) => {
+  const { patrimoine, loading } = useTodayDashboard({ pollMs: 60000, limit: 1 });
+  const total = patrimoine?.total_eur ?? 0;
+  const cash = patrimoine?.cash_eur ?? 0;
+  const exposure = total > 0 ? ((patrimoine?.positions_eur ?? 0) / total) * 100 : 0;
+
+  return (
+    <button type="button" onClick={onClick} style={{
+      textAlign: "left", padding: 14, backgroundColor: T.bgDarkPanel,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+      cursor: "pointer", minHeight: 128,
+    }}>
+      <Eyebrow color={T.forestGreenOnDark}>Patrimoine</Eyebrow>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+        <div>
+          <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.forestGreenPale, textTransform: "uppercase", fontWeight: 800 }}>Total</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.inkOnDark, marginTop: 3 }}>{loading ? "..." : `EUR ${fmtEur(total)}`}</div>
+        </div>
+        <div>
+          <div style={{ fontFamily: FONT_SANS, fontSize: 10, color: T.forestGreenPale, textTransform: "uppercase", fontWeight: 800 }}>Cash</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: T.inkOnDark, marginTop: 3 }}>{loading ? "..." : `EUR ${fmtEur(cash)}`}</div>
+        </div>
+      </div>
+      <div style={{ marginTop: 10, fontFamily: FONT_MONO, fontSize: 11.5, color: T.forestGreenOnDark, fontWeight: 800 }}>
+        Exposition {loading ? "..." : `${exposure.toFixed(0)}%`}
+      </div>
+    </button>
+  );
+};
+
+const DailyDecisionsSection = ({ onNavigate, onAssetClick }) => (
+  <section style={{ padding: "0 20px 18px" }}>
+    <div style={{ marginBottom: 12 }}>
+      <Eyebrow variant="accent">Decisions du jour</Eyebrow>
+      <HeroNumber size="M" style={{ marginTop: 6 }}>4 points a verifier</HeroNumber>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+      <MarketRegimeDecisionCard onClick={() => onNavigate("dashboard")} />
+      <AlertsDecisionCard title="Opportunites chaudes" kinds={HOT_DECISION_KINDS} statuses={NEW_DECISION_STATUS} onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
+      <AlertsDecisionCard title="Positions a risque" kinds={RISK_DECISION_KINDS} statuses={ACTIVE_DECISION_STATUS} tone="risk" onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
+      <WealthDecisionCard onClick={() => onNavigate("portfolio")} />
+    </div>
+  </section>
+);
+
 const DismissAlertModal = ({ alert, onClose, onConfirm }) => {
   const [reason, setReason] = useState("");
   const [dismissing, setDismissing] = useState(false);
@@ -1252,7 +1423,7 @@ const AlertRow = ({ alert, onClick, isLast, menuOpen, onToggleMenu, onMarkSeen, 
   );
 };
 
-const TodayPage = ({ onAssetClick }) => {
+const TodayPage = ({ onAssetClick, onNavigate }) => {
   const supabase = useMemo(() => createClient(), []);
   const [filter, setFilter] = useState("all");
   const [alerts, setAlerts] = useState(ALERTS_TODAY);
@@ -1317,6 +1488,7 @@ const TodayPage = ({ onAssetClick }) => {
       <div style={{ padding: "0 20px 12px", display: "flex", justifyContent: "flex-end" }}>
         <RefreshButton onRefresh={handleRefresh} refreshing={refreshing} />
       </div>
+      <DailyDecisionsSection onNavigate={onNavigate} onAssetClick={onAssetClick} />
       <div style={{
         padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto",
       }}>
@@ -3339,6 +3511,223 @@ const EnrichedAssetSections = ({ asset, liveAsset }) => {
   );
 };
 
+const NOTE_KIND_META = {
+  thesis: { label: "These", color: T.forestGreen },
+  observation: { label: "Observation", color: T.inkSecondary },
+  todo: { label: "A faire", color: T.amber },
+  event: { label: "Evenement", color: T.burgundy },
+};
+
+const formatNoteDate = (value) => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const NoteEditor = ({ initialText = "", initialKind = "observation", onSave, onCancel }) => {
+  const [text, setText] = useState(initialText);
+  const [kind, setKind] = useState(initialKind);
+
+  return (
+    <div style={{
+      padding: 12, backgroundColor: T.bgCanvas,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 10,
+    }}>
+      <select value={kind} onChange={(e) => setKind(e.target.value)} style={{
+        width: "100%", padding: "9px 10px", border: `1px solid ${T.borderSubtle}`,
+        borderRadius: 8, backgroundColor: T.bgSurface, color: T.inkPrimary,
+        fontFamily: FONT_SANS, fontSize: 13,
+      }}>
+        <option value="thesis">These</option>
+        <option value="observation">Observation</option>
+        <option value="todo">A faire</option>
+        <option value="event">Evenement</option>
+      </select>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
+        placeholder="Note libre..."
+        style={{
+          width: "100%", marginTop: 8, padding: 10, resize: "vertical",
+          border: `1px solid ${T.borderSubtle}`, borderRadius: 8,
+          backgroundColor: T.bgSurface, color: T.inkPrimary,
+          fontFamily: FONT_SANS, fontSize: 13, lineHeight: 1.45,
+        }}
+      />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <button type="button" onClick={onCancel} style={{
+          padding: "8px 10px", border: `1px solid ${T.borderSubtle}`,
+          backgroundColor: "transparent", borderRadius: 7,
+          fontFamily: FONT_SANS, fontSize: 12, fontWeight: 700,
+          color: T.inkSecondary, cursor: "pointer",
+        }}>Annuler</button>
+        <button type="button" disabled={!text.trim()} onClick={() => onSave(text.trim(), kind)} style={{
+          padding: "8px 10px", border: "none",
+          backgroundColor: T.inkPrimary, color: T.inkOnDark,
+          borderRadius: 7, fontFamily: FONT_SANS, fontSize: 12,
+          fontWeight: 700, cursor: text.trim() ? "pointer" : "default",
+          opacity: text.trim() ? 1 : 0.5,
+        }}>Enregistrer</button>
+      </div>
+    </div>
+  );
+};
+
+const NoteCard = ({ note, onUpdate, onDelete }) => {
+  const [editing, setEditing] = useState(false);
+  const kindInfo = NOTE_KIND_META[note.kind] || NOTE_KIND_META.observation;
+  const text = note.text ?? note.note_text ?? "";
+
+  if (editing) {
+    return (
+      <NoteEditor
+        initialText={text}
+        initialKind={note.kind}
+        onCancel={() => setEditing(false)}
+        onSave={async (nextText, nextKind) => {
+          await onUpdate(note.id, nextText, nextKind);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <div style={{
+      padding: 12, backgroundColor: T.bgSurface,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: kindInfo.color, fontWeight: 800 }}>
+          {kindInfo.label}
+        </span>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 11, color: T.inkTertiary }}>
+          {formatNoteDate(note.created_at)}
+        </span>
+      </div>
+      <p style={{ margin: 0, fontFamily: FONT_SANS, fontSize: 13, lineHeight: 1.5, color: T.inkPrimary }}>
+        {text}
+      </p>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button type="button" onClick={() => setEditing(true)} style={{
+          border: `1px solid ${T.borderSubtle}`, backgroundColor: "transparent",
+          borderRadius: 6, padding: 6, color: T.inkSecondary, cursor: "pointer",
+        }}><Edit3 size={12} /></button>
+        <button type="button" onClick={() => onDelete(note.id)} style={{
+          border: "none", backgroundColor: "transparent",
+          borderRadius: 6, padding: 6, color: T.burgundy, cursor: "pointer",
+        }}><Trash2 size={12} /></button>
+      </div>
+    </div>
+  );
+};
+
+const AssetNotesSection = ({ assetId }) => {
+  const supabase = useMemo(() => createClient(), []);
+  const [notes, setNotes] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState(null);
+
+  const loadNotes = React.useCallback(async () => {
+    if (!assetId) return;
+    const { data, error: rpcError } = await supabase.rpc("fn_list_asset_notes", { p_asset_id: assetId });
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+    setNotes([...(data || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+    setError(null);
+  }, [assetId, supabase]);
+
+  React.useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
+
+  const handleSave = async (text, kind) => {
+    if (!assetId) {
+      setNotes((items) => [{ id: `local-${Date.now()}`, text, kind, created_at: new Date().toISOString() }, ...items]);
+      setAdding(false);
+      return;
+    }
+    const { error: rpcError } = await supabase.rpc("fn_add_asset_note", {
+      p_asset_id: assetId,
+      p_note_text: text,
+      p_note_kind: kind,
+    });
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+    setAdding(false);
+    await loadNotes();
+  };
+
+  const handleUpdate = async (noteId, text, kind) => {
+    if (String(noteId).startsWith("local-")) {
+      setNotes((items) => items.map((n) => n.id === noteId ? { ...n, text, kind, updated_at: new Date().toISOString() } : n));
+      return;
+    }
+    const { error: rpcError } = await supabase.rpc("fn_update_asset_note", {
+      p_note_id: noteId,
+      p_note_text: text,
+    });
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+    await loadNotes();
+  };
+
+  const handleDelete = async (noteId) => {
+    if (!window.confirm("Supprimer cette note ?")) return;
+    if (String(noteId).startsWith("local-")) {
+      setNotes((items) => items.filter((n) => n.id !== noteId));
+      return;
+    }
+    const { error: rpcError } = await supabase.rpc("fn_delete_asset_note", { p_note_id: noteId });
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+    await loadNotes();
+  };
+
+  return (
+    <section style={{ padding: "0 20px 18px" }}>
+      <div style={{ padding: 14, backgroundColor: T.bgSurface, border: `1px solid ${T.borderSubtle}`, borderRadius: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <Eyebrow>Mes notes ({notes.length})</Eyebrow>
+          <button type="button" onClick={() => setAdding((v) => !v)} style={{
+            border: `1px solid ${T.borderSubtle}`, backgroundColor: T.bgSurface,
+            borderRadius: 7, padding: "7px 9px", color: T.forestGreen,
+            fontFamily: FONT_SANS, fontSize: 12, fontWeight: 800,
+            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5,
+          }}><Plus size={13} />Ajouter</button>
+        </div>
+        {!assetId && (
+          <div style={{ marginTop: 8, fontFamily: FONT_SANS, fontSize: 11.5, color: T.inkTertiary }}>
+            Notes temporaires: asset_id non expose par l'API actuelle.
+          </div>
+        )}
+        {error && (
+          <div style={{ marginTop: 8, fontFamily: FONT_SANS, fontSize: 12, color: T.burgundy, fontWeight: 700 }}>{error}</div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+          {adding && <NoteEditor onCancel={() => setAdding(false)} onSave={handleSave} />}
+          {notes.map((note) => (
+            <NoteCard key={note.id} note={note} onUpdate={handleUpdate} onDelete={handleDelete} />
+          ))}
+          {!adding && notes.length === 0 && (
+            <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>Aucune note pour cet asset.</span>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
   const { asset: liveAsset, loading } = useAssetDetail(ticker);
 
@@ -3356,6 +3745,7 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
         }));
         return {
           ...mock,
+          asset_id: liveAsset.asset_id,
           currentPrice: Number(liveAsset.current_price ?? mock.currentPrice),
           chg1d: Number(liveAsset.perf_1d_pct ?? mock.chg1d),
           chg5d: Number(liveAsset.perf_1w_pct ?? mock.chg5d),
@@ -3392,6 +3782,7 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
       };
 
       return {
+        asset_id: liveAsset.asset_id,
         ticker: liveAsset.ticker,
         name: liveAsset.asset_name || liveAsset.ticker,
         sector: liveAsset.sector || "—",
@@ -3447,6 +3838,7 @@ const AssetDetailPage = ({ ticker, onBack, onConfirmAll, onModifyClick }) => {
       <ThesisCard asset={asset} />
       <PourContre asset={asset} />
       <EnrichedAssetSections asset={asset} liveAsset={liveAsset} />
+      <AssetNotesSection assetId={asset.asset_id || liveAsset?.asset_id} />
       <OrderPlanCard asset={asset} />
       <TechIndicators asset={asset} />
       <DetailActions
@@ -3555,7 +3947,7 @@ export default function NexialApp() {
           ) : currentPage === "dashboard" ? (
             <DashboardPage onAssetClick={showDetail} onNavigate={setCurrentPage} />
           ) : currentPage === "today" ? (
-            <TodayPage onAssetClick={showDetail} />
+            <TodayPage onAssetClick={showDetail} onNavigate={setCurrentPage} />
           ) : currentPage === "orders" ? (
             <OrdersPage onAssetClick={showDetail} />
           ) : currentPage === "portfolio" ? (
