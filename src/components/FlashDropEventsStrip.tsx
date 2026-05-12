@@ -6,13 +6,14 @@ import { Zap } from "lucide-react";
 type FlashDropEvent = {
   id: string;
   ticker: string;
-  detected_at: string;
+  deeplink_url: string;
+  message_text: string;
   price: number | null;
   intraday_change_pct: number | null;
   close_to_close_pct: number | null;
   price_vs_vwap_pct: number | null;
   signal_strength: "MEDIUM" | "HIGH" | "EXTREME";
-  trigger_reason: string | null;
+  severity: "MEDIUM" | "HIGH" | "CRITICAL";
 };
 
 const pct = (value: number | null) => (
@@ -24,10 +25,10 @@ export default function FlashDropEventsStrip() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/flash-drops?limit=5")
+    fetch("/api/flash-drops/alerts?limit=5")
       .then((res) => res.json())
       .then((json) => {
-        if (!cancelled) setEvents(json.events || []);
+        if (!cancelled) setEvents(json.alerts || []);
       })
       .catch(() => {
         if (!cancelled) setEvents([]);
@@ -48,17 +49,22 @@ export default function FlashDropEventsStrip() {
         </div>
         <div className="flex gap-2 overflow-x-auto">
           {events.map((event) => (
-            <div key={event.id} className="min-w-44 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm">
+            <a
+              key={event.id}
+              href={event.deeplink_url}
+              className="min-w-44 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm transition-colors hover:border-red-400"
+            >
               <div className="flex items-center justify-between gap-3">
                 <span className="font-bold text-gray-900">{event.ticker}</span>
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
-                  {event.signal_strength}
+                  {event.severity}
                 </span>
               </div>
+              <div className="mt-1 truncate text-xs font-semibold text-red-800">{event.message_text}</div>
               <div className="mt-1 text-xs text-gray-600">
                 Intraday {pct(event.intraday_change_pct)} · C/C {pct(event.close_to_close_pct)} · VWAP {pct(event.price_vs_vwap_pct)}
               </div>
-            </div>
+            </a>
           ))}
         </div>
       </div>
