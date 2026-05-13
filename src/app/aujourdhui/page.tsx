@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import NexialApp from '../../../nexial-app-complete'
 import FlashDropEventsStrip from '@/components/FlashDropEventsStrip'
 import MorningBriefCard from '@/components/MorningBriefCard'
 import { DecisionalInbox } from '@/components/ui/decisional'
@@ -150,8 +149,6 @@ export default function AujourdhuiPage() {
           Certaines données n’ont pas pu être mises à jour ({state.error}).
         </div>
       ) : null}
-
-      <NexialApp initialPage="today" />
     </div>
   )
 }
