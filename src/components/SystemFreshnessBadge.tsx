@@ -54,14 +54,17 @@ function text(value: unknown, fallback = "-") {
 
 function friendlyError(value: unknown) {
   const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw || raw.toLowerCase() === "internal error" || raw.startsWith("HTTP ")) {
+  if (!raw) return REFRESH_ERROR_LABEL;
+  const lower = raw.toLowerCase();
+  if (
+    lower === "internal error" ||
+    raw.startsWith("HTTP ") ||
+    lower.includes("rpc") ||
+    lower.includes("pipeline") ||
+    lower.includes("supabase") ||
+    lower.includes("freshness")
+  ) {
     return REFRESH_ERROR_LABEL;
-  }
-  if (!raw || raw.toLowerCase() === "internal error") {
-    return "Données de fraîcheur indisponibles";
-  }
-  if (raw.startsWith("HTTP ")) {
-    return "Pipeline freshness temporairement indisponible";
   }
   return raw;
 }
@@ -153,10 +156,13 @@ function userLabel(record: FreshnessRecord, details: FreshnessRecord, message: s
 }
 
 function userExplanation(label: string, technicalMessage: string) {
-  if (label === REFRESH_ERROR_LABEL) return technicalMessage || "Le contrôle de fraîcheur est temporairement indisponible.";
-  if (label === "Mise à jour en attente") return "Les marchés semblent ouverts; les dernières données attendent un refresh.";
-  if (label === "Données de clôture") return "Marché fermé: les données affichées correspondent probablement à la dernière clôture disponible.";
-  return "Les dernières données disponibles sont fraîches.";
+  if (label === REFRESH_ERROR_LABEL) {
+    // technicalMessage may carry friendlier copy from the backend; otherwise stay calm.
+    return technicalMessage || REFRESH_ERROR_LABEL;
+  }
+  if (label === "Mise à jour en attente") return "Marchés ouverts : prochaine mise à jour en cours.";
+  if (label === "Données de clôture") return "Marché fermé : données de la dernière clôture.";
+  return "Données à jour.";
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -317,7 +323,7 @@ export default function SystemFreshnessBadge() {
 
             <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
               {(error || view.message) && (
-                <div style={{ borderRadius: 8, background: "#F7EAEA", color: "#7A2E2E", padding: 10, fontSize: 12, fontWeight: 700 }}>
+                <div style={{ borderRadius: 8, background: "#FFF8E6", color: "#7A5A00", border: "1px solid #E5C878", padding: 10, fontSize: 12, fontWeight: 600 }}>
                   {error || view.message}
                 </div>
               )}

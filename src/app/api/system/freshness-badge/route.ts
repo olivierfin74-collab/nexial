@@ -35,7 +35,7 @@ export async function GET() {
   try {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({
-        freshness: fallbackFreshness("Configuration Supabase indisponible. Freshness non verifiee."),
+        freshness: fallbackFreshness("Certaines données n'ont pas pu être mises à jour"),
       });
     }
 
@@ -46,16 +46,15 @@ export async function GET() {
     if (error) {
       console.error("[/api/system/freshness-badge] rpc error:", error);
       return NextResponse.json({
-        freshness: fallbackFreshness("RPC freshness indisponible. Verifier le pipeline et les logs Supabase."),
+        freshness: fallbackFreshness("Certaines données n'ont pas pu être mises à jour"),
       });
     }
 
     return NextResponse.json({ freshness: data || null });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Freshness indisponible";
     console.error("[/api/system/freshness-badge] error:", err);
     return NextResponse.json({
-      freshness: fallbackFreshness(`Freshness indisponible: ${message}`),
+      freshness: fallbackFreshness("Certaines données n'ont pas pu être mises à jour"),
     });
   }
 }
