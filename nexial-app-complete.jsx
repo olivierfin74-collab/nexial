@@ -144,7 +144,7 @@ const ACTIONS_TODAY = [
 const TIMELINE = [
   { time: "Aujourd'hui", text: "MELI a chuté de 12.7% — flash drop détecté", isToday: true },
   { time: "Aujourd'hui", text: "ISRG, OR — paliers d'ordre calculés et prêts", isToday: true },
-  { time: "Aujourd'hui", text: "Régime marché : BULL léger, confiance 65", isToday: true },
+  { time: "Aujourd'hui", text: "Régime marché : Marché haussier modéré, confiance 65", isToday: true },
   { time: "Hier", text: "9 nouvelles alertes BUY_ZONE générées" },
   { time: "Hier", text: "Decision_outcomes seedés sur 9 alertes (J+1 lundi)" },
 ];
@@ -358,15 +358,25 @@ const stateVariant = (state) => {
 const alertKindLabel = (kind) => {
   const map = {
     FLASH_DROP: "Chute brutale",
-    OVERBOUGHT_HOLD: "Tension haussière",
-    OVERBOUGHT_HOLD_WARNING: "Tension haussière",
-    BUY_ZONE_ENTERED: "Zone d'achat",
+    OVERBOUGHT_HOLD: "Surchauffe sur position détenue",
+    OVERBOUGHT_HOLD_WARNING: "Surchauffe sur position détenue",
+    BUY_ZONE_ENTERED: "Zone d'achat atteinte",
     REVERSAL_HIGH: "Retournement fort",
     REVERSAL_MEDIUM: "Retournement modéré",
-    WATCH_PULLBACK_ENTERED: "Pullback détecté",
-    HOT_PULLBACK_ENTERED: "Pullback chaud",
+    WATCH_PULLBACK_ENTERED: "Repli léger détecté",
+    HOT_PULLBACK_ENTERED: "Repli après forte hausse",
+    DOWNTREND_DANGER: "Tendance baissière à surveiller",
+    DOWNTREND_DANGER_DETECTED: "Tendance baissière à surveiller",
   };
   return map[kind] || kind.replace(/_/g, " ").toLowerCase();
+};
+
+const REGIME_LABELS_FR = {
+  BULL: "Marché haussier",
+  BULL_LIGHT: "Marché haussier modéré",
+  BEAR: "Marché baissier",
+  NEUTRAL: "Neutre",
+  VOLATILE: "Marché volatil",
 };
 
 // ============================================================
@@ -1316,13 +1326,13 @@ const MarketRegimeDecisionCard = ({ onClick }) => {
       border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
       cursor: "pointer", minHeight: 128,
     }}>
-      <Eyebrow>Regime marche</Eyebrow>
+      <Eyebrow>Régime marché</Eyebrow>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
         <span style={{ width: 9, height: 9, borderRadius: "50%", backgroundColor: color }} />
-        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.inkPrimary, lineHeight: 1 }}>{label}</span>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.inkPrimary, lineHeight: 1 }}>{REGIME_LABELS_FR[label] || label}</span>
       </div>
       <div style={{ marginTop: 12, fontFamily: FONT_MONO, fontSize: 12, color, fontWeight: 800 }}>
-        {multiplier ? `sizing x${Number(multiplier).toFixed(2)}` : "sizing a verifier"}
+        {multiplier ? `sizing x${Number(multiplier).toFixed(2)}` : "sizing à vérifier"}
       </div>
     </button>
   );
@@ -1342,7 +1352,7 @@ const AlertsDecisionCard = ({ title, kinds, statuses, tone = "hot", onClick, onA
       <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 12 }}>
         {alerts.length === 0 ? (
           <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary }}>
-            {loading ? "Chargement..." : "Aucun signal"}
+            {loading ? "Chargement..." : "Aucune indication"}
           </span>
         ) : alerts.map((alert) => (
           <div key={alert.id} onClick={(e) => { e.stopPropagation(); onAssetClick(alert.ticker); }} style={{
@@ -1350,7 +1360,7 @@ const AlertsDecisionCard = ({ title, kinds, statuses, tone = "hot", onClick, onA
             fontFamily: FONT_SANS, fontSize: 12, color: T.inkPrimary,
           }}>
             <span style={{ fontFamily: FONT_MONO, fontWeight: 800 }}>{alert.ticker}</span>
-            <span style={{ color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.alert_kind}</span>
+            <span style={{ color: T.inkSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alertKindLabel(alert.alert_kind)}</span>
             <span style={{ fontFamily: FONT_MONO, color, fontWeight: 800 }}>{Math.round(alert.opportunity_score)}</span>
           </div>
         ))}
@@ -1392,13 +1402,13 @@ const WealthDecisionCard = ({ onClick }) => {
 const DailyDecisionsSection = ({ onNavigate, onAssetClick }) => (
   <section style={{ padding: "0 20px 18px" }}>
     <div style={{ marginBottom: 12 }}>
-      <Eyebrow variant="accent">Decisions du jour</Eyebrow>
-      <HeroNumber size="M" style={{ marginTop: 6 }}>4 points a verifier</HeroNumber>
+      <Eyebrow variant="accent">Décisions du jour</Eyebrow>
+      <HeroNumber size="M" style={{ marginTop: 6 }}>4 points à vérifier</HeroNumber>
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
       <MarketRegimeDecisionCard onClick={() => onNavigate("dashboard")} />
-      <AlertsDecisionCard title="Opportunites chaudes" kinds={HOT_DECISION_KINDS} statuses={NEW_DECISION_STATUS} onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
-      <AlertsDecisionCard title="Positions a risque" kinds={RISK_DECISION_KINDS} statuses={ACTIVE_DECISION_STATUS} tone="risk" onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
+      <AlertsDecisionCard title="Opportunités à suivre" kinds={HOT_DECISION_KINDS} statuses={NEW_DECISION_STATUS} onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
+      <AlertsDecisionCard title="Décisions à traiter" kinds={RISK_DECISION_KINDS} statuses={ACTIVE_DECISION_STATUS} tone="risk" onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
     </div>
   </section>
 );
