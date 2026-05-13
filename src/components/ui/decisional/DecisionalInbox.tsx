@@ -11,15 +11,17 @@ import { InboxSection } from './InboxSection'
 import { EmptyDecisionState, LoadingDecisionCard } from './SystemStates'
 
 interface DecisionalInboxProps {
-  /** Inbox summary (from fn_inbox_decisional). */
+  /** Inbox summary (from fn_inbox_decisional.summary). */
   summary?: InboxSummary | null
   /** Thesis-gap banner (from fn_inbox_decisional.thesis_gap). */
   thesisGap?: ThesisGap | null
-  /** Full-shape sections (from fn_alerts_decisional_feed_v2). */
+  /** Full-shape sections (from fn_inbox_decisional.sections — backend v2.1). */
   sections?: DecisionalSections | null
   loading?: boolean
   /** Forwarded to each card. Backend-defined `action_code` dispatch happens upstream. */
   onAction?: (actionCode: string, decision: AlertDecisionPayload) => void
+  /** Fired once per section when it enters the viewport, with the NEW alert_ids. */
+  onMarkSeen?: (alertIds: string[]) => void
   title?: string
   subtitle?: string | null
 }
@@ -86,6 +88,7 @@ export function DecisionalInbox({
   sections,
   loading = false,
   onAction,
+  onMarkSeen,
   title = 'Aujourd’hui',
   subtitle = 'Votre boîte de décisions du jour.',
 }: DecisionalInboxProps) {
@@ -177,6 +180,7 @@ export function DecisionalInbox({
                 sectionKey={key}
                 section={section}
                 onAction={onAction}
+                onMarkSeen={onMarkSeen}
               />
             )
           })}

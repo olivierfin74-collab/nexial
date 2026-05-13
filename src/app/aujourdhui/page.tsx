@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import NexialApp from '../../../nexial-app-complete'
@@ -26,6 +26,7 @@ export default function AujourdhuiPage() {
     loading: true,
     error: null,
   })
+  const seenSetRef = useRef<Set<string>>(new Set())
 
   const fetchInbox = useCallback(async (signal?: AbortSignal) => {
     const res = await fetch('/api/today/decisional-alerts', {
@@ -74,6 +75,19 @@ export default function AujourdhuiPage() {
     }
   }, [fetchInbox])
 
+  const handleMarkSeen = useCallback((alertIds: string[]) => {
+    const fresh = alertIds.filter((id) => !seenSetRef.current.has(id))
+    if (fresh.length === 0) return
+    fresh.forEach((id) => seenSetRef.current.add(id))
+    fetch('/api/alerts/seen-bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_ids: fresh }),
+    }).catch(() => {
+      // Silent — SEEN is a best-effort UI hint, not blocking.
+    })
+  }, [])
+
   const handleAction = useCallback(
     async (actionCode: string, decision: AlertDecisionPayload) => {
       try {
@@ -119,6 +133,7 @@ export default function AujourdhuiPage() {
         sections={state.inbox?.sections ?? null}
         loading={state.loading}
         onAction={handleAction}
+        onMarkSeen={handleMarkSeen}
       />
 
       {state.error ? (

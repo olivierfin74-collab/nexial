@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import type {
   AlertDecisionPayload,
   DecisionalSection,
@@ -12,6 +13,9 @@ interface InboxSectionProps {
   sectionKey: DecisionalSectionKey
   section: DecisionalSection
   onAction?: (actionCode: string, decision: AlertDecisionPayload) => void
+  /** Called once per mount when the section enters the viewport,
+   *  with the alert_ids of items still in status 'NEW'. */
+  onMarkSeen?: (alertIds: string[]) => void
   /** Render an empty state when count is 0 (default: hide section). */
   showWhenEmpty?: boolean
 }
@@ -20,13 +24,43 @@ export function InboxSection({
   sectionKey,
   section,
   onAction,
+  onMarkSeen,
   showWhenEmpty = false,
 }: InboxSectionProps) {
+  const rootRef = useRef<HTMLElement | null>(null)
+  const firedRef = useRef(false)
+
+  useEffect(() => {
+    if (!onMarkSeen || firedRef.current) return
+    const el = rootRef.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') return
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !firedRef.current) {
+            const newIds = section.items
+              .filter((i) => i.status === 'NEW')
+              .map((i) => i.alert_id)
+            if (newIds.length > 0) onMarkSeen(newIds)
+            firedRef.current = true
+            obs.disconnect()
+          }
+        }
+      },
+      { rootMargin: '0px', threshold: 0.4 },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [onMarkSeen, section])
+
   const isEmpty = section.count === 0 || section.items.length === 0
   if (isEmpty && !showWhenEmpty) return null
 
   return (
     <section
+      ref={rootRef}
       data-section-key={sectionKey}
       className="flex flex-col gap-3"
       aria-labelledby={`inbox-section-${sectionKey}`}
