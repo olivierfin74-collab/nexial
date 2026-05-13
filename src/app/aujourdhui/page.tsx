@@ -1,11 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import NexialApp from '../../../nexial-app-complete'
 import FlashDropEventsStrip from '@/components/FlashDropEventsStrip'
 import MorningBriefCard from '@/components/MorningBriefCard'
 import { DecisionalInbox } from '@/components/ui/decisional'
-import type { InboxPayload } from '@/types/decision'
+import type {
+  AlertDecisionPayload,
+  DispatchAlertActionResult,
+  InboxPayload,
+} from '@/types/decision'
 
 interface FetchState {
   inbox: InboxPayload | null
@@ -14,38 +20,93 @@ interface FetchState {
 }
 
 export default function AujourdhuiPage() {
+  const router = useRouter()
   const [state, setState] = useState<FetchState>({
     inbox: null,
     loading: true,
     error: null,
   })
 
+  const fetchInbox = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch('/api/today/decisional-alerts', {
+      cache: 'no-store',
+      signal,
+    })
+    const json = await res.json()
+    return {
+      inbox: (json?.inbox as InboxPayload | null) ?? null,
+      error: (json?.error as string | null) ?? null,
+    }
+  }, [])
+
+  const reloadInbox = useCallback(async () => {
+    try {
+      const { inbox, error } = await fetchInbox()
+      setState({ inbox, loading: false, error })
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Erreur réseau',
+      }))
+    }
+  }, [fetchInbox])
+
   useEffect(() => {
+    const ctrl = new AbortController()
     let cancelled = false
-    async function load() {
-      try {
-        const res = await fetch('/api/today/decisional-alerts', { cache: 'no-store' })
-        const json = await res.json()
+    fetchInbox(ctrl.signal)
+      .then(({ inbox, error }) => {
         if (cancelled) return
-        setState({
-          inbox: (json?.inbox as InboxPayload | null) ?? null,
-          loading: false,
-          error: json?.error || null,
-        })
-      } catch (err) {
+        setState({ inbox, loading: false, error })
+      })
+      .catch((err) => {
         if (cancelled) return
         setState({
           inbox: null,
           loading: false,
           error: err instanceof Error ? err.message : 'Erreur réseau',
         })
-      }
-    }
-    load()
+      })
     return () => {
       cancelled = true
+      ctrl.abort()
     }
-  }, [])
+  }, [fetchInbox])
+
+  const handleAction = useCallback(
+    async (actionCode: string, decision: AlertDecisionPayload) => {
+      try {
+        const res = await fetch(`/api/alerts/${decision.alert_id}/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_code: actionCode }),
+        })
+        const json = (await res.json()) as {
+          dispatch: DispatchAlertActionResult | null
+          error?: string
+        }
+
+        if (!res.ok || !json.dispatch?.ok) {
+          toast.error(json.error || 'Action non disponible')
+          return
+        }
+
+        toast.success(json.dispatch.message_fr)
+
+        if (json.dispatch.redirect_to) {
+          router.push(json.dispatch.redirect_to)
+        } else {
+          await reloadInbox()
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : 'Connexion temporairement indisponible',
+        )
+      }
+    },
+    [reloadInbox, router],
+  )
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
@@ -57,6 +118,7 @@ export default function AujourdhuiPage() {
         thesisGap={state.inbox?.thesis_gap ?? null}
         sections={state.inbox?.sections ?? null}
         loading={state.loading}
+        onAction={handleAction}
       />
 
       {state.error ? (
