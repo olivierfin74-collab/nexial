@@ -2454,7 +2454,7 @@ const OrdresHeader = () => (
         color: T.inkSecondary, fontWeight: 400, letterSpacing: "-0.005em",
       }}>
         <em style={{ color: T.forestGreen, fontStyle: "italic", fontWeight: 400 }}>6 paliers</em>
-        {" "}en attente sur 2 tickers
+        {" "}à confirmer sur 2 tickers
       </span>
     </div>
   </header>

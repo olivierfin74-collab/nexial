@@ -1822,12 +1822,12 @@ const OrdersPage = ({ onAssetClick }) => {
     <>
       <PageHeader
         eyebrow="Ordres"
-        title={loading ? "Chargement…" : `${filteredOrders.length} ${filterStatus === "pending" ? "en attente" : filterStatus === "filled" ? "exécutés" : "expirés"}`}
+        title={loading ? "Chargement…" : `${filteredOrders.length} ${filterStatus === "pending" ? `plan${filteredOrders.length > 1 ? "s" : ""} d'entrée à confirmer` : filterStatus === "filled" ? "exécutés" : "expirés"}`}
         subtitle="Paper trading et ordres réels"
       />
       <div style={{ padding: "0 20px 16px", display: "flex", gap: 6, overflowX: "auto" }}>
         <FilterChip active={filterStatus === "pending"} onClick={() => setFilterStatus("pending")} count={totalPending}>
-          En attente
+          À confirmer
         </FilterChip>
         <FilterChip active={filterStatus === "filled"} onClick={() => setFilterStatus("filled")} count={totalFilled}>
           Exécutés
@@ -1843,7 +1843,7 @@ const OrdersPage = ({ onAssetClick }) => {
       )}
       {!loading && !error && tickerCount === 0 && (
         <div style={{ padding: "32px 20px", textAlign: "center", color: T.inkTertiary, fontFamily: FONT_SANS, fontSize: 13 }}>
-          Aucun ordre {filterStatus === "pending" ? "en attente" : filterStatus === "filled" ? "exécuté" : "expiré"}.
+          {filterStatus === "pending" ? "Aucun plan d'entrée à confirmer." : `Aucun ordre ${filterStatus === "filled" ? "exécuté" : "expiré"}.`}
         </div>
       )}
       {Object.entries(grouped).map(([ticker, ordersForTicker]) => (

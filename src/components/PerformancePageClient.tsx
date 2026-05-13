@@ -211,7 +211,7 @@ export default function PerformancePageClient() {
           <p className="mt-2 text-sm text-gray-600">Suivi portefeuille, decisions Olivier, win rate des alertes et recap mensuel.</p>
         </div>
         <Link href="/aujourdhui" className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-semibold">
-          Dashboard
+          Tableau de bord
         </Link>
       </div>
 

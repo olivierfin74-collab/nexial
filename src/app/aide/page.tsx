@@ -11,7 +11,7 @@ export default function HelpPage() {
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Nexial</p>
           <h1 className="font-serif text-4xl text-[#1F4A2E]">Aide</h1>
-          <p className="mt-2 text-sm text-gray-600">Definitions rapides des concepts utilises dans les alertes, zones et dashboards.</p>
+          <p className="mt-2 text-sm text-gray-600">Définitions rapides des concepts utilisés dans les alertes, zones et tableaux de bord.</p>
         </div>
         <Link href="/settings" className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-semibold">
           Settings

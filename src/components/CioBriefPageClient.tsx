@@ -142,7 +142,7 @@ export default function CioBriefPageClient() {
       <div className="mb-5">
         <Link href="/aujourdhui" className="inline-flex items-center gap-2 text-sm font-semibold text-[#1F4A2E]">
           <ArrowLeft className="h-4 w-4" />
-          Decisions dashboard
+          Tableau de bord
         </Link>
       </div>
 

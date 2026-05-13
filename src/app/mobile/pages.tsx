@@ -564,7 +564,7 @@ export default function MobileHomePage() {
           <NavCard href={safeDashboardHref('/alerts')} label="Alertes" count={alerts.length} />
           <NavCard href={safeDashboardHref('/orders')} label="Ordres" count={activeOrders.length} />
           <NavCard href={safeDashboardHref('/patrimoine')} label="Patrimoine" />
-          <NavCard href={safeDashboardHref('/dashboard')} label="Dashboard" />
+          <NavCard href={safeDashboardHref('/dashboard')} label="Tableau de bord" />
         </nav>
 
         <button

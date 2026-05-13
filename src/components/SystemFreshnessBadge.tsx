@@ -5,6 +5,8 @@ import { X } from "lucide-react";
 
 type FreshnessRecord = Record<string, unknown>;
 
+const REFRESH_ERROR_LABEL = "Certaines données n'ont pas pu être mises à jour";
+
 const palette = {
   ok: {
     label: "A jour",
@@ -53,7 +55,7 @@ function text(value: unknown, fallback = "-") {
 function friendlyError(value: unknown) {
   const raw = typeof value === "string" ? value.trim() : "";
   if (!raw || raw.toLowerCase() === "internal error" || raw.startsWith("HTTP ")) {
-    return "Erreur de refresh";
+    return REFRESH_ERROR_LABEL;
   }
   if (!raw || raw.toLowerCase() === "internal error") {
     return "Données de fraîcheur indisponibles";
@@ -82,8 +84,8 @@ function optionalMessage(value: unknown) {
 function fallbackRecord(message: string): FreshnessRecord {
   return {
     status: "stale",
-    badge: "Erreur de refresh",
-    label: "Erreur de refresh",
+    badge: REFRESH_ERROR_LABEL,
+    label: REFRESH_ERROR_LABEL,
     message,
     last_pipeline_run: null,
     flash_scout_freshness: message,
@@ -144,14 +146,14 @@ function hasRefreshError(record: FreshnessRecord, details: FreshnessRecord, mess
 }
 
 function userLabel(record: FreshnessRecord, details: FreshnessRecord, message: string, error: string | null) {
-  if (hasRefreshError(record, details, message, error)) return "Erreur de refresh";
+  if (hasRefreshError(record, details, message, error)) return REFRESH_ERROR_LABEL;
   const status = normalizeStatus(record);
   if (status === "ok") return "À jour";
   return isMarketOpen() ? "Mise à jour en attente" : "Données de clôture";
 }
 
 function userExplanation(label: string, technicalMessage: string) {
-  if (label === "Erreur de refresh") return technicalMessage || "Le contrôle de fraîcheur est temporairement indisponible.";
+  if (label === REFRESH_ERROR_LABEL) return technicalMessage || "Le contrôle de fraîcheur est temporairement indisponible.";
   if (label === "Mise à jour en attente") return "Les marchés semblent ouverts; les dernières données attendent un refresh.";
   if (label === "Données de clôture") return "Marché fermé: les données affichées correspondent probablement à la dernière clôture disponible.";
   return "Les dernières données disponibles sont fraîches.";
