@@ -1,16 +1,17 @@
-import type { DecisionVerdict } from '@/types/decision'
-import { getToneStyle } from './tones'
+import type { Verdict } from '@/types/decision'
+import { getColorStyle } from './tones'
 
 interface DecisionBadgeProps {
-  verdict: DecisionVerdict
+  verdict: Verdict
   size?: 'sm' | 'md'
 }
 
 export function DecisionBadge({ verdict, size = 'md' }: DecisionBadgeProps) {
-  const tone = getToneStyle(verdict.tone)
+  const tone = getColorStyle(verdict.color)
   const isSm = size === 'sm'
   return (
     <span
+      data-action-code={verdict.action_code}
       className="inline-flex items-center gap-1.5 rounded-full"
       style={{
         background: tone.background,
@@ -23,11 +24,8 @@ export function DecisionBadge({ verdict, size = 'md' }: DecisionBadgeProps) {
         letterSpacing: '0.01em',
       }}
     >
-      <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: tone.color }} />
-      <span>{verdict.label}</span>
-      {verdict.sublabel ? (
-        <span style={{ opacity: 0.75, fontWeight: 500 }}>· {verdict.sublabel}</span>
-      ) : null}
+      {verdict.emoji ? <span aria-hidden>{verdict.emoji}</span> : null}
+      <span>{verdict.label_fr}</span>
     </span>
   )
 }

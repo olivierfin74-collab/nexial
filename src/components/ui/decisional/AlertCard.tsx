@@ -1,58 +1,32 @@
 'use client'
 
-import type { AlertDecisionPayload, DecisionAction } from '@/types/decision'
+import type { AlertDecisionPayload } from '@/types/decision'
 import { DecisionBadge } from './DecisionBadge'
 import { DecisionExplanation } from './DecisionExplanation'
 import { PositionContextLine } from './PositionContextLine'
 import { TechnicalDetailsToggle } from './TechnicalDetailsToggle'
 import { ThesisBadge } from './ThesisBadge'
-import { getToneStyle } from './tones'
+import { getColorStyle } from './tones'
 
 interface DecisionalAlertCardProps {
   decision: AlertDecisionPayload
   /**
-   * Called when the user triggers a backend-provided action. Receives the
-   * raw intent key so the upstream handler can dispatch the right RPC.
-   * The card itself never decides what an intent means.
+   * Called when the user triggers the backend-provided CTA. The raw
+   * `action_code` is forwarded so the upstream handler can dispatch the
+   * right RPC. The card itself NEVER decides what an action_code means.
    */
-  onAction?: (intent: string, decision: AlertDecisionPayload) => void
-}
-
-function actionButtonStyle(action: DecisionAction, primary: boolean): React.CSSProperties {
-  const tone = getToneStyle(action.tone)
-  const base: React.CSSProperties = {
-    minHeight: 44,
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontFamily: 'var(--font-editorial-sans)',
-    fontSize: 13,
-    cursor: 'pointer',
-  }
-  if (primary) {
-    return {
-      ...base,
-      background: tone.color,
-      color: '#FFFFFF',
-      border: `1px solid ${tone.color}`,
-      fontWeight: 600,
-      flex: '1 1 auto',
-    }
-  }
-  return {
-    ...base,
-    background: 'transparent',
-    color: 'var(--ink-secondary)',
-    border: '1px solid var(--border-subtle)',
-    fontWeight: 500,
-  }
+  onAction?: (actionCode: string, decision: AlertDecisionPayload) => void
 }
 
 export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardProps) {
-  const actions = decision.actions ?? []
+  const { verdict, explanation, position, thesis, technical, actions, footer, tier } = decision
+  const tone = getColorStyle(verdict.color)
+  const ctaLabel = actions?.primary_cta_fr ?? verdict.cta_button_fr
 
   return (
     <article
-      data-tier={decision.tier}
+      data-tier={tier}
+      data-action-code={verdict.action_code}
       className="flex flex-col gap-3 p-4 sm:p-5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
       style={{
         background: 'var(--surface)',
@@ -60,7 +34,6 @@ export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardP
         borderRadius: 12,
       }}
     >
-      {/* 1. Ticker + Verdict (dominant) */}
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex flex-col gap-1 min-w-0">
           <span
@@ -73,44 +46,42 @@ export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardP
           >
             {decision.ticker}
           </span>
-          {decision.thesis ? <ThesisBadge thesis={decision.thesis} /> : null}
+          <ThesisBadge thesis={thesis} />
         </div>
-        <DecisionBadge verdict={decision.verdict} />
+        <DecisionBadge verdict={verdict} />
       </header>
 
-      {/* 2. Explanation (plain French) */}
-      <DecisionExplanation explanation={decision.explanation} />
+      <DecisionExplanation explanation={explanation} />
 
-      {/* 3. Position context */}
-      <PositionContextLine position={decision.position} />
+      <PositionContextLine position={position} />
 
-      {/* 4. Technical details — collapsed by default */}
-      {decision.technical && decision.technical.length > 0 ? (
-        <TechnicalDetailsToggle details={decision.technical} />
-      ) : null}
+      <TechnicalDetailsToggle technical={technical} />
 
-      {/* CTAs — backend-defined, no client-side intent logic */}
-      {actions.length > 0 ? (
-        <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap">
-          {actions.map((action, idx) => {
-            const primary = idx === 0
-            return (
-              <button
-                key={`${action.intent}-${idx}`}
-                type="button"
-                onClick={() => onAction?.(action.intent, decision)}
-                className="transition-colors duration-150"
-                style={actionButtonStyle(action, primary)}
-              >
-                {action.label}
-              </button>
-            )
-          })}
+      {ctaLabel ? (
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => onAction?.(actions.action_code, decision)}
+            className="transition-colors duration-150 w-full sm:w-auto"
+            style={{
+              minHeight: 44,
+              borderRadius: 8,
+              padding: '10px 14px',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: tone.color,
+              color: '#FFFFFF',
+              border: `1px solid ${tone.color}`,
+            }}
+          >
+            {ctaLabel}
+          </button>
         </div>
       ) : null}
 
-      {/* Footer (free text from backend) */}
-      {decision.footer ? (
+      {footer ? (
         <div
           style={{
             fontFamily: 'var(--font-editorial-mono)',
@@ -121,7 +92,7 @@ export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardP
             borderTop: '1px solid var(--border-subtle)',
           }}
         >
-          {decision.footer}
+          {footer.alert_kind_label_fr}
         </div>
       ) : null}
     </article>

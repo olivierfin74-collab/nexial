@@ -1,16 +1,13 @@
-import type { DecisionPositionContext } from '@/types/decision'
+import type { Position } from '@/types/decision'
 
 interface PositionContextLineProps {
-  position: DecisionPositionContext
+  position: Position
 }
 
 export function PositionContextLine({ position }: PositionContextLineProps) {
-  if (!position.in_portfolio && !position.message) return null
+  if (!position?.context_fr) return null
 
-  const dotColor = position.in_portfolio ? 'var(--forest-green)' : 'var(--ink-muted)'
-  const text =
-    position.message ??
-    (position.in_portfolio ? 'En portefeuille' : 'Pas encore en portefeuille')
+  const dotColor = position.is_held ? 'var(--forest-green)' : 'var(--ink-muted)'
 
   return (
     <div
@@ -22,7 +19,7 @@ export function PositionContextLine({ position }: PositionContextLineProps) {
       }}
     >
       <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: dotColor }} />
-      <span>{text}</span>
+      <span>{position.context_fr}</span>
     </div>
   )
 }
