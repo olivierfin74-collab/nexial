@@ -1,0 +1,177 @@
+-- ============================================================================
+-- 20260513121447_ux_decisional_v2.sql
+--
+-- DOCUMENTARY ONLY — do NOT run against PROD or local.
+--
+-- This migration is a written contract describing the decisional V2 RPCs that
+-- already exist in the PROD Supabase project (kttdmeyrhndufymgoxqk). The
+-- actual function bodies are managed upstream by the backend team and are not
+-- replicated in the local migration tree. The frontend treats these RPCs as
+-- the single source of truth: it renders the payloads verbatim and never
+-- recomputes verdict, priority, tier, action_code, alert_kind label or any
+-- piece of business logic.
+--
+-- Scope of this file:
+--   1. Document the RPC signatures wired in this codebase
+--   2. Pin the JSON contract per RPC so any backend evolution that breaks the
+--      frontend can be flagged in code review
+--   3. Reference the TS contract in src/types/decision.ts
+--
+-- NEVER run this file. It contains no DDL, only documentation comments.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_inbox_decisional(
+--     p_user_id          uuid    default <dev>,
+--     p_experience_mode  text    default 'STANDARD',
+--     p_limit            integer default 30
+--   ) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the user's decisional inbox. Used by /api/today/decisional-alerts
+-- and the /aujourdhui page (header summary + thesis_gap banner).
+--
+-- Shape (LITE items — thesis/position contexts embedded in level_2_explanation):
+-- {
+--   as_of: timestamptz,
+--   user_id: uuid,
+--   experience_mode: 'BEGINNER' | 'STANDARD' | 'PRO',
+--   summary: {
+--     as_of: timestamptz,
+--     mode: text,
+--     sections_counts: {
+--       critique_count: int,
+--       decisions_count: int,
+--       surveillance_count: int,
+--       information_count: int
+--     },
+--     thesis_coverage_pct: numeric (serialized as string by jsonb),
+--     positions_without_thesis_count: numeric (serialized as string by jsonb),
+--     total_actions_attendues: int
+--   },
+--   sections: {
+--     critique: { label_fr, description_fr, emoji, count, items[] },
+--     decisions_to_handle: { ... },
+--     surveillance: { ... },
+--     information: { ... }
+--   },
+--   thesis_gap: {
+--     label_fr, description_fr, emoji, count, coverage_pct,
+--     top_5_missing: [
+--       { asset_id, ticker, asset_name, sector, quality_class,
+--         value_eur, weight_pct, pnl_pct,
+--         suggested_conviction, suggestion_rationale_fr }
+--     ]
+--   }
+-- }
+-- Each items[] entry has the LITE shape:
+--   { alert_id, ticker, asset_name, sector, asset_class, is_etf, created_at,
+--     status,
+--     level_1_verdict: { action_code, label_fr, emoji, color, cta_button_fr,
+--                        display_priority },
+--     level_2_explanation: { text_fr, thesis_context_fr, position_context_fr },
+--     level_3_technical: { ... full Technical block ... } }
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_alert_decision_v2(p_alert_id uuid) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the FULL decisional payload for a single alert. Used by
+-- /api/alerts/[alertId].
+--
+-- Shape (AlertDecisionPayload in src/types/decision.ts):
+-- { alert_id, ticker, asset_name, sector, asset_class, is_etf, created_at,
+--   status, tier, priority,
+--   verdict:     { action_code, label_fr, emoji, color, cta_button_fr,
+--                  display_priority },
+--   explanation: { text_fr },
+--   position:    { context_fr, is_held, quantity, pnl_pct, accounts,
+--                  in_watchlist },
+--   thesis:      { context_fr, conviction_level, thesis_md },
+--   technical:   { alert_kind_label_fr, alert_tier, alert_emoji,
+--                  alert_description_fr, opportunity_score, drawdown_pct,
+--                  current_price, z2_price, z3_price, high_52w,
+--                  quality_class, sector, asset_class, currency,
+--                  market_regime, spy_rsi_14 },
+--   actions:     { primary_cta_fr, action_code },
+--   footer:      { alert_kind_label_fr, created_at, data_source } }
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_alerts_decisional_feed_v2(
+--     p_user_id          uuid    default <dev>,
+--     p_limit            integer default 50,
+--     p_experience_mode  text    default 'STANDARD',
+--     p_only_active      boolean default true,
+--     p_dedup_by_ticker  boolean default true
+--   ) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the full decisional feed. Used by /api/alerts/feed and by the
+-- /aujourdhui page (sections items rendered through DecisionalAlertCard).
+--
+-- Items in sections.<key>.items use the FULL shape (AlertDecisionPayload).
+-- Top-level summary uses sections_counts only (no thesis_gap here).
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_review_thesis_for_position(p_asset_id uuid, p_user_id uuid default <dev>)
+--   returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the thesis review payload (asset, position, quality, recent_alerts,
+-- current_signal, current_thesis, suggested_conviction, available_convictions[]).
+-- Used by GET /api/thesis/[assetId].
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_set_position_thesis(
+--     p_user_id            uuid,
+--     p_asset_id           uuid,
+--     p_conviction_level   text,
+--     p_thesis_md          text     default null,
+--     p_exit_target_price  numeric  default null,
+--     p_exit_target_pnl_pct numeric default null
+--   ) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Persists the user's thesis. Used by POST /api/thesis/[assetId].
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_positions_without_thesis(p_user_id uuid default <dev>) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the list of positions missing a thesis. Used by /api/thesis/missing.
+--
+-- Shape:
+-- { as_of, user_id,
+--   missing_thesis: [{asset_id, ticker, asset_name, sector, quality_class,
+--                     value_eur, weight_pct, pnl_pct,
+--                     suggested_conviction, suggestion_rationale_fr}],
+--   total_positions, thesis_coverage_pct,
+--   positions_with_thesis, positions_without_thesis }
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_user_ui_capabilities(p_user_id uuid default <dev>) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the per-user UI capabilities (level 3 toggles, wording rules,
+-- experience_mode, features_disabled). Used by /api/ui/capabilities.
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_get_wording_dictionary(p_context text default null) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the canonical wording dictionary (old_term -> new_term, rationale,
+-- applies_to). Used by /api/wording. Allows the frontend to surface backend-
+-- approved bilingual labels without hard-coding them.
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_telegram_decisional_message(
+--     p_alert_id uuid,
+--     p_base_url text default 'https://nexial.app'
+--   ) returns jsonb
+-- ----------------------------------------------------------------------------
+-- Returns the pre-rendered Telegram message for an alert. The frontend
+-- renders the message text verbatim — no client-side composition.
+
+-- ============================================================================
+-- TS contract: src/types/decision.ts
+-- Components consuming these payloads:
+--   - src/components/ui/decisional/DecisionalAlertCard (FULL shape)
+--   - src/components/ui/decisional/DecisionalInbox     (summary + thesis_gap
+--                                                       + feed_v2 sections)
+--   - src/components/ui/decisional/InboxSection        (FULL items)
+--   - src/components/ui/decisional/TechnicalDetailsToggle (FULL Technical)
+--   - src/components/ui/decisional/DecisionBadge / Explanation /
+--     PositionContextLine / ThesisBadge (pure presentational)
+-- ============================================================================
