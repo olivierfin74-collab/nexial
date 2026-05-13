@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import FlashDropEventsStrip from '@/components/FlashDropEventsStrip'
 import MorningBriefCard from '@/components/MorningBriefCard'
+import { AppShell } from '@/components/shell/AppShell'
 import {
   DecisionalInbox,
   LadderBuilderModal,
@@ -176,7 +177,7 @@ export default function AujourdhuiPage() {
   }, [reloadInbox])
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
+    <AppShell>
       <MorningBriefCard />
       <FlashDropEventsStrip />
 
@@ -227,6 +228,6 @@ export default function AujourdhuiPage() {
           void reloadInbox()
         }}
       />
-    </div>
+    </AppShell>
   )
 }
