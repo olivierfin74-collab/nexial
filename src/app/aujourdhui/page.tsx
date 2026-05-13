@@ -135,11 +135,18 @@ export default function AujourdhuiPage() {
             setModal({ kind: 'open_exit_modal', context: dispatch.modal_context })
             break
           case 'open_thesis_modal':
-            setModal({ kind: 'open_thesis_modal', context: dispatch.modal_context })
+          case 'open_thesis_modal_urgent': {
+            const assetId = dispatch.modal_context?.asset_id ?? null
+            if (assetId) {
+              setModal({ kind: dispatch.redirect_kind, context: dispatch.modal_context })
+            } else if (dispatch.redirect_to) {
+              // Backend modal context lacked asset_id but provided a path.
+              router.push(dispatch.redirect_to)
+            } else {
+              toast.error('Action temporairement indisponible')
+            }
             break
-          case 'open_thesis_modal_urgent':
-            setModal({ kind: 'open_thesis_modal_urgent', context: dispatch.modal_context })
-            break
+          }
           case 'refresh_inbox':
           case 'dismiss_confirmed':
             await reloadInbox()
@@ -213,8 +220,12 @@ export default function AujourdhuiPage() {
           modal.kind === 'open_thesis_modal_urgent'
         }
         urgent={modal.kind === 'open_thesis_modal_urgent'}
-        context={modal.context}
+        assetId={modal.context?.asset_id ?? null}
+        ticker={modal.context?.ticker}
         onClose={closeModal}
+        onSaved={() => {
+          void reloadInbox()
+        }}
       />
     </div>
   )
