@@ -3,13 +3,16 @@
 import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
 
+type FlashDropPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+type FlashDropSuggestedAction = "WATCH" | "PREPARE_LADDER" | "WAIT";
+
 type FlashDropEvent = {
   id: string;
   ticker: string;
   opportunity_type: "FLASH_DROP";
   reason: string;
-  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  suggested_action: "WATCH" | "PREPARE_LADDER" | "WAIT";
+  priority: FlashDropPriority;
+  suggested_action: FlashDropSuggestedAction;
   latest_price: number | null;
   drop_pct: number | null;
   ladder: {
@@ -29,6 +32,20 @@ const pct = (value: number | null) => (
 const price = (value: number | null) => (
   typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "-"
 );
+
+// User-facing FR labels for backend enums (display only, no derivation).
+const PRIORITY_FR: Record<FlashDropPriority, string> = {
+  LOW: "Faible",
+  MEDIUM: "Normale",
+  HIGH: "Importante",
+  CRITICAL: "Critique",
+};
+
+const ACTION_FR: Record<FlashDropSuggestedAction, string> = {
+  WATCH: "Surveiller",
+  PREPARE_LADDER: "Préparer un plan d’entrée",
+  WAIT: "Attendre",
+};
 
 export default function FlashDropEventsStrip() {
   const [events, setEvents] = useState<FlashDropEvent[]>([]);
@@ -55,7 +72,7 @@ export default function FlashDropEventsStrip() {
       <div className="rounded-xl border border-red-200 bg-red-50 p-3">
         <div className="mb-2 flex items-center gap-2 text-sm font-bold text-red-800">
           <Zap className="h-4 w-4" />
-          Flash drops detectes
+          Flash drops détectés
         </div>
         <div className="flex gap-2 overflow-x-auto">
           {events.map((event) => (
@@ -70,7 +87,7 @@ export default function FlashDropEventsStrip() {
                   <div className="truncate font-bold text-gray-900">{event.ticker}</div>
                 </div>
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
-                  {event.priority}
+                  {PRIORITY_FR[event.priority] ?? event.priority}
                 </span>
               </div>
 
@@ -80,7 +97,9 @@ export default function FlashDropEventsStrip() {
                   <div className="text-[10px] uppercase text-gray-500">Drop</div>
                 </div>
                 <div className="rounded bg-gray-50 px-2 py-1">
-                  <div className="font-bold text-gray-900">{event.suggested_action}</div>
+                  <div className="font-bold text-gray-900">
+                    {ACTION_FR[event.suggested_action] ?? event.suggested_action}
+                  </div>
                   <div className="text-[10px] uppercase text-gray-500">Posture</div>
                 </div>
               </div>
