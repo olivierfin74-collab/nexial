@@ -1,16 +1,12 @@
 // Backend contract for decisional RPCs.
 // Source of truth: Supabase project kttdmeyrhndufymgoxqk (PROD).
+// Schema: v2 (post v2.1 backend alignment — single FULL shape everywhere).
 //
-// Two payload shapes ship from the backend:
-//
-//   FULL (AlertDecisionPayload) — produced by:
-//     - fn_alert_decision_v2     (single alert detail)
-//     - fn_alerts_decisional_feed_v2 (feed, items have the full V2 shape)
-//
-//   LITE (InboxAlertItem) — produced by:
-//     - fn_inbox_decisional       (sections.<key>.items are denormalized
-//                                   for the inbox view; thesis/position are
-//                                   embedded as text inside level_2_explanation)
+// The three decisional RPCs (fn_alert_decision_v2, fn_alerts_decisional_feed_v2,
+// fn_inbox_decisional) all ship items with the same FULL shape
+// (AlertDecisionPayload) and a top-level `schema_version: 'v2'`. Frontend
+// MUST throw if it ever sees a different schema_version — the contract is
+// pinned and breaking changes require a new version tag.
 //
 // The frontend NEVER derives verdicts, priorities, tiers or CTAs from raw
 // signals/scores. Components are rendering-only and consume the payload
@@ -35,9 +31,28 @@ export type AlertStatus = 'NEW' | 'SEEN' | 'DISMISSED' | 'EXPIRED' | 'EXECUTED';
 
 export type MarketRegime = 'BULL' | 'BEAR' | 'NEUTRAL' | 'VOLATILE';
 
-// Backend may ship 'neutral' (lowercase) in addition to the named palette.
+// Official palette (backend v2.1 documentation):
+//   green       ACHETER, RENFORCER
+//   lightgreen  ACHETER PETIT
+//   blue        GARDER
+//   orange      ALLÉGER
+//   red         VENDRE
+//   gray        IGNORER
+//   yellow      DÉFINIR, EXAMINER
+//   neutral     SURVEILLER, OBSERVER (passif)
 export type VerdictColor =
-  | 'green' | 'blue' | 'gray' | 'yellow' | 'red' | 'lightgreen' | 'neutral';
+  | 'green'
+  | 'lightgreen'
+  | 'blue'
+  | 'orange'
+  | 'red'
+  | 'gray'
+  | 'yellow'
+  | 'neutral';
+
+/** Pinned schema version emitted by every decisional v2 RPC. */
+export const DECISIONAL_SCHEMA_VERSION = 'v2' as const;
+export type DecisionalSchemaVersion = typeof DECISIONAL_SCHEMA_VERSION;
 
 // ════════════════════════════════════════════════════════
 // VERDICT (level 1)
@@ -52,18 +67,10 @@ export interface Verdict {
 }
 
 // ════════════════════════════════════════════════════════
-// EXPLANATION (level 2) — FULL shape (feed_v2 / detail)
+// EXPLANATION (level 2)
 // ════════════════════════════════════════════════════════
 export interface Explanation {
   text_fr: string;
-}
-
-// LITE shape: the inbox RPC embeds thesis/position context as free text
-// inside the explanation instead of shipping separate objects.
-export interface InboxLevel2Explanation {
-  text_fr: string;
-  thesis_context_fr: string;
-  position_context_fr: string;
 }
 
 // ════════════════════════════════════════════════════════
@@ -127,9 +134,11 @@ export interface Footer {
 }
 
 // ════════════════════════════════════════════════════════
-// MAIN PAYLOAD (fn_alert_decision_v2, fn_alerts_decisional_feed_v2.items)
+// MAIN PAYLOAD (fn_alert_decision_v2, fn_alerts_decisional_feed_v2.items,
+//               fn_inbox_decisional.sections.*.items)
 // ════════════════════════════════════════════════════════
 export interface AlertDecisionPayload {
+  schema_version: DecisionalSchemaVersion;
   alert_id: string;
   ticker: string;
   asset_name: string;
@@ -186,6 +195,7 @@ export interface DecisionalFeedSummary {
 }
 
 export interface DecisionalFeedPayload {
+  schema_version: DecisionalSchemaVersion;
   as_of: string;
   user_id: string;
   experience_mode: ExperienceMode;
@@ -197,39 +207,9 @@ export interface DecisionalFeedPayload {
 }
 
 // ════════════════════════════════════════════════════════
-// INBOX PAYLOAD (fn_inbox_decisional)
-// LITE items shape — thesis/position embedded as text in level_2_explanation.
+// INBOX PAYLOAD (fn_inbox_decisional) — post v2.1 single shape.
+// Items now use AlertDecisionPayload (FULL shape) — same as feed_v2.
 // ════════════════════════════════════════════════════════
-export interface InboxAlertItem {
-  alert_id: string;
-  ticker: string;
-  asset_name: string;
-  sector: string | null;
-  asset_class: AssetClass;
-  is_etf: boolean;
-  created_at: string;
-  status: AlertStatus;
-
-  level_1_verdict: Verdict;
-  level_2_explanation: InboxLevel2Explanation;
-  level_3_technical: Technical;
-}
-
-export interface InboxDecisionalSection {
-  label_fr: string;
-  description_fr: string;
-  emoji: string;
-  count: number;
-  items: InboxAlertItem[];
-}
-
-export interface InboxDecisionalSections {
-  critique: InboxDecisionalSection;
-  decisions_to_handle: InboxDecisionalSection;
-  surveillance: InboxDecisionalSection;
-  information: InboxDecisionalSection;
-}
-
 export interface ThesisGapTopMissing {
   asset_id: string;
   ticker: string;
@@ -252,22 +232,22 @@ export interface ThesisGap {
   top_5_missing: ThesisGapTopMissing[];
 }
 
-// Backend serializes Postgres NUMERIC as JSON string for some fields.
 export interface InboxSummary {
   as_of: string;
   mode: ExperienceMode;
   sections_counts: DecisionalFeedSummary;
-  thesis_coverage_pct: number | string;
-  positions_without_thesis_count: number | string;
+  thesis_coverage_pct: number;
+  positions_without_thesis_count: number;
   total_actions_attendues: number;
 }
 
 export interface InboxPayload {
+  schema_version: DecisionalSchemaVersion;
   as_of: string;
   user_id: string;
   experience_mode: ExperienceMode;
   summary: InboxSummary;
-  sections: InboxDecisionalSections;
+  sections: DecisionalSections;
   thesis_gap: ThesisGap;
 }
 
@@ -408,6 +388,30 @@ export const DEFAULT_UI_CAPABILITIES: UserUiCapabilitiesPayload = {
 };
 
 // ════════════════════════════════════════════════════════
+// DISPATCH ALERT ACTION (fn_dispatch_alert_action)
+// ════════════════════════════════════════════════════════
+export interface DispatchAlertActionResult {
+  schema_version: DecisionalSchemaVersion;
+  ok: boolean;
+  alert_id: string;
+  ticker: string;
+  action_code: ActionCode;
+  new_status: 'SEEN' | 'DISMISSED';
+  message_fr: string;
+  redirect_to: string | null;
+}
+
+// ════════════════════════════════════════════════════════
+// MARK ALERTS SEEN BULK (fn_mark_alerts_seen_bulk)
+// ════════════════════════════════════════════════════════
+export interface MarkAlertsSeenBulkResult {
+  schema_version: DecisionalSchemaVersion;
+  ok: boolean;
+  total_requested: number | null;
+  marked_seen: number;
+}
+
+// ════════════════════════════════════════════════════════
 // TELEGRAM DECISIONAL MESSAGE (fn_telegram_decisional_message)
 // ════════════════════════════════════════════════════════
 export interface TelegramDecisionalMessagePayload {
@@ -480,4 +484,30 @@ export type SupabaseRpcSignatures = {
     Args: { p_alert_id: string; p_base_url?: string };
     Returns: TelegramDecisionalMessagePayload;
   };
+  fn_dispatch_alert_action: {
+    Args: {
+      p_alert_id: string;
+      p_action_code: ActionCode;
+      p_user_id?: string;
+      p_payload?: Record<string, unknown>;
+    };
+    Returns: DispatchAlertActionResult;
+  };
+  fn_mark_alerts_seen_bulk: {
+    Args: { p_alert_ids: string[]; p_user_id?: string };
+    Returns: MarkAlertsSeenBulkResult;
+  };
 };
+
+/**
+ * Throws if the backend ships a schema_version other than 'v2'. Call at the
+ * route handler / fetch boundary, never inside rendering components.
+ */
+export function assertDecisionalSchemaV2(payload: { schema_version?: unknown } | null): void {
+  if (!payload) return;
+  if (payload.schema_version !== DECISIONAL_SCHEMA_VERSION) {
+    throw new Error(
+      `[decisional] unexpected schema_version: ${String(payload.schema_version)} (expected ${DECISIONAL_SCHEMA_VERSION})`,
+    );
+  }
+}

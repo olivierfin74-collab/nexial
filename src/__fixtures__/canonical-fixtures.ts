@@ -89,6 +89,7 @@ export const CANONICAL_EXPECTATIONS = [
 // ═══════════════════════════════════════════════════════════════════
 
 export const MOCK_ADYEN_ACHETER: AlertDecisionPayload = {
+  schema_version: 'v2',
   alert_id: CANONICAL_ALERT_IDS.ADYEN_ACHETER,
   ticker: 'ADYEN',
   asset_name: 'Adyen',
@@ -154,6 +155,7 @@ export const MOCK_ADYEN_ACHETER: AlertDecisionPayload = {
 };
 
 export const MOCK_CAP_IGNORER: AlertDecisionPayload = {
+  schema_version: 'v2',
   alert_id: CANONICAL_ALERT_IDS.CAP_IGNORER,
   ticker: 'CAP',
   asset_name: 'Capgemini',

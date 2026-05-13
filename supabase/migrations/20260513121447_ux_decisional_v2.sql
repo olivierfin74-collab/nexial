@@ -28,10 +28,15 @@
 --   ) returns jsonb
 -- ----------------------------------------------------------------------------
 -- Returns the user's decisional inbox. Used by /api/today/decisional-alerts
--- and the /aujourdhui page (header summary + thesis_gap banner).
+-- and the /aujourdhui page (header summary + thesis_gap banner + sections).
 --
--- Shape (LITE items — thesis/position contexts embedded in level_2_explanation):
+-- Backend v2.1 (2026-05-13): items now ship the FULL AlertDecisionPayload
+-- shape (same as fn_alerts_decisional_feed_v2). The frontend only fetches
+-- this single RPC for /aujourdhui.
+--
+-- Shape:
 -- {
+--   schema_version: 'v2',
 --   as_of: timestamptz,
 --   user_id: uuid,
 --   experience_mode: 'BEGINNER' | 'STANDARD' | 'PRO',
@@ -44,12 +49,12 @@
 --       surveillance_count: int,
 --       information_count: int
 --     },
---     thesis_coverage_pct: numeric (serialized as string by jsonb),
---     positions_without_thesis_count: numeric (serialized as string by jsonb),
+--     thesis_coverage_pct: number,
+--     positions_without_thesis_count: number,
 --     total_actions_attendues: int
 --   },
 --   sections: {
---     critique: { label_fr, description_fr, emoji, count, items[] },
+--     critique: { label_fr, description_fr, emoji, count, items: AlertDecisionPayload[] },
 --     decisions_to_handle: { ... },
 --     surveillance: { ... },
 --     information: { ... }
@@ -63,13 +68,6 @@
 --     ]
 --   }
 -- }
--- Each items[] entry has the LITE shape:
---   { alert_id, ticker, asset_name, sector, asset_class, is_etf, created_at,
---     status,
---     level_1_verdict: { action_code, label_fr, emoji, color, cta_button_fr,
---                        display_priority },
---     level_2_explanation: { text_fr, thesis_context_fr, position_context_fr },
---     level_3_technical: { ... full Technical block ... } }
 
 -- ----------------------------------------------------------------------------
 -- nx.fn_alert_decision_v2(p_alert_id uuid) returns jsonb
@@ -163,6 +161,38 @@
 -- ----------------------------------------------------------------------------
 -- Returns the pre-rendered Telegram message for an alert. The frontend
 -- renders the message text verbatim — no client-side composition.
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_dispatch_alert_action(
+--     p_alert_id    uuid,
+--     p_action_code text,
+--     p_user_id     uuid default <dev>,
+--     p_payload     jsonb default '{}'
+--   ) returns jsonb                                            [v2.1, 2026-05-13]
+-- ----------------------------------------------------------------------------
+-- Dispatches a backend-driven action_code into the right side-effect
+-- (mark SEEN / DISMISSED, return a redirect target for the frontend).
+-- Used by POST /api/alerts/[alertId]/dispatch.
+--
+-- Returns:
+-- { schema_version: 'v2', ok: boolean, alert_id, ticker, action_code,
+--   new_status: 'SEEN' | 'DISMISSED',
+--   message_fr: string,
+--   redirect_to: string | null }
+
+-- ----------------------------------------------------------------------------
+-- nx.fn_mark_alerts_seen_bulk(
+--     p_alert_ids uuid[],
+--     p_user_id   uuid default <dev>
+--   ) returns jsonb                                            [v2.1, 2026-05-13]
+-- ----------------------------------------------------------------------------
+-- Marks the given alert_ids as SEEN for the user (idempotent). Used by
+-- POST /api/alerts/seen-bulk and triggered by the inbox UI when a section
+-- becomes visible.
+--
+-- Returns:
+-- { schema_version: 'v2', ok: boolean,
+--   total_requested: number | null, marked_seen: number }
 
 -- ============================================================================
 -- TS contract: src/types/decision.ts

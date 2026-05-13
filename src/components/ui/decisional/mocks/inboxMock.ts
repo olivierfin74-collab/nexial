@@ -17,6 +17,7 @@ import type {
 } from '@/types/decision'
 
 const MOCK_ITEM: AlertDecisionPayload = {
+  schema_version: 'v2',
   alert_id: 'mock-meli-001',
   ticker: 'MELI',
   asset_name: 'MercadoLibre',
@@ -98,8 +99,8 @@ export const TEMP_UI_ONLY_INBOX_SUMMARY: InboxSummary = {
     surveillance_count: 0,
     information_count: 0,
   },
-  thesis_coverage_pct: '19.2',
-  positions_without_thesis_count: '21',
+  thesis_coverage_pct: 19.2,
+  positions_without_thesis_count: 21,
   total_actions_attendues: 1,
 }
 
