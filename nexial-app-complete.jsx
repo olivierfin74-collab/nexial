@@ -357,16 +357,17 @@ const stateVariant = (state) => {
 
 const alertKindLabel = (kind) => {
   const map = {
-    FLASH_DROP: "Chute brutale",
-    OVERBOUGHT_HOLD: "Surchauffe sur position détenue",
-    OVERBOUGHT_HOLD_WARNING: "Surchauffe sur position détenue",
+    FLASH_DROP: "Chute soudaine",
+    OVERBOUGHT_HOLD: "Surchauffe technique",
+    OVERBOUGHT_HOLD_WARNING: "Surchauffe technique",
     BUY_ZONE_ENTERED: "Zone d'achat atteinte",
     REVERSAL_HIGH: "Retournement fort",
     REVERSAL_MEDIUM: "Retournement modéré",
-    WATCH_PULLBACK_ENTERED: "Repli léger détecté",
+    WATCH_PULLBACK_ENTERED: "Pullback à surveiller",
     HOT_PULLBACK_ENTERED: "Repli après forte hausse",
-    DOWNTREND_DANGER: "Tendance baissière à surveiller",
-    DOWNTREND_DANGER_DETECTED: "Tendance baissière à surveiller",
+    DOWNTREND_DANGER: "Tendance baissière dangereuse",
+    DOWNTREND_DANGER_DETECTED: "Tendance baissière dangereuse",
+    BASELINE: "Pas de signal particulier",
   };
   return map[kind] || kind.replace(/_/g, " ").toLowerCase();
 };
@@ -374,8 +375,9 @@ const alertKindLabel = (kind) => {
 const REGIME_LABELS_FR = {
   BULL: "Marché haussier",
   BULL_LIGHT: "Marché haussier modéré",
+  BULL_STRONG: "Marché haussier solide",
+  NEUTRAL: "Marché neutre",
   BEAR: "Marché baissier",
-  NEUTRAL: "Neutre",
   VOLATILE: "Marché volatil",
 };
 
@@ -794,12 +796,8 @@ const RegimeBanner = () => (
   }}>
     <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: T.forestGreen, flexShrink: 0 }} />
     <span style={{ fontFamily: FONT_SANS, fontSize: 12.5, color: T.inkPrimary, fontWeight: 500 }}>
-      Marché en hausse modérée
+      Marché haussier modéré
     </span>
-    <span style={{
-      fontFamily: FONT_MONO, fontSize: 11.5, color: T.forestGreen,
-      fontWeight: 600, marginLeft: "auto",
-    }}>sizing ×0.85</span>
   </div>
 );
 
@@ -901,8 +899,7 @@ const TradingContextNote = ({ context }) => {
       borderRadius: 10, fontFamily: FONT_SANS, fontSize: 12,
       color: T.inkSecondary, lineHeight: 1.45,
     }}>
-      <strong style={{ color: T.forestGreen }}>{c.label}</strong>
-      {" - "}{c.opportunityFocus} · {c.watchlistFocus}
+      {c.opportunityFocus} · {c.watchlistFocus}
     </div>
   );
 };
