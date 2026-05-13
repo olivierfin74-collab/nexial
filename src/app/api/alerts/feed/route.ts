@@ -5,7 +5,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { DecisionalFeedPayload, ExperienceMode } from "@/types/decision";
+import {
+  assertDecisionalSchemaV2,
+  type DecisionalFeedPayload,
+  type ExperienceMode,
+} from "@/types/decision";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -47,9 +51,9 @@ export async function GET(req: NextRequest) {
     });
 
     if (error) throw error;
-    return NextResponse.json({
-      feed: (data as DecisionalFeedPayload | null) ?? null,
-    });
+    const feed = (data as DecisionalFeedPayload | null) ?? null;
+    assertDecisionalSchemaV2(feed);
+    return NextResponse.json({ feed });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/alerts/feed] error:", err);

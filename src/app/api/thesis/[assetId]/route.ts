@@ -5,7 +5,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { ConvictionLevel, ThesisReviewPayload } from "@/types/decision";
+import {
+  assertDecisionalSchemaV2,
+  type ConvictionLevel,
+  type ThesisReviewPayload,
+} from "@/types/decision";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -47,9 +51,9 @@ export async function GET(
     });
 
     if (error) throw error;
-    return NextResponse.json({
-      thesis: (data as ThesisReviewPayload | null) ?? null,
-    });
+    const thesis = (data as (ThesisReviewPayload & { schema_version?: unknown }) | null) ?? null;
+    assertDecisionalSchemaV2(thesis);
+    return NextResponse.json({ thesis });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/thesis/[assetId]] GET error:", err);
@@ -105,7 +109,9 @@ export async function POST(
     });
 
     if (error) throw error;
-    return NextResponse.json({ result: data ?? null });
+    const result = (data as { schema_version?: unknown } | null) ?? null;
+    assertDecisionalSchemaV2(result);
+    return NextResponse.json({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/thesis/[assetId]] POST error:", err);

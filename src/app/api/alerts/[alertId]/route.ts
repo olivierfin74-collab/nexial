@@ -2,7 +2,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { AlertDecisionPayload } from "@/types/decision";
+import {
+  assertDecisionalSchemaV2,
+  type AlertDecisionPayload,
+} from "@/types/decision";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -37,9 +40,9 @@ export async function GET(
     });
 
     if (error) throw error;
-    return NextResponse.json({
-      decision: (data as AlertDecisionPayload | null) ?? null,
-    });
+    const decision = (data as AlertDecisionPayload | null) ?? null;
+    assertDecisionalSchemaV2(decision);
+    return NextResponse.json({ decision });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/alerts/[alertId]] error:", err);

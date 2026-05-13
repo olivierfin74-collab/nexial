@@ -2,7 +2,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { WordingDictionaryPayload } from "@/types/decision";
+import {
+  assertDecisionalSchemaV2,
+  type WordingDictionaryPayload,
+} from "@/types/decision";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,9 +32,9 @@ export async function GET(req: NextRequest) {
     });
 
     if (error) throw error;
-    return NextResponse.json({
-      wording: (data as WordingDictionaryPayload | null) ?? null,
-    });
+    const wording = (data as (WordingDictionaryPayload & { schema_version?: unknown }) | null) ?? null;
+    assertDecisionalSchemaV2(wording);
+    return NextResponse.json({ wording });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/wording] error:", err);

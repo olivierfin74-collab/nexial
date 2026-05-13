@@ -534,14 +534,24 @@ export type SupabaseRpcSignatures = {
 };
 
 /**
- * Throws if the backend ships a schema_version other than 'v2'. Call at the
- * route handler / fetch boundary, never inside rendering components.
+ * Lightweight guard against silent contract drift.
+ *
+ * - Skips when the payload is null / undefined.
+ * - Skips when `schema_version` is absent (RPCs that don't ship the
+ *   tag — e.g. thesis review, ui capabilities, wording — are not in
+ *   scope for the v2 schema pin).
+ * - Throws ONLY when `schema_version` is present and differs from 'v2'.
+ *
+ * Call at the route handler / fetch boundary, never inside rendering
+ * components.
  */
-export function assertDecisionalSchemaV2(payload: { schema_version?: unknown } | null): void {
+export function assertDecisionalSchemaV2(payload: { schema_version?: unknown } | null | undefined): void {
   if (!payload) return;
-  if (payload.schema_version !== DECISIONAL_SCHEMA_VERSION) {
+  const v = payload.schema_version;
+  if (v === undefined || v === null) return;
+  if (v !== DECISIONAL_SCHEMA_VERSION) {
     throw new Error(
-      `[decisional] unexpected schema_version: ${String(payload.schema_version)} (expected ${DECISIONAL_SCHEMA_VERSION})`,
+      `[decisional] unexpected schema_version: ${String(v)} (expected ${DECISIONAL_SCHEMA_VERSION})`,
     );
   }
 }
