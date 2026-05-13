@@ -1,5 +1,11 @@
-import { redirect } from 'next/navigation'
+'use client'
+
+import NexialApp from '../../../nexial-app-complete'
 
 export default function MobilePage() {
-  redirect('/aujourdhui')
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
+      <NexialApp />
+    </div>
+  )
 }
