@@ -1,5 +1,12 @@
 'use client'
 
+// DEPRECATED — superseded by `src/components/ui/decisional/AlertCard`
+// (DecisionalAlertCard). This component performs frontend mapping of alert
+// kinds, which the decisional architecture forbids. It is currently unused;
+// kept temporarily to avoid breaking any external imports. Remove once the
+// backend RPCs `fn_alerts_decisional_feed` / `fn_alert_decision_message`
+// are wired into the UI surfaces.
+
 import { useMemo } from 'react'
 import type { AlertKind, AlertRow } from '@/types/nx'
 import { Sparkline } from './Sparkline'

@@ -20,30 +20,30 @@ interface DecisionalAlertCardProps {
 
 function actionButtonStyle(action: DecisionAction, primary: boolean): React.CSSProperties {
   const tone = getToneStyle(action.tone)
+  const base: React.CSSProperties = {
+    minHeight: 44,
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontFamily: 'var(--font-editorial-sans)',
+    fontSize: 13,
+    cursor: 'pointer',
+  }
   if (primary) {
     return {
+      ...base,
       background: tone.color,
       color: '#FFFFFF',
       border: `1px solid ${tone.color}`,
-      borderRadius: 6,
-      padding: '8px 12px',
-      fontFamily: 'var(--font-editorial-sans)',
-      fontSize: 12,
       fontWeight: 600,
-      cursor: 'pointer',
       flex: '1 1 auto',
     }
   }
   return {
+    ...base,
     background: 'transparent',
     color: 'var(--ink-secondary)',
     border: '1px solid var(--border-subtle)',
-    borderRadius: 6,
-    padding: '8px 12px',
-    fontFamily: 'var(--font-editorial-sans)',
-    fontSize: 12,
     fontWeight: 500,
-    cursor: 'pointer',
   }
 }
 
@@ -52,12 +52,12 @@ export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardP
 
   return (
     <article
-      className="flex flex-col gap-3 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+      data-tier={decision.tier}
+      className="flex flex-col gap-3 p-4 sm:p-5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border-subtle)',
         borderRadius: 12,
-        padding: 16,
       }}
     >
       {/* 1. Ticker + Verdict (dominant) */}
@@ -91,7 +91,7 @@ export function DecisionalAlertCard({ decision, onAction }: DecisionalAlertCardP
 
       {/* CTAs — backend-defined, no client-side intent logic */}
       {actions.length > 0 ? (
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap">
           {actions.map((action, idx) => {
             const primary = idx === 0
             return (
