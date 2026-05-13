@@ -5,7 +5,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { ExperienceMode, InboxPayload } from "@/types/decision";
+import {
+  assertDecisionalSchemaV2,
+  type ExperienceMode,
+  type InboxPayload,
+} from "@/types/decision";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -43,7 +47,9 @@ export async function GET(req: NextRequest) {
     });
 
     if (error) throw error;
-    return NextResponse.json({ inbox: data as InboxPayload | null });
+    const inbox = (data as InboxPayload | null) ?? null;
+    assertDecisionalSchemaV2(inbox);
+    return NextResponse.json({ inbox });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[/api/today/decisional-alerts] error:", err);

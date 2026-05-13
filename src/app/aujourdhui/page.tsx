@@ -5,14 +5,10 @@ import NexialApp from '../../../nexial-app-complete'
 import FlashDropEventsStrip from '@/components/FlashDropEventsStrip'
 import MorningBriefCard from '@/components/MorningBriefCard'
 import { DecisionalInbox } from '@/components/ui/decisional'
-import type {
-  DecisionalFeedPayload,
-  InboxPayload,
-} from '@/types/decision'
+import type { InboxPayload } from '@/types/decision'
 
 interface FetchState {
   inbox: InboxPayload | null
-  feed: DecisionalFeedPayload | null
   loading: boolean
   error: string | null
 }
@@ -20,7 +16,6 @@ interface FetchState {
 export default function AujourdhuiPage() {
   const [state, setState] = useState<FetchState>({
     inbox: null,
-    feed: null,
     loading: true,
     error: null,
   })
@@ -29,24 +24,18 @@ export default function AujourdhuiPage() {
     let cancelled = false
     async function load() {
       try {
-        const [inboxRes, feedRes] = await Promise.all([
-          fetch('/api/today/decisional-alerts', { cache: 'no-store' }),
-          fetch('/api/alerts/feed', { cache: 'no-store' }),
-        ])
-        const inboxJson = await inboxRes.json()
-        const feedJson = await feedRes.json()
+        const res = await fetch('/api/today/decisional-alerts', { cache: 'no-store' })
+        const json = await res.json()
         if (cancelled) return
         setState({
-          inbox: (inboxJson?.inbox as InboxPayload | null) ?? null,
-          feed: (feedJson?.feed as DecisionalFeedPayload | null) ?? null,
+          inbox: (json?.inbox as InboxPayload | null) ?? null,
           loading: false,
-          error: inboxJson?.error || feedJson?.error || null,
+          error: json?.error || null,
         })
       } catch (err) {
         if (cancelled) return
         setState({
           inbox: null,
-          feed: null,
           loading: false,
           error: err instanceof Error ? err.message : 'Erreur réseau',
         })
@@ -66,7 +55,7 @@ export default function AujourdhuiPage() {
       <DecisionalInbox
         summary={state.inbox?.summary ?? null}
         thesisGap={state.inbox?.thesis_gap ?? null}
-        sections={state.feed?.sections ?? null}
+        sections={state.inbox?.sections ?? null}
         loading={state.loading}
       />
 
