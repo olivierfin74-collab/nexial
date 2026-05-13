@@ -390,6 +390,36 @@ export const DEFAULT_UI_CAPABILITIES: UserUiCapabilitiesPayload = {
 // ════════════════════════════════════════════════════════
 // DISPATCH ALERT ACTION (fn_dispatch_alert_action)
 // ════════════════════════════════════════════════════════
+/**
+ * Backend-emitted hint of how the frontend should react to a dispatched
+ * action. The UI prefers `redirect_kind` over `redirect_to`; `redirect_to`
+ * is a fallback path used only when the dedicated modal is not implemented.
+ *
+ * Mapping observed in PROD (nx.fn_dispatch_alert_action source):
+ *   open_ladder_modal         BUY, BUY_MORE, BUY_SMALL
+ *   open_exit_modal           SELL, TRIM
+ *   open_thesis_modal         REVIEW_THESIS
+ *   open_thesis_modal_urgent  REVIEW_URGENT
+ *   refresh_inbox             HOLD, WATCH, MONITOR
+ *   dismiss_confirmed         IGNORE_HOLD
+ */
+export type DispatchRedirectKind =
+  | 'open_ladder_modal'
+  | 'open_exit_modal'
+  | 'open_thesis_modal'
+  | 'open_thesis_modal_urgent'
+  | 'refresh_inbox'
+  | 'dismiss_confirmed';
+
+export interface DispatchModalContext {
+  modal_name: string;
+  alert_id?: string;
+  asset_id: string | null;
+  ticker: string;
+  action_code?: ActionCode;
+  urgency_banner_fr?: string;
+}
+
 export interface DispatchAlertActionResult {
   schema_version: DecisionalSchemaVersion;
   ok: boolean;
@@ -399,6 +429,10 @@ export interface DispatchAlertActionResult {
   new_status: 'SEEN' | 'DISMISSED';
   message_fr: string;
   redirect_to: string | null;
+  redirect_kind: DispatchRedirectKind;
+  modal_context: DispatchModalContext | null;
+  /** Present only when ok=false. */
+  error?: string;
 }
 
 // ════════════════════════════════════════════════════════
