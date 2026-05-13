@@ -1396,6 +1396,103 @@ const WealthDecisionCard = ({ onClick }) => {
   );
 };
 
+// Display-only mapping : backend alert_kind → simple FR verdict surfaced on
+// the mobile today tab. Frontend never recomputes a verdict ; this is a
+// pure presentation translation. Kept in lockstep with alertKindLabel().
+const TOP_OPP_VERDICT_FR = (kind) => {
+  if (!kind) return "Surveiller";
+  if (kind === "BUY_ZONE_ENTERED") return "Acheter";
+  if (kind === "HOT_PULLBACK_ENTERED" || kind === "OPPORTUNITY_DEEPENED") return "Renforcer";
+  if (kind === "REVERSAL_HIGH") return "Acheter";
+  if (kind === "REVERSAL_MEDIUM") return "Surveiller";
+  if (kind === "FLASH_DROP") return "Surveiller";
+  if (kind === "WATCH_PULLBACK_ENTERED") return "Surveiller";
+  if (kind.startsWith("OVERBOUGHT")) return "Examiner";
+  if (kind.startsWith("DOWNTREND")) return "Examiner";
+  return "Surveiller";
+};
+
+const TOP_OPP_STATUS_FR = (kind) => {
+  if (!kind) return "À suivre";
+  if (kind === "BUY_ZONE_ENTERED" || kind === "HOT_PULLBACK_ENTERED" || kind === "OPPORTUNITY_DEEPENED") {
+    return "Actionnable maintenant";
+  }
+  if (kind === "WATCH_PULLBACK_ENTERED" || kind === "REVERSAL_HIGH" || kind === "REVERSAL_MEDIUM") {
+    return "À surveiller à l'ouverture";
+  }
+  return "À suivre";
+};
+
+const TOP_OPP_VERDICT_COLOR = (verdict) => {
+  if (verdict === "Acheter" || verdict === "Renforcer") return T.forestGreen;
+  if (verdict === "Examiner") return T.amber;
+  return T.inkTertiary;
+};
+
+const TopOpportunitiesCard = ({ onClick, onAssetClick }) => {
+  const { alerts, loading } = useDecisionAlerts(HOT_DECISION_KINDS, NEW_DECISION_STATUS);
+  const items = (alerts || []).slice(0, 5);
+
+  return (
+    <button type="button" onClick={onClick} style={{
+      textAlign: "left", padding: 14, backgroundColor: T.bgSurface,
+      border: `1px solid ${T.borderSubtle}`, borderRadius: 12,
+      cursor: "pointer", minHeight: 128, width: "100%",
+    }}>
+      <Eyebrow color={T.forestGreen}>Top opportunités</Eyebrow>
+      <div style={{
+        marginTop: 4, fontFamily: FONT_SANS, fontSize: 12,
+        color: T.inkSecondary, lineHeight: 1.4,
+      }}>
+        Les actifs qui méritent votre attention aujourd'hui.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
+        {items.length === 0 ? (
+          <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkTertiary, padding: "8px 0" }}>
+            {loading ? "Chargement…" : "Aucune opportunité aujourd'hui."}
+          </span>
+        ) : items.map((alert, index) => {
+          const verdict = TOP_OPP_VERDICT_FR(alert.alert_kind);
+          const verdictColor = TOP_OPP_VERDICT_COLOR(verdict);
+          const why = alertKindLabel(alert.alert_kind);
+          const status = TOP_OPP_STATUS_FR(alert.alert_kind);
+          return (
+            <div
+              key={alert.id}
+              onClick={(e) => { e.stopPropagation(); onAssetClick(alert.ticker); }}
+              style={{
+                display: "flex", flexDirection: "column", gap: 3,
+                padding: "10px 0",
+                borderTop: index === 0 ? "none" : `1px solid ${T.borderSubtle}`,
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 800, color: T.inkPrimary }}>
+                  {alert.ticker}
+                </span>
+                <span style={{
+                  fontFamily: FONT_SANS, fontSize: 11, fontWeight: 700,
+                  color: verdictColor, textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}>
+                  {verdict}
+                </span>
+              </div>
+              <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: T.inkSecondary, lineHeight: 1.35 }}>
+                {why}
+              </span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.inkTertiary, letterSpacing: "0.03em" }}>
+                {status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </button>
+  );
+};
+
 const DailyDecisionsSection = ({ onNavigate, onAssetClick }) => (
   <section style={{ padding: "0 20px 18px" }}>
     <div style={{ marginBottom: 12 }}>
@@ -1404,7 +1501,7 @@ const DailyDecisionsSection = ({ onNavigate, onAssetClick }) => (
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
       <MarketRegimeDecisionCard onClick={() => onNavigate("dashboard")} />
-      <AlertsDecisionCard title="Opportunités à suivre" kinds={HOT_DECISION_KINDS} statuses={NEW_DECISION_STATUS} onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
+      <TopOpportunitiesCard onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
       <AlertsDecisionCard title="Décisions à traiter" kinds={RISK_DECISION_KINDS} statuses={ACTIVE_DECISION_STATUS} tone="risk" onClick={() => onNavigate("today")} onAssetClick={onAssetClick} />
     </div>
   </section>
