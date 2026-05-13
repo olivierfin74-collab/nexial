@@ -363,7 +363,7 @@ const alertKindLabel = (kind) => {
     BUY_ZONE_ENTERED: "Zone d'achat atteinte",
     REVERSAL_HIGH: "Retournement fort",
     REVERSAL_MEDIUM: "Retournement modéré",
-    WATCH_PULLBACK_ENTERED: "Pullback à surveiller",
+    WATCH_PULLBACK_ENTERED: "Repli à surveiller",
     HOT_PULLBACK_ENTERED: "Repli après forte hausse",
     DOWNTREND_DANGER: "Tendance baissière dangereuse",
     DOWNTREND_DANGER_DETECTED: "Tendance baissière dangereuse",
