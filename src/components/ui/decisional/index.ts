@@ -18,6 +18,7 @@ export { InboxSection } from './InboxSection'
 export { DecisionalInbox } from './DecisionalInbox'
 export { LadderBuilderModal } from './LadderBuilderModal'
 export { ExitPlanModal } from './ExitPlanModal'
+export { ThesisEditorModal } from './ThesisEditorModal'
 export {
   TEMP_UI_ONLY_INBOX_SUMMARY,
   TEMP_UI_ONLY_THESIS_GAP,

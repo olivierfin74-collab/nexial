@@ -9,6 +9,7 @@ import {
   DecisionalInbox,
   LadderBuilderModal,
   ExitPlanModal,
+  ThesisEditorModal,
 } from '@/components/ui/decisional'
 import type {
   AlertDecisionPayload,
@@ -24,8 +25,13 @@ interface FetchState {
   error: string | null
 }
 
+type ModalKind = Extract<
+  DispatchRedirectKind,
+  'open_ladder_modal' | 'open_exit_modal' | 'open_thesis_modal' | 'open_thesis_modal_urgent'
+>
+
 interface ModalState {
-  kind: Extract<DispatchRedirectKind, 'open_ladder_modal' | 'open_exit_modal'> | null
+  kind: ModalKind | null
   context: DispatchModalContext | null
 }
 
@@ -129,13 +135,10 @@ export default function AujourdhuiPage() {
             setModal({ kind: 'open_exit_modal', context: dispatch.modal_context })
             break
           case 'open_thesis_modal':
+            setModal({ kind: 'open_thesis_modal', context: dispatch.modal_context })
+            break
           case 'open_thesis_modal_urgent':
-            // No dedicated modal yet — fall back to the backend redirect_to.
-            if (dispatch.redirect_to) {
-              router.push(dispatch.redirect_to)
-            } else {
-              await reloadInbox()
-            }
+            setModal({ kind: 'open_thesis_modal_urgent', context: dispatch.modal_context })
             break
           case 'refresh_inbox':
           case 'dismiss_confirmed':
@@ -201,6 +204,15 @@ export default function AujourdhuiPage() {
       />
       <ExitPlanModal
         open={modal.kind === 'open_exit_modal'}
+        context={modal.context}
+        onClose={closeModal}
+      />
+      <ThesisEditorModal
+        open={
+          modal.kind === 'open_thesis_modal' ||
+          modal.kind === 'open_thesis_modal_urgent'
+        }
+        urgent={modal.kind === 'open_thesis_modal_urgent'}
         context={modal.context}
         onClose={closeModal}
       />
