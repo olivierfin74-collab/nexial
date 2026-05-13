@@ -16,6 +16,8 @@ export { TelegramPreviewCard } from './TelegramPreviewCard'
 export type { TelegramVariant, TelegramPreviewCardProps } from './TelegramPreviewCard'
 export { InboxSection } from './InboxSection'
 export { DecisionalInbox } from './DecisionalInbox'
+export { LadderBuilderModal } from './LadderBuilderModal'
+export { ExitPlanModal } from './ExitPlanModal'
 export {
   TEMP_UI_ONLY_INBOX_SUMMARY,
   TEMP_UI_ONLY_THESIS_GAP,

@@ -5,10 +5,16 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import FlashDropEventsStrip from '@/components/FlashDropEventsStrip'
 import MorningBriefCard from '@/components/MorningBriefCard'
-import { DecisionalInbox } from '@/components/ui/decisional'
+import {
+  DecisionalInbox,
+  LadderBuilderModal,
+  ExitPlanModal,
+} from '@/components/ui/decisional'
 import type {
   AlertDecisionPayload,
   DispatchAlertActionResult,
+  DispatchModalContext,
+  DispatchRedirectKind,
   InboxPayload,
 } from '@/types/decision'
 
@@ -18,6 +24,11 @@ interface FetchState {
   error: string | null
 }
 
+interface ModalState {
+  kind: Extract<DispatchRedirectKind, 'open_ladder_modal' | 'open_exit_modal'> | null
+  context: DispatchModalContext | null
+}
+
 export default function AujourdhuiPage() {
   const router = useRouter()
   const [state, setState] = useState<FetchState>({
@@ -25,6 +36,7 @@ export default function AujourdhuiPage() {
     loading: true,
     error: null,
   })
+  const [modal, setModal] = useState<ModalState>({ kind: null, context: null })
   const seenSetRef = useRef<Set<string>>(new Set())
 
   const fetchInbox = useCallback(async (signal?: AbortSignal) => {
@@ -47,7 +59,7 @@ export default function AujourdhuiPage() {
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: err instanceof Error ? err.message : 'Erreur réseau',
+        error: err instanceof Error ? err.message : 'Connexion temporairement indisponible',
       }))
     }
   }, [fetchInbox])
@@ -65,7 +77,8 @@ export default function AujourdhuiPage() {
         setState({
           inbox: null,
           loading: false,
-          error: err instanceof Error ? err.message : 'Erreur réseau',
+          error:
+            err instanceof Error ? err.message : 'Connexion temporairement indisponible',
         })
       })
     return () => {
@@ -105,21 +118,52 @@ export default function AujourdhuiPage() {
           return
         }
 
-        toast.success(json.dispatch.message_fr)
+        const dispatch = json.dispatch
+        toast.success(dispatch.message_fr)
 
-        if (json.dispatch.redirect_to) {
-          router.push(json.dispatch.redirect_to)
-        } else {
-          await reloadInbox()
+        switch (dispatch.redirect_kind) {
+          case 'open_ladder_modal':
+            setModal({ kind: 'open_ladder_modal', context: dispatch.modal_context })
+            break
+          case 'open_exit_modal':
+            setModal({ kind: 'open_exit_modal', context: dispatch.modal_context })
+            break
+          case 'open_thesis_modal':
+          case 'open_thesis_modal_urgent':
+            // No dedicated modal yet — fall back to the backend redirect_to.
+            if (dispatch.redirect_to) {
+              router.push(dispatch.redirect_to)
+            } else {
+              await reloadInbox()
+            }
+            break
+          case 'refresh_inbox':
+          case 'dismiss_confirmed':
+            await reloadInbox()
+            break
+          default:
+            // Unknown redirect_kind — fall back to redirect_to or refresh.
+            if (dispatch.redirect_to) {
+              router.push(dispatch.redirect_to)
+            } else {
+              await reloadInbox()
+            }
         }
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : 'Connexion temporairement indisponible',
+          err instanceof Error
+            ? err.message
+            : 'Connexion temporairement indisponible',
         )
       }
     },
     [reloadInbox, router],
   )
+
+  const closeModal = useCallback(async () => {
+    setModal({ kind: null, context: null })
+    await reloadInbox()
+  }, [reloadInbox])
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
@@ -146,9 +190,20 @@ export default function AujourdhuiPage() {
             padding: '8px 0',
           }}
         >
-          Certaines données n’ont pas pu être mises à jour ({state.error}).
+          Certaines données n’ont pas pu être mises à jour.
         </div>
       ) : null}
+
+      <LadderBuilderModal
+        open={modal.kind === 'open_ladder_modal'}
+        context={modal.context}
+        onClose={closeModal}
+      />
+      <ExitPlanModal
+        open={modal.kind === 'open_exit_modal'}
+        context={modal.context}
+        onClose={closeModal}
+      />
     </div>
   )
 }
