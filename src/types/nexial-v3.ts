@@ -325,6 +325,78 @@ export interface FocusAssetsListPayload {
 }
 
 // ════════════════════════════════════════════════════════
+// fn_dashboard_header — patrimoine recap header
+// ════════════════════════════════════════════════════════
+export interface DashboardCash {
+  display: string;
+  total_eur: number;
+}
+
+export interface DashboardMarket {
+  eu_open: boolean;
+  us_open: boolean;
+  context_fr: string;
+  regime_code: string;
+  regime_label_fr: string;
+}
+
+export interface DashboardPatrimoine {
+  display: string;
+  pnl_eur: number;
+  pnl_pct: number;
+  pnl_display: string;
+  invested_eur: number;
+  total_value_eur: number;
+}
+
+export interface DashboardDataFreshness {
+  status: 'FRESH' | 'STALE' | (string & {});
+  label_fr: string;
+  oldest_quote_age_hours?: number;
+}
+
+export interface DashboardHeaderPayload {
+  schema_version: 'v2';
+  generated_at: string;
+  cash: DashboardCash;
+  market: DashboardMarket;
+  patrimoine: DashboardPatrimoine;
+  data_freshness: DashboardDataFreshness;
+}
+
+// ════════════════════════════════════════════════════════
+// fn_portfolio_cash_breakdown — cash & invested per account
+// ════════════════════════════════════════════════════════
+export interface PortfolioCashTotals {
+  cash_eur: number;
+  cash_display: string;
+  invested_eur: number;
+  invested_display: string;
+  patrimoine_eur: number;
+}
+
+export interface PortfolioCashAccount {
+  account_id: string;
+  name: string;
+  kind: 'pea' | 'cto' | 'crypto' | (string & {});
+  broker: string | null;
+  base_currency: string;
+  cash_eur: number;
+  cash_native: number;
+  cash_display: string;
+  invested_eur: number;
+  invested_display: string;
+  total_eur: number;
+}
+
+export interface PortfolioCashBreakdownPayload {
+  schema_version: 'v2';
+  generated_at: string;
+  totals: PortfolioCashTotals;
+  accounts: PortfolioCashAccount[];
+}
+
+// ════════════════════════════════════════════════════════
 // Mutation results — kept permissive: backend may return more fields
 // ════════════════════════════════════════════════════════
 export interface SetWatchLevelInput {
