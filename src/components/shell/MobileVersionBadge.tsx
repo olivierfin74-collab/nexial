@@ -8,12 +8,43 @@
 import { formatMobileVersion } from '@/lib/version'
 
 interface MobileVersionBadgeProps {
-  /** "header" → small text floated top-right; "footer" → grey caption. */
-  variant?: 'header' | 'footer'
+  /**
+   * - "loud"   → contrasted pill for immediate operator validation
+   * - "header" → small mono pill, sits in a top-right header column
+   * - "footer" → grey caption, used in AppShell footer slot
+   */
+  variant?: 'loud' | 'header' | 'footer'
 }
 
 export function MobileVersionBadge({ variant = 'header' }: MobileVersionBadgeProps) {
   const text = formatMobileVersion()
+
+  if (variant === 'loud') {
+    return (
+      <span
+        data-version={text}
+        aria-label={`Version ${text}`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 11,
+          fontWeight: 800,
+          color: '#FFFFFF',
+          background: 'var(--forest-green)',
+          border: '1px solid var(--forest-green)',
+          letterSpacing: '0.06em',
+          padding: '4px 8px',
+          borderRadius: 999,
+          whiteSpace: 'nowrap',
+          textTransform: 'uppercase',
+        }}
+      >
+        {text}
+      </span>
+    )
+  }
+
   const isHeader = variant === 'header'
   return (
     <span
