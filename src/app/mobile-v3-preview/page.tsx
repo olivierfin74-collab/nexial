@@ -233,7 +233,7 @@ export default function MobileV3PreviewPage() {
               letterSpacing: 'var(--tracking-eyebrow)',
             }}
           >
-            Preview v3
+            Preview v3.0.4.1 · 96ed8c6
           </span>
           <h1
             style={{
