@@ -24,7 +24,11 @@ interface MobileTopHeaderProps {
   /** Optional inline node rendered under the subtitle / contextLine
    *  (used for the EU/US market status badge). */
   extras?: ReactNode
-  /** Show the loud version badge for operator validation. */
+  /** Show the build version badge. Defaults false now that the badge
+   *  lives in /settings only. Pass loudVersion to control its style. */
+  showVersion?: boolean
+  /** Loud variant for operator validation. Only renders when
+   *  showVersion is true. */
   loudVersion?: boolean
   /** Show the bell. Defaults true. */
   showBell?: boolean
@@ -40,6 +44,7 @@ export function MobileTopHeader({
   subtitle,
   contextLine,
   extras,
+  showVersion = false,
   loudVersion = true,
   showBell = true,
   showSettings = true,
@@ -123,7 +128,9 @@ export function MobileTopHeader({
           flexShrink: 0,
         }}
       >
-        <MobileVersionBadge variant={loudVersion ? 'loud' : 'header'} />
+        {showVersion ? (
+          <MobileVersionBadge variant={loudVersion ? 'loud' : 'header'} />
+        ) : null}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {showBell ? <NotificationBellPanel compact /> : null}
           {showSettings ? (

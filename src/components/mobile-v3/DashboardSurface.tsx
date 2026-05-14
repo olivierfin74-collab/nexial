@@ -1,27 +1,35 @@
 'use client'
 
-// Dashboard mobile surface (P6 RESTORE FUNCTIONAL MASTER) — unified
-// cash window restored from the legacy YourMoney pattern
-// (nexial-app-complete.jsx:1049) into the AppShell V3.
+// Dashboard mobile surface — UX-R1 / P6 refinement.
 //
-// One single card holds:
-//   - Total patrimoine + PnL (display, mono small)
-//   - Two big numbers in columns: Investi | Cash dispo
-//   - Footer click area (positions count + chevron Détail/Masquer)
-//   - Inline accounts list (only accounts with total_eur > 0)
+// Hierarchy (top-down, all stable inside AppShell V3):
+//   - MobileTopHeader (compact, no version badge by default,
+//     compact freshness pill rendered in the body when STALE)
+//   - Cash master card (premium dark gradient, integrated accounts
+//     drawer, "Ton argent" eyebrow)
+//   - Top opportunités (CollapsibleSection, 3 FocusOpportunityCard
+//     items from fn_focus_today, CTA jumps to /aujourdhui)
+//   - Actions en surveillance (CollapsibleSection, 5-row Sniper
+//     ribbon from fn_focus_assets_list, row click jumps to /sniper)
 //
-// No separate cards, no metier recompute. All amounts come verbatim
-// from fn_dashboard_header and fn_portfolio_cash_breakdown.
+// No metier recompute, no client-side ranking. All amounts, labels,
+// signals and CTAs come from the backend payloads.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ChevronDown, ChevronRight, Target } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
+import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
-import { OpenSniperCta } from '@/components/mobile-v3/OpenSniperCta'
+import { FocusOpportunityCard } from '@/components/mobile-v3/FocusOpportunityCard'
 import type {
   DashboardHeaderPayload,
   FetchEnvelope,
+  FocusAsset,
+  FocusAssetsListPayload,
+  FocusTodayItem,
+  FocusTodayPayload,
   PortfolioCashAccount,
   PortfolioCashBreakdownPayload,
 } from '@/types/nexial-v3'
@@ -57,15 +65,6 @@ async function fetchEnvelope<T>(
   }
 }
 
-const meta: React.CSSProperties = {
-  fontFamily: 'var(--font-editorial-mono)',
-  fontSize: 10,
-  color: 'var(--ink-muted)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  margin: 0,
-}
-
 const metaPale: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-mono)',
   fontSize: 10,
@@ -73,15 +72,6 @@ const metaPale: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   fontWeight: 600,
-  margin: 0,
-}
-
-const bigValue: React.CSSProperties = {
-  fontFamily: 'var(--font-editorial-serif)',
-  fontSize: 22,
-  fontWeight: 500,
-  color: 'var(--ink-primary)',
-  letterSpacing: '-0.01em',
   margin: 0,
 }
 
@@ -95,17 +85,32 @@ const bigOnDark: React.CSSProperties = {
 }
 
 function hasMoney(a: PortfolioCashAccount): boolean {
-  // Hide accounts with no money at all (e.g. Lab FULL_AUTO at 0, empty
-  // Crypto). A cash-only account stays visible (Paper Trading).
   const total = Number(a.total_eur ?? 0)
   const cash = Number(a.cash_eur ?? 0)
   const invested = Number(a.invested_eur ?? 0)
   return total > 0 || cash > 0 || invested > 0
 }
 
+function distanceTone(color: string | undefined): string {
+  switch (color) {
+    case 'green':
+      return 'var(--forest-green)'
+    case 'yellow':
+      return '#8B6914'
+    case 'red':
+      return 'var(--burgundy)'
+    case 'neutral':
+    default:
+      return 'var(--ink-tertiary)'
+  }
+}
+
 export function DashboardSurface() {
+  const router = useRouter()
   const [header, setHeader] = useState<SurfaceState<DashboardHeaderPayload>>(initial)
   const [cash, setCash] = useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
+  const [focus, setFocus] = useState<SurfaceState<FocusTodayPayload>>(initial)
+  const [focusAssets, setFocusAssets] = useState<SurfaceState<FocusAssetsListPayload>>(initial)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
@@ -118,10 +123,14 @@ export function DashboardSurface() {
         '/api/mobile/portfolio-cash-breakdown',
         ctrl.signal,
       ),
-    ]).then(([h, c]) => {
+      fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', ctrl.signal),
+      fetchEnvelope<FocusAssetsListPayload>('/api/mobile/focus-assets-list', ctrl.signal),
+    ]).then(([h, c, f, fa]) => {
       if (cancelled) return
       setHeader(h)
       setCash(c)
+      setFocus(f)
+      setFocusAssets(fa)
     })
 
     return () => {
@@ -135,14 +144,17 @@ export function DashboardSurface() {
   const freshness = header.data?.data_freshness
   const totals = cash.data?.totals
   const accountsAll = cash.data?.accounts ?? []
-  const visibleAccounts = useMemo(
-    () => accountsAll.filter(hasMoney),
-    [accountsAll],
-  )
+  const visibleAccounts = useMemo(() => accountsAll.filter(hasMoney), [accountsAll])
 
-  const pnlColor = (patrimoine?.pnl_eur ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
+  const priorities = focus.data?.priorities ?? []
+  const topOpportunities = useMemo(() => priorities.slice(0, 3), [priorities])
+
+  const focusList = focusAssets.data?.focus_assets ?? []
+  const sniperRibbon = useMemo(() => focusList.slice(0, 5), [focusList])
+
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
+  const isStale = freshness && freshness.status !== 'FRESH' && freshness.label_fr
 
   const marketExtras = market ? (
     <MarketStatusBadge
@@ -151,6 +163,13 @@ export function DashboardSurface() {
       regimeLabelFr={market.regime_label_fr}
     />
   ) : null
+
+  const handleOpportunityCta = (item: FocusTodayItem) => {
+    // Dashboard is a 30-second view — open the full decisional surface
+    // on /aujourdhui where modals and dispatch are wired up.
+    void item
+    router.push('/aujourdhui')
+  }
 
   return (
     <AppShell>
@@ -171,37 +190,64 @@ export function DashboardSurface() {
           gap: 14,
         }}
       >
-        {freshness && freshness.status !== 'FRESH' && freshness.label_fr ? (
-          <div
-            style={{
-              borderRadius: 8,
-              background: '#FFF8E6',
-              border: '1px solid #E5C878',
-              color: '#7A5A00',
-              padding: '8px 10px',
-              fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {freshness.label_fr}
-          </div>
-        ) : null}
-
         <section
           data-card="cash-master"
           data-variant="dark"
           style={{
-            background: 'var(--forest-deep)',
-            border: '1px solid var(--forest-deep)',
+            background:
+              'linear-gradient(135deg, #2A5A40 0%, var(--forest-deep) 60%, #15321F 100%)',
+            border: '1px solid #15321F',
             borderRadius: 12,
             overflow: 'hidden',
             color: '#FFFFFF',
+            boxShadow: '0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(15,42,28,0.18)',
           }}
         >
-          <header style={{ padding: '16px 18px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <header
+            style={{
+              padding: '16px 18px 4px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
             <span style={metaPale}>Ton argent</span>
-            {isLoading && !hasData ? (
+            {isStale ? (
+              <span
+                aria-label={freshness!.label_fr}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(229, 200, 120, 0.45)',
+                  background: 'rgba(229, 200, 120, 0.12)',
+                  color: '#E5C878',
+                  fontFamily: 'var(--font-editorial-mono)',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: '#E5C878',
+                  }}
+                />
+                À rafraîchir
+              </span>
+            ) : null}
+          </header>
+
+          {isLoading && !hasData ? (
+            <div style={{ padding: '6px 18px 18px' }}>
               <span
                 style={{
                   fontFamily: 'var(--font-editorial-mono)',
@@ -211,7 +257,9 @@ export function DashboardSurface() {
               >
                 Chargement…
               </span>
-            ) : header.error || !patrimoine ? (
+            </div>
+          ) : header.error || !patrimoine || !totals ? (
+            <div style={{ padding: '6px 18px 18px' }}>
               <span
                 style={{
                   fontFamily: 'var(--font-editorial-sans)',
@@ -221,10 +269,8 @@ export function DashboardSurface() {
               >
                 Certaines données n’ont pas pu être mises à jour.
               </span>
-            ) : null}
-          </header>
-
-          {totals && patrimoine ? (
+            </div>
+          ) : (
             <div
               style={{
                 display: 'grid',
@@ -242,7 +288,10 @@ export function DashboardSurface() {
                     fontFamily: 'var(--font-editorial-mono)',
                     fontSize: 12,
                     fontWeight: 700,
-                    color: (patrimoine.pnl_eur ?? 0) >= 0 ? 'var(--forest-green-pale)' : '#F1A39B',
+                    color:
+                      (patrimoine.pnl_eur ?? 0) >= 0
+                        ? 'var(--forest-green-pale)'
+                        : '#F1A39B',
                   }}
                 >
                   {patrimoine.pnl_display}
@@ -270,7 +319,7 @@ export function DashboardSurface() {
                 </span>
               </div>
             </div>
-          ) : null}
+          )}
 
           <button
             type="button"
@@ -340,7 +389,10 @@ export function DashboardSurface() {
                   key={a.account_id}
                   style={{
                     padding: '12px 16px',
-                    borderTop: index === 0 ? '1px solid var(--border-subtle)' : '1px solid var(--border-subtle)',
+                    borderTop:
+                      index === 0
+                        ? '1px solid var(--border-subtle)'
+                        : '1px solid var(--border-subtle)',
                     display: 'flex',
                     alignItems: 'baseline',
                     justifyContent: 'space-between',
@@ -398,8 +450,185 @@ export function DashboardSurface() {
           ) : null}
         </section>
 
-        <OpenSniperCta helper="Vos actifs en surveillance rapprochée." />
+        <CollapsibleSection
+          groupKey="dashboard-top-opportunities"
+          title="Top opportunités"
+          count={topOpportunities.length || null}
+          subtitle="Les 3 idées à regarder en premier."
+          defaultOpen
+        >
+          {focus.loading ? (
+            <p
+              aria-busy="true"
+              style={paragraph}
+            >
+              Chargement…
+            </p>
+          ) : focus.error ? (
+            <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
+          ) : topOpportunities.length === 0 ? (
+            <p style={paragraph}>Aucune opportunité prioritaire pour le moment.</p>
+          ) : (
+            topOpportunities.map((item) => (
+              <FocusOpportunityCard
+                key={item.alert_id || item.asset_id || item.ticker}
+                item={item}
+                onCta={handleOpportunityCta}
+              />
+            ))
+          )}
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          groupKey="dashboard-sniper-ribbon"
+          title="Actions en surveillance"
+          count={sniperRibbon.length || null}
+          subtitle="Actifs en surveillance rapprochée."
+          defaultOpen
+        >
+          {focusAssets.loading ? (
+            <p aria-busy="true" style={paragraph}>
+              Chargement…
+            </p>
+          ) : focusAssets.error ? (
+            <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
+          ) : sniperRibbon.length === 0 ? (
+            <p style={paragraph}>Aucun actif en surveillance rapprochée.</p>
+          ) : (
+            <ul
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {sniperRibbon.map((asset, idx) => (
+                <SniperRibbonRow
+                  key={asset.asset_id}
+                  asset={asset}
+                  isLast={idx === sniperRibbon.length - 1}
+                  onOpen={() => router.push('/sniper')}
+                />
+              ))}
+            </ul>
+          )}
+          {focusList.length > sniperRibbon.length ? (
+            <button
+              type="button"
+              onClick={() => router.push('/sniper')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                color: 'var(--forest-green)',
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+                cursor: 'pointer',
+                alignSelf: 'flex-start',
+              }}
+            >
+              Voir tous les snipers →
+            </button>
+          ) : null}
+        </CollapsibleSection>
       </div>
     </AppShell>
   )
+}
+
+interface SniperRibbonRowProps {
+  asset: FocusAsset
+  isLast: boolean
+  onOpen: () => void
+}
+
+function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
+  const target = asset.price_targets?.[0]
+  const distancePct = target?.distance_pct
+  const distanceColor = asset.signal?.distance_color
+
+  return (
+    <li
+      style={{
+        borderTop: isLast ? 'none' : '1px solid var(--border-subtle)',
+        // shift the first row up so the inner padding handles its own
+        // separator above; subsequent rows take a top border.
+      }}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        style={{
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          padding: '10px 0',
+          textAlign: 'left',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <Target
+          size={14}
+          aria-hidden
+          style={{ color: 'var(--forest-green)', flexShrink: 0 }}
+        />
+        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {asset.asset_name}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 11,
+              color: 'var(--ink-secondary)',
+              letterSpacing: '0.03em',
+            }}
+          >
+            {asset.ticker}
+          </span>
+        </span>
+        {Number.isFinite(distancePct) && distancePct != null ? (
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 11,
+              fontWeight: 700,
+              color: distanceTone(distanceColor),
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {distancePct >= 0 ? '+' : ''}
+            {distancePct.toFixed(2)} % du palier
+          </span>
+        ) : null}
+        <ChevronRight size={14} aria-hidden style={{ color: 'var(--ink-tertiary)', flexShrink: 0 }} />
+      </button>
+    </li>
+  )
+}
+
+const paragraph: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  color: 'var(--ink-tertiary)',
+  lineHeight: 1.4,
 }

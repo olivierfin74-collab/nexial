@@ -14,6 +14,7 @@ export default function SettingsPage() {
         eyebrow="Préférences"
         title="Réglages"
         showSettings={false}
+        showVersion
       />
       <div
         style={{
