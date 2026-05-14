@@ -1,20 +1,28 @@
 'use client'
 
-// Dashboard mobile surface — patrimoine + cash + accounts breakdown.
-// Mounts AppShell + MobileTopHeader so the route shares the exact
-// same shell/lifecycle as every other v3 surface. Pure render-only:
-// no metier logic, no client-side recompute, every label and amount
-// comes verbatim from the backend.
+// Dashboard mobile surface (P6 RESTORE FUNCTIONAL MASTER) — unified
+// cash window restored from the legacy YourMoney pattern
+// (nexial-app-complete.jsx:1049) into the AppShell V3.
+//
+// One single card holds:
+//   - Total patrimoine + PnL (display, mono small)
+//   - Two big numbers in columns: Investi | Cash dispo
+//   - Footer click area (positions count + chevron Détail/Masquer)
+//   - Inline accounts list (only accounts with total_eur > 0)
+//
+// No separate cards, no metier recompute. All amounts come verbatim
+// from fn_dashboard_header and fn_portfolio_cash_breakdown.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
-import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import { OpenSniperCta } from '@/components/mobile-v3/OpenSniperCta'
 import type {
   DashboardHeaderPayload,
   FetchEnvelope,
+  PortfolioCashAccount,
   PortfolioCashBreakdownPayload,
 } from '@/types/nexial-v3'
 
@@ -57,16 +65,29 @@ const meta: React.CSSProperties = {
   letterSpacing: '0.06em',
   margin: 0,
 }
-const value: React.CSSProperties = {
-  fontFamily: 'var(--font-editorial-mono)',
-  fontSize: 16,
+
+const bigValue: React.CSSProperties = {
+  fontFamily: 'var(--font-editorial-serif)',
+  fontSize: 22,
+  fontWeight: 500,
   color: 'var(--ink-primary)',
+  letterSpacing: '-0.01em',
   margin: 0,
+}
+
+function hasMoney(a: PortfolioCashAccount): boolean {
+  // Hide accounts with no money at all (e.g. Lab FULL_AUTO at 0, empty
+  // Crypto). A cash-only account stays visible (Paper Trading).
+  const total = Number(a.total_eur ?? 0)
+  const cash = Number(a.cash_eur ?? 0)
+  const invested = Number(a.invested_eur ?? 0)
+  return total > 0 || cash > 0 || invested > 0
 }
 
 export function DashboardSurface() {
   const [header, setHeader] = useState<SurfaceState<DashboardHeaderPayload>>(initial)
   const [cash, setCash] = useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -94,11 +115,15 @@ export function DashboardSurface() {
   const market = header.data?.market
   const freshness = header.data?.data_freshness
   const totals = cash.data?.totals
-  const accounts = cash.data?.accounts ?? []
-  const contextLine = market?.context_fr
+  const accountsAll = cash.data?.accounts ?? []
+  const visibleAccounts = useMemo(
+    () => accountsAll.filter(hasMoney),
+    [accountsAll],
+  )
 
-  const positivePnL = (patrimoine?.pnl_eur ?? 0) >= 0
-  const pnlColor = positivePnL ? 'var(--forest-green)' : 'var(--burgundy)'
+  const pnlColor = (patrimoine?.pnl_eur ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
+  const isLoading = header.loading || cash.loading
+  const hasData = !!patrimoine && !!totals
 
   const marketExtras = market ? (
     <MarketStatusBadge
@@ -113,7 +138,6 @@ export function DashboardSurface() {
       <MobileTopHeader
         eyebrow="Patrimoine"
         title="Dashboard"
-        contextLine={contextLine}
         extras={marketExtras}
         compact
       />
@@ -146,22 +170,34 @@ export function DashboardSurface() {
         ) : null}
 
         <section
+          data-card="cash-master"
           style={{
             background: 'var(--surface)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 12,
-            padding: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
+            overflow: 'hidden',
           }}
         >
-          <header style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <header style={{ padding: '14px 16px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={meta}>Patrimoine total</span>
-            {header.loading ? (
-              <span style={{ ...value, color: 'var(--ink-tertiary)' }}>Chargement…</span>
+            {isLoading && !hasData ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-mono)',
+                  fontSize: 14,
+                  color: 'var(--ink-tertiary)',
+                }}
+              >
+                Chargement…
+              </span>
             ) : header.error || !patrimoine ? (
-              <span style={{ ...value, color: 'var(--ink-tertiary)', fontSize: 14 }}>
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 13,
+                  color: 'var(--ink-secondary)',
+                }}
+              >
                 Certaines données n’ont pas pu être mises à jour.
               </span>
             ) : (
@@ -180,7 +216,7 @@ export function DashboardSurface() {
                 <span
                   style={{
                     fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: 700,
                     color: pnlColor,
                   }}
@@ -192,99 +228,112 @@ export function DashboardSurface() {
           </header>
 
           {totals ? (
-            <dl
+            <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '8px 12px',
-                margin: 0,
+                gridTemplateColumns: '1fr 1px 1fr',
+                gap: 0,
+                padding: '12px 16px 14px',
+                alignItems: 'stretch',
               }}
             >
-              <div>
-                <dt style={meta}>Investi</dt>
-                <dd style={value}>{totals.invested_display}</dd>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={meta}>Investi</span>
+                <span style={bigValue}>{totals.invested_display}</span>
               </div>
-              <div>
-                <dt style={meta}>Cash</dt>
-                <dd style={value}>{totals.cash_display}</dd>
+              <div aria-hidden style={{ background: 'var(--border-subtle)', margin: '4px 12px' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={meta}>Cash dispo</span>
+                <span
+                  style={{
+                    ...bigValue,
+                    color:
+                      Number(totals.cash_eur ?? 0) > 0
+                        ? 'var(--forest-green)'
+                        : 'var(--ink-primary)',
+                  }}
+                >
+                  {totals.cash_display}
+                </span>
               </div>
-            </dl>
+            </div>
           ) : null}
-        </section>
 
-        <OpenSniperCta helper="Vos actifs en surveillance rapprochée." />
-
-        <CollapsibleSection
-          groupKey="dashboard-comptes"
-          title="Comptes"
-          count={accounts.length || null}
-          subtitle="Investi et cash disponible par compte."
-          defaultOpen={false}
-        >
-          {cash.loading ? (
-            <p
-              aria-busy="true"
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            disabled={!hasData || visibleAccounts.length === 0}
+            style={{
+              width: '100%',
+              padding: '10px 16px',
+              borderTop: '1px solid var(--border-subtle)',
+              background: 'transparent',
+              cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              textAlign: 'left',
+            }}
+          >
+            <span
               style={{
-                margin: 0,
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
                 color: 'var(--ink-tertiary)',
+                fontWeight: 500,
               }}
             >
-              Chargement…
-            </p>
-          ) : cash.error ? (
-            <p
-              role="status"
+              {hasData
+                ? `${visibleAccounts.length} compte${visibleAccounts.length > 1 ? 's' : ''}`
+                : '—'}
+            </span>
+            <span
               style={{
-                margin: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
+                fontWeight: 600,
                 color: 'var(--ink-secondary)',
               }}
             >
-              Certaines données n’ont pas pu être mises à jour.
-            </p>
-          ) : accounts.length === 0 ? (
-            <p
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 12,
-                color: 'var(--ink-tertiary)',
-              }}
-            >
-              Aucun compte rattaché.
-            </p>
-          ) : (
+              {expanded ? 'Masquer' : 'Détail'}
+              <ChevronDown
+                size={14}
+                aria-hidden
+                style={{
+                  transform: expanded ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 200ms',
+                }}
+              />
+            </span>
+          </button>
+
+          {expanded && hasData ? (
             <ul
               style={{
                 listStyle: 'none',
                 margin: 0,
                 padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
+                background: 'var(--canvas)',
               }}
             >
-              {accounts.map((a, index) => (
+              {visibleAccounts.map((a, index) => (
                 <li
                   key={a.account_id}
                   style={{
-                    padding: '10px 0',
-                    borderTop: index === 0 ? 'none' : '1px solid var(--border-subtle)',
+                    padding: '12px 16px',
+                    borderTop: index === 0 ? '1px solid var(--border-subtle)' : '1px solid var(--border-subtle)',
                     display: 'flex',
                     alignItems: 'baseline',
                     justifyContent: 'space-between',
                     gap: 8,
                   }}
                 >
-                  <span
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      minWidth: 0,
-                    }}
-                  >
+                  <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                     <span
                       style={{
                         fontFamily: 'var(--font-editorial-sans)',
@@ -306,13 +355,7 @@ export function DashboardSurface() {
                       {a.broker ?? a.kind.toUpperCase()}
                     </span>
                   </span>
-                  <span
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                    }}
-                  >
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                     <span
                       style={{
                         fontFamily: 'var(--font-editorial-mono)',
@@ -322,7 +365,7 @@ export function DashboardSurface() {
                     >
                       {a.invested_display}
                     </span>
-                    {a.cash_eur > 0 ? (
+                    {Number(a.cash_eur ?? 0) > 0 ? (
                       <span
                         style={{
                           fontFamily: 'var(--font-editorial-mono)',
@@ -338,8 +381,10 @@ export function DashboardSurface() {
                 </li>
               ))}
             </ul>
-          )}
-        </CollapsibleSection>
+          ) : null}
+        </section>
+
+        <OpenSniperCta helper="Vos actifs en surveillance rapprochée." />
       </div>
     </AppShell>
   )
