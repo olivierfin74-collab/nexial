@@ -1,42 +1,10 @@
-import { AppShell } from '@/components/shell/AppShell'
-import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
+import { OrdersSurface } from '@/components/mobile-v3/OrdersSurface'
 
-// Placeholder while the execution surface (orders in flight, suggested,
-// manual, history) is wired in a follow-up commit. Lives inside the
-// unified v3 AppShell so the new bottom-nav tab cannot 404.
+// Real Orders surface restored from the legacy OrdersPage / OrderRow
+// pattern (nexial-app-complete.jsx) into the unified v3 AppShell.
+// Read-only restoration: filter chips + grouping by ticker + status
+// rows. Manual order creation and execution dispatch stay legacy for
+// now — phase 1 is "lecture excellente".
 export default function OrdersPage() {
-  return (
-    <AppShell>
-      <MobileTopHeader
-        eyebrow="Exécution"
-        title="Orders"
-        subtitle="Ordres en cours, proposés, manuels et historique."
-        compact
-      />
-      <div
-        style={{
-          maxWidth: 560,
-          margin: '0 auto',
-          padding: '0 16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        <p
-          style={{
-            margin: 0,
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 13,
-            color: 'var(--ink-secondary)',
-            lineHeight: 1.4,
-          }}
-        >
-          La surface d’exécution sera raccordée aux RPC backend dans un
-          prochain commit. Cette page sera remplacée sans changer la
-          navigation ni le shell.
-        </p>
-      </div>
-    </AppShell>
-  )
+  return <OrdersSurface />
 }
