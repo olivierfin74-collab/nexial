@@ -21,6 +21,7 @@ import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { DecisionsToHandleCard } from '@/components/mobile-v3/DecisionsToHandleCard'
 import { FocusOpportunityCard } from '@/components/mobile-v3/FocusOpportunityCard'
+import { OpenSniperCta } from '@/components/mobile-v3/OpenSniperCta'
 import { SniperSummaryCard } from '@/components/mobile-v3/SniperSummaryCard'
 import { TodoListCard } from '@/components/mobile-v3/TodoListCard'
 import {
@@ -278,6 +279,7 @@ export function TodaySurface() {
             loading={snipers.loading}
             error={snipers.error}
           />
+          <OpenSniperCta helper="Surveillance rapprochée + Suivi normal." />
         </CollapsibleSection>
 
         <CollapsibleSection

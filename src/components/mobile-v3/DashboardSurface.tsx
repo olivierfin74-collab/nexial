@@ -11,6 +11,7 @@ import { AppShell } from '@/components/shell/AppShell'
 import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
+import { OpenSniperCta } from '@/components/mobile-v3/OpenSniperCta'
 import type {
   DashboardHeaderPayload,
   FetchEnvelope,
@@ -210,6 +211,8 @@ export function DashboardSurface() {
             </dl>
           ) : null}
         </section>
+
+        <OpenSniperCta helper="Vos actifs en surveillance rapprochée." />
 
         <CollapsibleSection
           groupKey="dashboard-comptes"
