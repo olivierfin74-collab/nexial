@@ -451,6 +451,68 @@ export interface PortfolioEnrichedPayload {
 }
 
 // ════════════════════════════════════════════════════════
+// fn_dashboard_top_opportunities — 30-second view feed
+// ════════════════════════════════════════════════════════
+export type OpportunityRedirectKind =
+  | 'open_ladder_modal'
+  | 'navigate_to_asset'
+  | 'navigate_to_opportunities'
+  | (string & {});
+
+export interface DashboardOpportunityCta {
+  label_fr: string;
+  redirect_kind: OpportunityRedirectKind;
+  /** Loose shape — backend ships either a flat { ticker, asset_id }
+   *  (navigate_to_asset) or a nested { modal_name, props: {...} }
+   *  (open_ladder_modal). The frontend does not look inside. */
+  modal_context?: Record<string, unknown> | null;
+}
+
+export interface DashboardOpportunityItem {
+  rank: number;
+  region: 'EU' | 'US' | (string & {});
+  ticker: string;
+  asset_id: string;
+  asset_name_fr: string;
+  sector_fr?: string | null;
+  headline_fr: string;
+  broker_target?: string | null;
+  price_display: string;
+  priority_color: 'green' | 'yellow' | 'red' | 'neutral' | (string & {});
+  priority_label_fr: string;
+  account_label_fr?: string | null;
+  context_tags_fr?: string[] | null;
+  cta: DashboardOpportunityCta;
+}
+
+export interface DashboardOpportunitiesRegionalBalance {
+  eu: number;
+  us: number;
+}
+
+export interface DashboardOpportunitiesEmptyState {
+  title_fr?: string;
+  message_fr?: string;
+  [key: string]: unknown;
+}
+
+export interface DashboardTopOpportunitiesPayload {
+  schema_version: 'v2';
+  generated_at: string;
+  market_state: 'OPEN' | 'CLOSED' | 'BEFORE_OPEN' | (string & {});
+  market_label_fr: string;
+  title_fr: string;
+  subtitle_fr: string;
+  shown_count: number;
+  total_available: number;
+  regional_balance: DashboardOpportunitiesRegionalBalance;
+  footer_fr: string;
+  footer_redirect: OpportunityRedirectKind;
+  empty_state: DashboardOpportunitiesEmptyState | null;
+  items: DashboardOpportunityItem[];
+}
+
+// ════════════════════════════════════════════════════════
 // Mutation results — kept permissive: backend may return more fields
 // ════════════════════════════════════════════════════════
 export interface SetWatchLevelInput {
