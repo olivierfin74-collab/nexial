@@ -1,11 +1,14 @@
-'use client'
+// P-CUT-1 — /mobile is now the v3 decisional product.
+//
+// The route redirects to /aujourdhui where the V2.2 DecisionalInbox is
+// already wired through the AppShell + bottom nav. The legacy NexialApp
+// content is no longer the entry point for mobile traffic.
+//
+// Other surfaces (Portefeuille / Watchlist / Ordres / Réglages) remain
+// legacy through their own routes and are reachable via the bottom nav.
 
-import NexialApp from '../../../nexial-app-complete'
+import { redirect } from 'next/navigation'
 
 export default function MobilePage() {
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#FBF9F4' }}>
-      <NexialApp />
-    </div>
-  )
+  redirect('/aujourdhui')
 }

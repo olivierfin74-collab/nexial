@@ -7,7 +7,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, Briefcase, Eye, Home, Settings } from 'lucide-react'
+import { Briefcase, Eye, Home, Settings, Target } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 
 interface NavTab {
@@ -18,7 +18,7 @@ interface NavTab {
 
 const TABS: NavTab[] = [
   { path: '/aujourdhui', label: 'Aujourd’hui', Icon: Home },
-  { path: '/alertes', label: 'Alertes', Icon: Bell },
+  { path: '/sniper', label: 'Sniper', Icon: Target },
   { path: '/portefeuille', label: 'Portefeuille', Icon: Briefcase },
   { path: '/watchlist', label: 'Watchlist', Icon: Eye },
   { path: '/settings', label: 'Réglages', Icon: Settings },
