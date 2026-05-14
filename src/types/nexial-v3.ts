@@ -397,6 +397,60 @@ export interface PortfolioCashBreakdownPayload {
 }
 
 // ════════════════════════════════════════════════════════
+// fn_portfolio_enriched — positions enriched view
+// ════════════════════════════════════════════════════════
+export interface PortfolioPositionAccount {
+  id: string;
+  kind: string;
+  name: string;
+  broker: string | null;
+}
+
+export interface PortfolioPosition {
+  asset_id: string;
+  ticker: string;
+  asset_name: string;
+  region?: string;
+  sector?: string;
+  currency: string;
+  quantity: number;
+  pru: number;
+  last_price: number;
+  cost_basis: number;
+  market_value: number;
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number;
+  perf_1d_pct?: number;
+  perf_1w_pct?: number;
+  perf_1m_pct?: number;
+  account: PortfolioPositionAccount;
+  market_session?: string;
+  price_quote_at?: string | null;
+  last_trade_at?: string | null;
+  first_buy_at?: string | null;
+  active_alerts_count?: number;
+  // Engine-only fields kept untyped on purpose — the mobile surface
+  // does NOT render them.
+  [key: string]: unknown;
+}
+
+export interface PortfolioEnrichedSummary {
+  pnl_eur: number;
+  total_eur: number;
+  pnl_usd_in_eur?: number;
+  total_usd_in_eur?: number;
+  positions_count: number;
+}
+
+export interface PortfolioEnrichedPayload {
+  as_of: string;
+  user_id: string;
+  account_filter?: string | null;
+  summary: PortfolioEnrichedSummary;
+  positions: PortfolioPosition[];
+}
+
+// ════════════════════════════════════════════════════════
 // Mutation results — kept permissive: backend may return more fields
 // ════════════════════════════════════════════════════════
 export interface SetWatchLevelInput {
