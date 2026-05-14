@@ -255,7 +255,9 @@ export function DecisionsToHandleCard({
             alignSelf: 'flex-start',
           }}
         >
-          {payload.overflow_link.label_fr}
+          {payload.overflow_link.count > 1
+            ? `Voir les ${payload.overflow_link.count} autres alertes`
+            : 'Voir 1 autre alerte'}
         </button>
       ) : null}
     </section>

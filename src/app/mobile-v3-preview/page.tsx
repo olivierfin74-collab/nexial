@@ -7,19 +7,32 @@
 //   - NOT replacing /mobile or /aujourdhui
 //   - NOT calling NexialApp or any legacy monolith
 //
-// It only fetches the four /api/mobile/* pass-through routes and renders
-// the matching render-only cards from src/components/mobile-v3/. Used to
-// validate the backend v3 contracts before any production wiring.
+// CTA wiring (NEXIAL MOBILE v3.0.4.1):
+//   - Opens the existing v2.2 modals (LadderBuilder / ExitPlan /
+//     ThesisEditor) directly from item.cta.redirect_kind + modal_context.
+//   - Never calls fn_dispatch_alert_action, never marks SEEN, never
+//     mutates Supabase. Closing the modal is a local state reset, no
+//     refetch. The preview is for visual validation only.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { DecisionsToHandleCard } from '@/components/mobile-v3/DecisionsToHandleCard'
 import { FocusOpportunityCard } from '@/components/mobile-v3/FocusOpportunityCard'
 import { SniperSummaryCard } from '@/components/mobile-v3/SniperSummaryCard'
 import { TodoListCard } from '@/components/mobile-v3/TodoListCard'
+import {
+  ExitPlanModal,
+  LadderBuilderModal,
+  ThesisEditorModal,
+} from '@/components/ui/decisional'
+import type { DispatchModalContext } from '@/types/decision'
 import type {
   DecisionsToHandlePayload,
+  DecisionToHandleItem,
   FetchEnvelope,
+  FocusTodayItem,
   FocusTodayPayload,
+  ModalContext,
+  RedirectKind,
   SniperDashboardPayload,
   TodoListPayload,
 } from '@/types/nexial-v3'
@@ -52,11 +65,70 @@ async function fetchEnvelope<T>(path: string, signal?: AbortSignal): Promise<Sur
   }
 }
 
+type ModalSlot =
+  | 'open_ladder_modal'
+  | 'open_exit_modal'
+  | 'open_thesis_modal'
+  | 'open_thesis_modal_urgent'
+
+interface PreviewModalState {
+  slot: ModalSlot | null
+  /** Adapter shape understood by the v2.2 modals (Ladder / Exit). */
+  dispatchContext: DispatchModalContext | null
+  /** Direct props for ThesisEditorModal. */
+  assetId: string | null
+  ticker: string | null
+}
+
+const closedModal: PreviewModalState = {
+  slot: null,
+  dispatchContext: null,
+  assetId: null,
+  ticker: null,
+}
+
+/**
+ * Build the v2.2 DispatchModalContext shape from a v3 modal_context.
+ * Pure translation, no derivation: v3 ships `{ modal_name, props: {...} }`
+ * whereas the v2.2 modals expect the modal_name + flattened ids + ticker.
+ */
+function toDispatchContext(
+  modalContext: ModalContext | null | undefined,
+  ticker: string,
+): DispatchModalContext | null {
+  if (!modalContext) return null
+  const props = modalContext.props || {}
+  const assetId = typeof props.asset_id === 'string' ? props.asset_id : null
+  const alertId = typeof props.alert_id === 'string' ? props.alert_id : undefined
+  return {
+    modal_name: modalContext.modal_name,
+    asset_id: assetId,
+    alert_id: alertId,
+    ticker,
+  }
+}
+
+function resolveSlot(kind: RedirectKind | undefined): ModalSlot | null {
+  switch (kind) {
+    case 'open_ladder_modal':
+      return 'open_ladder_modal'
+    case 'open_exit_modal':
+      return 'open_exit_modal'
+    case 'open_thesis_modal':
+      return 'open_thesis_modal'
+    case 'open_thesis_modal_urgent':
+      return 'open_thesis_modal_urgent'
+    default:
+      return null
+  }
+}
+
 export default function MobileV3PreviewPage() {
   const [focus, setFocus] = useState<SurfaceState<FocusTodayPayload>>(initialState)
   const [decisions, setDecisions] = useState<SurfaceState<DecisionsToHandlePayload>>(initialState)
   const [snipers, setSnipers] = useState<SurfaceState<SniperDashboardPayload>>(initialState)
   const [todos, setTodos] = useState<SurfaceState<TodoListPayload>>(initialState)
+  const [modal, setModal] = useState<PreviewModalState>(closedModal)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -79,6 +151,57 @@ export default function MobileV3PreviewPage() {
       cancelled = true
       ctrl.abort()
     }
+  }, [])
+
+  const openCtaModal = useCallback(
+    (kind: RedirectKind | undefined, modalContext: ModalContext | null | undefined, ticker: string) => {
+      const slot = resolveSlot(kind)
+      if (!slot) {
+        // Preview-only: log unknown kinds. No navigation, no mutation.
+        // eslint-disable-next-line no-console
+        console.log('[mobile-v3-preview] redirect_kind not wired in preview', { kind, ticker })
+        return
+      }
+      const dispatchContext = toDispatchContext(modalContext ?? null, ticker)
+      const props = modalContext?.props ?? {}
+      const assetIdFromProps = typeof props.asset_id === 'string' ? props.asset_id : null
+      setModal({
+        slot,
+        dispatchContext,
+        assetId: assetIdFromProps,
+        ticker,
+      })
+    },
+    [],
+  )
+
+  const closeModal = useCallback(() => {
+    setModal(closedModal)
+  }, [])
+
+  const handleFocusCta = useCallback(
+    (item: FocusTodayItem) => {
+      openCtaModal(item.cta?.redirect_kind, item.cta?.modal_context ?? null, item.ticker)
+    },
+    [openCtaModal],
+  )
+
+  const handleDecisionCta = useCallback(
+    (item: DecisionToHandleItem) => {
+      openCtaModal(item.cta?.redirect_kind, item.cta?.modal_context ?? null, item.ticker)
+    },
+    [openCtaModal],
+  )
+
+  const handleOverflow = useCallback((p: DecisionsToHandlePayload) => {
+    // Preview placeholder: do not navigate. The future Alerts surface
+    // will own this transition. Keep a calm log for QA traceability.
+    // eslint-disable-next-line no-console
+    console.log('[mobile-v3-preview] overflow', {
+      total: p.total_decisions,
+      count: p.overflow_link?.count ?? null,
+      redirect_kind: p.overflow_link?.redirect_kind ?? null,
+    })
   }, [])
 
   const priorities = focus.data?.priorities ?? []
@@ -182,6 +305,7 @@ export default function MobileV3PreviewPage() {
               <FocusOpportunityCard
                 key={item.alert_id || item.asset_id || item.ticker}
                 item={item}
+                onCta={handleFocusCta}
               />
             ))
           )}
@@ -192,25 +316,8 @@ export default function MobileV3PreviewPage() {
           loading={decisions.loading}
           error={decisions.error}
           maxVisible={3}
-          onItemCta={(item) => {
-            // Preview placeholder: no dispatch, no SEEN, no mutation.
-            // Real handler will be wired upstream once the modal flow is
-            // approved (see /aujourdhui V2.2 handleAction for reference).
-            // eslint-disable-next-line no-console
-            console.log('[mobile-v3-preview] item CTA', {
-              alert_id: item.alert_id,
-              ticker: item.ticker,
-              redirect_kind: item.cta?.redirect_kind,
-            })
-          }}
-          onOverflow={(p) => {
-            // Preview placeholder: no navigation here.
-            // eslint-disable-next-line no-console
-            console.log('[mobile-v3-preview] overflow', {
-              total: p.total_decisions,
-              count: p.overflow_link?.count ?? null,
-            })
-          }}
+          onItemCta={handleDecisionCta}
+          onOverflow={handleOverflow}
         />
 
         <SniperSummaryCard
@@ -221,6 +328,24 @@ export default function MobileV3PreviewPage() {
 
         <TodoListCard payload={todos.data} loading={todos.loading} error={todos.error} />
       </div>
+
+      <LadderBuilderModal
+        open={modal.slot === 'open_ladder_modal'}
+        context={modal.dispatchContext}
+        onClose={closeModal}
+      />
+      <ExitPlanModal
+        open={modal.slot === 'open_exit_modal'}
+        context={modal.dispatchContext}
+        onClose={closeModal}
+      />
+      <ThesisEditorModal
+        open={modal.slot === 'open_thesis_modal' || modal.slot === 'open_thesis_modal_urgent'}
+        urgent={modal.slot === 'open_thesis_modal_urgent'}
+        assetId={modal.assetId}
+        ticker={modal.ticker ?? undefined}
+        onClose={closeModal}
+      />
     </div>
   )
 }
