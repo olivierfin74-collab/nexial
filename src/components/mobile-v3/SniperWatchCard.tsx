@@ -115,14 +115,12 @@ export function SniperWatchCard({
       >
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span style={{ fontFamily: 'var(--font-editorial-mono)', fontSize: 13, fontWeight: 800, color: 'var(--ink-primary)' }}>
-              {sniper.ticker}
-            </span>
             <span
               style={{
                 fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 11,
-                color: 'var(--ink-secondary)',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--ink-primary)',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -130,6 +128,17 @@ export function SniperWatchCard({
               }}
             >
               {sniper.asset_name}
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--ink-secondary)',
+                letterSpacing: '0.03em',
+              }}
+            >
+              {sniper.ticker}
             </span>
           </span>
           <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
