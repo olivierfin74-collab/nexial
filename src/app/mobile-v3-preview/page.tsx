@@ -191,6 +191,26 @@ export default function MobileV3PreviewPage() {
           payload={decisions.data}
           loading={decisions.loading}
           error={decisions.error}
+          maxVisible={3}
+          onItemCta={(item) => {
+            // Preview placeholder: no dispatch, no SEEN, no mutation.
+            // Real handler will be wired upstream once the modal flow is
+            // approved (see /aujourdhui V2.2 handleAction for reference).
+            // eslint-disable-next-line no-console
+            console.log('[mobile-v3-preview] item CTA', {
+              alert_id: item.alert_id,
+              ticker: item.ticker,
+              redirect_kind: item.cta?.redirect_kind,
+            })
+          }}
+          onOverflow={(p) => {
+            // Preview placeholder: no navigation here.
+            // eslint-disable-next-line no-console
+            console.log('[mobile-v3-preview] overflow', {
+              total: p.total_decisions,
+              count: p.overflow_link?.count ?? null,
+            })
+          }}
         />
 
         <SniperSummaryCard
