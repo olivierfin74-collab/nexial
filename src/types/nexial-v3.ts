@@ -216,6 +216,8 @@ export interface SniperTarget {
   [key: string]: unknown;
 }
 
+export type WatchLevel = 'FOCUS' | 'WATCH' | null;
+
 export interface SniperCard {
   ticker: string;
   asset_id: string;
@@ -232,6 +234,8 @@ export interface SniperCard {
   price_alerts: SniperPriceAlert[];
   active_orders: SniperActiveOrder[];
   sniper_targets: SniperTarget[];
+  /** Set by fn_set_watch_level. Absent on legacy payloads — default WATCH. */
+  watch_level?: WatchLevel;
 }
 
 export interface SniperSummary {
@@ -267,6 +271,30 @@ export interface TodoListPayload {
   generated_at: string;
   total_count: number;
   items: TodoItem[];
+}
+
+// ════════════════════════════════════════════════════════
+// Mutation results — kept permissive: backend may return more fields
+// ════════════════════════════════════════════════════════
+export interface SetWatchLevelInput {
+  asset_id: string;
+  watch_level: WatchLevel;
+}
+
+export interface SniperTargetInput {
+  asset_id: string;
+  target_price: number;
+  /** Optional — never forced by the UI. */
+  target_quantity?: number;
+  target_amount_eur?: number;
+  zone_label?: string;
+  thesis_md?: string;
+}
+
+export interface MutationResult {
+  ok?: boolean;
+  message_fr?: string;
+  [key: string]: unknown;
 }
 
 // ════════════════════════════════════════════════════════
