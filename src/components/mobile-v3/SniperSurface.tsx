@@ -17,6 +17,7 @@ import { PriceTargetModal, type PriceTargetModalValue } from '@/components/mobil
 import { SniperWatchCard } from '@/components/mobile-v3/SniperWatchCard'
 import type {
   FetchEnvelope,
+  FocusAssetsListPayload,
   MutationResult,
   SniperCard,
   SniperDashboardPayload,
@@ -71,6 +72,7 @@ const closedEntry: EntryPlanState = { open: false, sniper: null }
 
 export function SniperSurface() {
   const [state, setState] = useState<SurfaceState<SniperDashboardPayload>>(initial)
+  const [focusList, setFocusList] = useState<SurfaceState<FocusAssetsListPayload>>(initial)
   const [modal, setModal] = useState<PriceModalState>(closedModal)
   const [entry, setEntry] = useState<EntryPlanState>(closedEntry)
   const [saving, setSaving] = useState(false)
@@ -78,12 +80,13 @@ export function SniperSurface() {
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const seq = ++fetchSeq.current
-    const next = await fetchEnvelope<SniperDashboardPayload>(
-      '/api/mobile/sniper-dashboard',
-      signal,
-    )
+    const [dashboard, focus] = await Promise.all([
+      fetchEnvelope<SniperDashboardPayload>('/api/mobile/sniper-dashboard', signal),
+      fetchEnvelope<FocusAssetsListPayload>('/api/mobile/focus-assets-list', signal),
+    ])
     if (seq !== fetchSeq.current) return
-    setState(next)
+    setState(dashboard)
+    setFocusList(focus)
   }, [])
 
   useEffect(() => {
@@ -93,13 +96,31 @@ export function SniperSurface() {
   }, [load])
 
   const snipers = state.data?.snipers ?? []
+  const focusAssetIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const a of focusList.data?.focus_assets ?? []) {
+      if (a.asset_id) set.add(a.asset_id)
+    }
+    return set
+  }, [focusList.data])
 
+  // Single source of truth for the FOCUS / WATCH split:
+  //   - fn_focus_assets_list ships the authoritative FOCUS asset_ids.
+  //   - Each sniper from fn_sniper_dashboard is tagged FOCUS or WATCH
+  //     based on that set, so the card payload (card_summary, signal,
+  //     targets) keeps coming from a single place.
   const { focus, watch } = useMemo(() => {
     const focusItems: SniperCard[] = []
     const watchItems: SniperCard[] = []
     for (const s of snipers) {
-      if (s.watch_level === 'FOCUS') focusItems.push(s)
-      else watchItems.push(s)
+      const isFocus = focusAssetIds.has(s.asset_id)
+      const tagged: SniperCard = isFocus
+        ? { ...s, watch_level: 'FOCUS' }
+        : s.watch_level === 'FOCUS'
+          ? { ...s, watch_level: 'WATCH' }
+          : s
+      if (isFocus) focusItems.push(tagged)
+      else watchItems.push(tagged)
     }
     const sortFn = (a: SniperCard, b: SniperCard) => {
       const aHas = a.sniper_targets_count > 0 ? 0 : 1
@@ -113,7 +134,7 @@ export function SniperSurface() {
     focusItems.sort(sortFn)
     watchItems.sort(sortFn)
     return { focus: focusItems, watch: watchItems }
-  }, [snipers])
+  }, [snipers, focusAssetIds])
 
   async function postJson(
     path: string,

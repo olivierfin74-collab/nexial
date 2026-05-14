@@ -274,6 +274,57 @@ export interface TodoListPayload {
 }
 
 // ════════════════════════════════════════════════════════
+// fn_focus_assets_list — authoritative list of FOCUS assets
+// ════════════════════════════════════════════════════════
+export interface FocusAssetPriceTarget {
+  sniper_id: string;
+  zone_label: string;
+  target_price: number;
+  target_quantity?: number | null;
+  target_amount_eur?: number | null;
+  priority: string;
+  distance_pct: number;
+  has_engagement: boolean;
+}
+
+export interface FocusAssetConviction {
+  code: string;
+  thesis_md?: string | null;
+  target_weight_pct?: number | null;
+}
+
+export interface FocusAsset {
+  ticker: string;
+  asset_id: string;
+  asset_name: string;
+  currency: string;
+  pea_eligible: boolean;
+  watch_level: 'FOCUS';
+  watch_level_set_at: string;
+  has_price_target: boolean;
+  price_targets_count: number;
+  price_targets: FocusAssetPriceTarget[];
+  position: SniperPosition;
+  conviction: FocusAssetConviction;
+  signal: SniperSignal;
+}
+
+export interface FocusAssetsSummary {
+  total_count: number;
+  in_zone_count: number;
+  with_price_target_count: number;
+  without_price_target_count: number;
+}
+
+export interface FocusAssetsListPayload {
+  schema_version: 'v2';
+  user_id: string;
+  generated_at: string;
+  summary: FocusAssetsSummary;
+  focus_assets: FocusAsset[];
+}
+
+// ════════════════════════════════════════════════════════
 // Mutation results — kept permissive: backend may return more fields
 // ════════════════════════════════════════════════════════
 export interface SetWatchLevelInput {
