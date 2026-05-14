@@ -20,6 +20,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, Target } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
 import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
+import { DataFreshnessBadge } from '@/components/shell/DataFreshnessBadge'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
@@ -175,15 +176,29 @@ export function DashboardSurface() {
 
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
-  const isStale = freshness && freshness.status !== 'FRESH' && freshness.label_fr
 
-  const marketExtras = market ? (
-    <MarketStatusBadge
-      euOpen={market.eu_open}
-      usOpen={market.us_open}
-      regimeLabelFr={market.regime_label_fr}
-    />
-  ) : null
+  const marketExtras =
+    market || freshness ? (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 6,
+        }}
+      >
+        {market ? (
+          <MarketStatusBadge
+            euOpen={market.eu_open}
+            usOpen={market.us_open}
+            regimeLabelFr={market.regime_label_fr}
+          />
+        ) : null}
+        {freshness && freshness.label_fr ? (
+          <DataFreshnessBadge status={freshness.status} labelFr={freshness.label_fr} />
+        ) : null}
+      </div>
+    ) : null
 
   // CTA dispatch on Dashboard — we keep it lightweight: every backend
   // redirect_kind falls back to /aujourdhui where modals are wired,
@@ -239,42 +254,10 @@ export function DashboardSurface() {
               padding: '16px 18px 4px',
               display: 'flex',
               alignItems: 'flex-start',
-              justifyContent: 'space-between',
               gap: 12,
             }}
           >
             <span style={metaPale}>Ton argent</span>
-            {isStale ? (
-              <span
-                aria-label={freshness!.label_fr}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(229, 200, 120, 0.45)',
-                  background: 'rgba(229, 200, 120, 0.12)',
-                  color: '#E5C878',
-                  fontFamily: 'var(--font-editorial-mono)',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.04em',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 999,
-                    background: '#E5C878',
-                  }}
-                />
-                À rafraîchir
-              </span>
-            ) : null}
           </header>
 
           {isLoading && !hasData ? (

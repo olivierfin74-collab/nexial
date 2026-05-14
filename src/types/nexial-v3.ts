@@ -350,7 +350,14 @@ export interface DashboardPatrimoine {
 }
 
 export interface DashboardDataFreshness {
-  status: 'FRESH' | 'STALE' | (string & {});
+  /**
+   * Observed backend statuses (fn_dashboard_header source):
+   *   FRESH    quote age < 6h
+   *   DELAYED  6h ≤ quote age < 24h
+   *   STALE    quote age ≥ 24h
+   * Open string fallback for forward compatibility.
+   */
+  status: 'FRESH' | 'DELAYED' | 'STALE' | (string & {});
   label_fr: string;
   oldest_quote_age_hours?: number;
 }
