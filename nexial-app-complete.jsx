@@ -21,6 +21,7 @@ import { getTradingContext, matchesTradingContext } from "@/lib/tradingContext";
 import AssetDebugAdminCard from "@/components/AssetDebugAdminCard";
 import SystemFreshnessBadge from "@/components/SystemFreshnessBadge";
 import NotificationBellPanel from "@/components/NotificationBellPanel";
+import { MobileVersionBadge } from "@/components/shell/MobileVersionBadge";
 import { toast } from "sonner";
 
 const DEFAULT_TRADING_CONTEXT = getTradingContext();
@@ -775,6 +776,7 @@ const DashboardHeader = ({ onRefresh, refreshing }) => {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, flexShrink: 0, width: 44 }}>
+          <MobileVersionBadge />
           <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
           <NotificationBellPanel compact />
           <div style={{ width: 44, display: "flex", justifyContent: "flex-end" }}>
