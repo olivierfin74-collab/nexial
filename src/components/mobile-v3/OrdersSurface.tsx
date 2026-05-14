@@ -27,7 +27,7 @@ function orderStatusKey(status: string | undefined): OrderStatusKey {
 }
 
 const STATUS_LABEL: Record<OrderStatusKey, string> = {
-  pending: 'En attente',
+  pending: 'À confirmer',
   filled: 'Exécuté',
   expired: 'Expiré',
 }
@@ -250,16 +250,14 @@ export function OrdersSurface() {
       <MobileTopHeader
         eyebrow="Exécution"
         title="Orders"
-        subtitle={
+        contextLine={
           loading
             ? 'Chargement…'
-            : `${filteredOrders.length} ${
-                filterStatus === 'pending'
-                  ? `plan${filteredOrders.length > 1 ? 's' : ''} d’entrée à confirmer`
-                  : filterStatus === 'filled'
-                    ? 'exécutés'
-                    : 'expirés'
-              }`
+            : filterStatus === 'pending'
+              ? 'Plans d’entrée à confirmer'
+              : filterStatus === 'filled'
+                ? 'Ordres exécutés'
+                : 'Ordres expirés'
         }
         compact
       />
