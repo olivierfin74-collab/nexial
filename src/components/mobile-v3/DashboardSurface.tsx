@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from 'react'
 import { AppShell } from '@/components/shell/AppShell'
+import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
+import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
   DashboardHeaderPayload,
@@ -97,12 +99,22 @@ export function DashboardSurface() {
   const positivePnL = (patrimoine?.pnl_eur ?? 0) >= 0
   const pnlColor = positivePnL ? 'var(--forest-green)' : 'var(--burgundy)'
 
+  const marketExtras = market ? (
+    <MarketStatusBadge
+      euOpen={market.eu_open}
+      usOpen={market.us_open}
+      regimeLabelFr={market.regime_label_fr}
+    />
+  ) : null
+
   return (
     <AppShell>
       <MobileTopHeader
         eyebrow="Patrimoine"
         title="Dashboard"
         contextLine={contextLine}
+        extras={marketExtras}
+        compact
       />
 
       <div
@@ -199,30 +211,13 @@ export function DashboardSurface() {
           ) : null}
         </section>
 
-        <section
-          style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 12,
-            padding: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
+        <CollapsibleSection
+          groupKey="dashboard-comptes"
+          title="Comptes"
+          count={accounts.length || null}
+          subtitle="Investi et cash disponible par compte."
+          defaultOpen={false}
         >
-          <h2
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-editorial-serif)',
-              fontSize: 18,
-              fontWeight: 500,
-              color: 'var(--ink-primary)',
-              letterSpacing: 'var(--tracking-display)',
-            }}
-          >
-            Comptes
-          </h2>
-
           {cash.loading ? (
             <p
               aria-busy="true"
@@ -341,7 +336,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-        </section>
+        </CollapsibleSection>
       </div>
     </AppShell>
   )

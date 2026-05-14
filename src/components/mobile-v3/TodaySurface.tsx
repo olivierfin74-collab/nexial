@@ -1,16 +1,14 @@
 'use client'
 
-// Unified "Aujourd'hui" surface. Mounted at /aujourdhui (production) and
-// at /mobile-v3-preview (lab path). AppShell + MobileTopHeader so the
-// surface shares the exact same shell, bottom nav and lifecycle as the
-// rest of the v3 product.
+// Unified "Aujourd'hui" surface (UX-R1).
 //
-// Hierarchy (top-down):
-//   - MobileTopHeader (date + market context + bell + version badge)
-//   - Focus du jour (priorities → FocusOpportunityCard, max payload)
-//   - Décisions à traiter (DecisionsToHandleCard, top 3)
-//   - Sniper (SniperSummaryCard, first 4)
-//   - À faire (TodoListCard)
+// Hierarchy (top-down, all collapsible, default open):
+//   - MobileTopHeader (eyebrow + title + subtitle + MarketStatusBadge
+//     + bell + ⚙️ + loud version badge)
+//   - Focus du jour (priorities → FocusOpportunityCard)
+//   - Alertes / Opportunités (DecisionsToHandleCard)
+//   - Sniper (résumé compact)
+//   - À faire (en bas)
 //
 // CTAs open the existing v2.2 modals (LadderBuilder / ExitPlan /
 // ThesisEditor). No dispatch, no SEEN, no Supabase mutation on load.
@@ -19,6 +17,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
+import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
+import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { DecisionsToHandleCard } from '@/components/mobile-v3/DecisionsToHandleCard'
 import { FocusOpportunityCard } from '@/components/mobile-v3/FocusOpportunityCard'
 import { SniperSummaryCard } from '@/components/mobile-v3/SniperSummaryCard'
@@ -192,9 +192,19 @@ export function TodaySurface() {
   )
 
   const priorities = focus.data?.priorities ?? []
-  const marketLabel = focus.data?.market_context?.label_fr
-  const regimeLabel = focus.data?.market_context?.regime_label_fr
-  const contextLine = [marketLabel, regimeLabel].filter(Boolean).join(' · ')
+  const market = focus.data?.market_context
+  const summary = snipers.data?.summary
+  const totalDecisions = decisions.data?.total_decisions ?? null
+  const totalTodos = todos.data?.total_count ?? null
+
+  const headerExtras =
+    market != null ? (
+      <MarketStatusBadge
+        euOpen={market.eu_open}
+        usOpen={market.us_open}
+        regimeLabelFr={market.regime_label_fr}
+      />
+    ) : null
 
   return (
     <AppShell>
@@ -202,8 +212,8 @@ export function TodaySurface() {
         eyebrow="Tableau de bord"
         title={focus.data?.title_fr ?? 'Aujourd’hui'}
         subtitle="Que dois-je faire maintenant ?"
-        contextLine={contextLine || undefined}
-        loudVersion
+        extras={headerExtras}
+        compact
       />
 
       <div
@@ -213,57 +223,22 @@ export function TodaySurface() {
           padding: '0 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 12,
         }}
       >
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <h2
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-editorial-serif)',
-              fontSize: 18,
-              fontWeight: 500,
-              color: 'var(--ink-primary)',
-              letterSpacing: 'var(--tracking-display)',
-            }}
-          >
-            Focus du jour
-          </h2>
+        <CollapsibleSection
+          groupKey="focus-du-jour"
+          title="Focus du jour"
+          count={priorities.length || null}
+          subtitle="Les opportunités à regarder en premier."
+          defaultOpen
+        >
           {focus.loading ? (
-            <p
-              aria-busy="true"
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 12,
-                color: 'var(--ink-tertiary)',
-              }}
-            >
-              Chargement…
-            </p>
+            <p style={paragraph}>Chargement…</p>
           ) : focus.error ? (
-            <p
-              role="status"
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 12,
-                color: 'var(--ink-secondary)',
-              }}
-            >
-              Certaines données n’ont pas pu être mises à jour.
-            </p>
+            <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : priorities.length === 0 ? (
-            <p
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 12,
-                color: 'var(--ink-tertiary)',
-              }}
-            >
-              Aucune priorité pour le moment.
-            </p>
+            <p style={paragraph}>Aucune priorité pour le moment.</p>
           ) : (
             priorities.map((item) => (
               <FocusOpportunityCard
@@ -273,23 +248,47 @@ export function TodaySurface() {
               />
             ))
           )}
-        </section>
+        </CollapsibleSection>
 
-        <DecisionsToHandleCard
-          payload={decisions.data}
-          loading={decisions.loading}
-          error={decisions.error}
-          maxVisible={3}
-          onItemCta={handleDecisionCta}
-        />
+        <CollapsibleSection
+          groupKey="alertes-opportunites"
+          title="Alertes / Opportunités"
+          count={totalDecisions}
+          subtitle="Décisions à traiter aujourd’hui."
+          defaultOpen
+        >
+          <DecisionsToHandleCard
+            payload={decisions.data}
+            loading={decisions.loading}
+            error={decisions.error}
+            maxVisible={3}
+            onItemCta={handleDecisionCta}
+          />
+        </CollapsibleSection>
 
-        <SniperSummaryCard
-          payload={snipers.data}
-          loading={snipers.loading}
-          error={snipers.error}
-        />
+        <CollapsibleSection
+          groupKey="sniper-resume"
+          title="Sniper résumé"
+          count={summary?.total_count ?? null}
+          subtitle="Actifs surveillés de près."
+          defaultOpen={false}
+        >
+          <SniperSummaryCard
+            payload={snipers.data}
+            loading={snipers.loading}
+            error={snipers.error}
+          />
+        </CollapsibleSection>
 
-        <TodoListCard payload={todos.data} loading={todos.loading} error={todos.error} />
+        <CollapsibleSection
+          groupKey="a-faire"
+          title="À faire"
+          count={totalTodos}
+          subtitle="Hygiène patrimoine."
+          defaultOpen={false}
+        >
+          <TodoListCard payload={todos.data} loading={todos.loading} error={todos.error} />
+        </CollapsibleSection>
       </div>
 
       <LadderBuilderModal
@@ -311,4 +310,12 @@ export function TodaySurface() {
       />
     </AppShell>
   )
+}
+
+const paragraph: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  color: 'var(--ink-tertiary)',
+  lineHeight: 1.4,
 }

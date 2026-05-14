@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
+import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import { PriceTargetModal, type PriceTargetModalValue } from '@/components/mobile-v3/PriceTargetModal'
 import { SniperWatchCard } from '@/components/mobile-v3/SniperWatchCard'
@@ -263,7 +264,7 @@ export function SniperSurface() {
             ? `${focus.length} actif${focus.length > 1 ? 's' : ''} en surveillance rapprochée`
             : undefined
         }
-        loudVersion
+        compact
       />
 
       <div
@@ -329,32 +330,13 @@ export function SniperSurface() {
           </section>
         ) : (
           <>
-            <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <header style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontFamily: 'var(--font-editorial-serif)',
-                    fontSize: 18,
-                    fontWeight: 500,
-                    color: 'var(--ink-primary)',
-                    letterSpacing: 'var(--tracking-display)',
-                  }}
-                >
-                  Surveillance rapprochée
-                </h2>
-                <p
-                  style={{
-                    margin: 0,
-                    fontFamily: 'var(--font-editorial-sans)',
-                    fontSize: 12,
-                    color: 'var(--ink-secondary)',
-                  }}
-                >
-                  Actifs suivis de près
-                </p>
-              </header>
-
+            <CollapsibleSection
+              groupKey="sniper-focus"
+              title="Surveillance rapprochée"
+              count={focus.length || null}
+              subtitle="Actifs suivis de près."
+              defaultOpen
+            >
               {focus.length === 0 ? (
                 <p
                   style={{
@@ -379,25 +361,15 @@ export function SniperSurface() {
                   />
                 ))
               )}
-            </section>
+            </CollapsibleSection>
 
             {watch.length > 0 ? (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <header style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontFamily: 'var(--font-editorial-serif)',
-                      fontSize: 17,
-                      fontWeight: 500,
-                      color: 'var(--ink-secondary)',
-                      letterSpacing: 'var(--tracking-display)',
-                    }}
-                  >
-                    Suivi normal
-                  </h2>
-                </header>
-
+              <CollapsibleSection
+                groupKey="sniper-watch"
+                title="Suivi normal"
+                count={watch.length || null}
+                defaultOpen={false}
+              >
                 {watch.map((sniper) => (
                   <SniperWatchCard
                     key={sniper.asset_id}
@@ -409,7 +381,7 @@ export function SniperSurface() {
                     onViewEntryPlan={handleViewEntryPlan}
                   />
                 ))}
-              </section>
+              </CollapsibleSection>
             ) : null}
 
             {totalSnipers === 0 ? (

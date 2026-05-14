@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '@/components/shell/AppShell'
+import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
   DashboardHeaderPayload,
@@ -114,7 +115,16 @@ export function PortfolioSurface() {
   const positions = portfolio.data?.positions ?? []
   const groups = useMemo(() => groupByAccount(positions), [positions])
   const patrimoine = header.data?.patrimoine
+  const market = header.data?.market
   const pnlColor = (patrimoine?.pnl_eur ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
+
+  const marketExtras = market ? (
+    <MarketStatusBadge
+      euOpen={market.eu_open}
+      usOpen={market.us_open}
+      regimeLabelFr={market.regime_label_fr}
+    />
+  ) : null
 
   return (
     <AppShell>
@@ -126,6 +136,8 @@ export function PortfolioSurface() {
             ? `${portfolio.data.summary.positions_count} position${portfolio.data.summary.positions_count > 1 ? 's' : ''}`
             : undefined
         }
+        extras={marketExtras}
+        compact
       />
 
       <div

@@ -1,11 +1,12 @@
 'use client'
 
 // Unified mobile top header used across every v3 surface
-// (Aujourd'hui, Sniper, Portefeuille, Watchlist, Settings). Pure
-// presentational. Mounts the notification bell, the settings shortcut
-// and the build-version badge so every screen ships the same
+// (Aujourd'hui, Sniper, Portefeuille, Watchlist, Dashboard, Settings).
+// Pure presentational. Mounts the notification bell, the settings
+// shortcut and the build-version badge so every screen ships the same
 // diagnostic context for Olivier.
 
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { Settings as SettingsIcon } from 'lucide-react'
 import NotificationBellPanel from '@/components/NotificationBellPanel'
@@ -20,12 +21,17 @@ interface MobileTopHeaderProps {
   subtitle?: string
   /** Optional secondary line (e.g. market label, deploy date). */
   contextLine?: string
+  /** Optional inline node rendered under the subtitle / contextLine
+   *  (used for the EU/US market status badge). */
+  extras?: ReactNode
   /** Show the loud version badge for operator validation. */
   loudVersion?: boolean
   /** Show the bell. Defaults true. */
   showBell?: boolean
   /** Show the settings shortcut. Defaults true. */
   showSettings?: boolean
+  /** Tightens padding + title typo for content-dense pages. */
+  compact?: boolean
 }
 
 export function MobileTopHeader({
@@ -33,15 +39,20 @@ export function MobileTopHeader({
   title,
   subtitle,
   contextLine,
+  extras,
   loudVersion = true,
   showBell = true,
   showSettings = true,
+  compact = false,
 }: MobileTopHeaderProps) {
+  const padding = compact ? '14px 16px 10px' : '20px 16px 14px'
+  const titleSize = compact ? 22 : 28
+
   return (
     <header
       data-shell="MobileTopHeader"
       style={{
-        padding: '20px 16px 14px',
+        padding,
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'space-between',
@@ -66,7 +77,7 @@ export function MobileTopHeader({
           style={{
             margin: 0,
             fontFamily: 'var(--font-editorial-serif)',
-            fontSize: 28,
+            fontSize: titleSize,
             fontWeight: 500,
             color: 'var(--forest-deep)',
             letterSpacing: 'var(--tracking-display)',
@@ -100,6 +111,7 @@ export function MobileTopHeader({
             {contextLine}
           </p>
         ) : null}
+        {extras ? <div style={{ marginTop: 4 }}>{extras}</div> : null}
       </div>
 
       <div
@@ -107,7 +119,7 @@ export function MobileTopHeader({
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: 8,
+          gap: 6,
           flexShrink: 0,
         }}
       >
