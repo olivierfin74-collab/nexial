@@ -150,10 +150,10 @@ export default function MobileV3SniperPreviewPage() {
       const message =
         r.result?.message_fr ||
         (level === 'FOCUS'
-          ? 'Surveillance rapprochée activée'
+          ? 'Surveillance rapprochée activée. Vous pouvez la retirer à tout moment.'
           : level === 'WATCH'
-            ? 'Suivi normal activé'
-            : 'Surveillance retirée')
+            ? 'Suivi normal réactivé.'
+            : 'Surveillance retirée.')
       toast.success(message)
       await load()
     },

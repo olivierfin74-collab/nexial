@@ -185,7 +185,7 @@ export function SniperWatchCard({
                     onClick={() => onSetWatchLevel?.(sniper.asset_id, 'WATCH')}
                     style={ctaSecondary()}
                   >
-                    Réduire la surveillance
+                    Revenir au suivi normal
                   </button>
                 </>
               ) : (
@@ -202,7 +202,7 @@ export function SniperWatchCard({
                     onClick={() => onSetWatchLevel?.(sniper.asset_id, 'WATCH')}
                     style={ctaSecondary()}
                   >
-                    Réduire la surveillance
+                    Revenir au suivi normal
                   </button>
                 </>
               )
@@ -213,7 +213,7 @@ export function SniperWatchCard({
                   onClick={() => onSetWatchLevel?.(sniper.asset_id, 'FOCUS')}
                   style={ctaPrimary('var(--forest-green)')}
                 >
-                  Passer en Focus
+                  Surveiller de près
                 </button>
                 <button
                   type="button"
@@ -230,7 +230,7 @@ export function SniperWatchCard({
                   onClick={() => onSetWatchLevel?.(sniper.asset_id, 'FOCUS')}
                   style={ctaPrimary('var(--forest-green)')}
                 >
-                  Passer en Focus
+                  Surveiller de près
                 </button>
                 <button
                   type="button"
@@ -242,6 +242,20 @@ export function SniperWatchCard({
               </>
             )}
           </div>
+
+          {!isFocus ? (
+            <p
+              style={{
+                margin: 0,
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 11,
+                color: 'var(--ink-tertiary)',
+                lineHeight: 1.4,
+              }}
+            >
+              Active une surveillance rapprochée. Réversible à tout moment.
+            </p>
+          ) : null}
 
           {targetPriceFromTarget ? (
             <p
