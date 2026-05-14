@@ -66,11 +66,30 @@ const meta: React.CSSProperties = {
   margin: 0,
 }
 
+const metaPale: React.CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10,
+  color: 'var(--forest-green-pale)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  fontWeight: 600,
+  margin: 0,
+}
+
 const bigValue: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-serif)',
   fontSize: 22,
   fontWeight: 500,
   color: 'var(--ink-primary)',
+  letterSpacing: '-0.01em',
+  margin: 0,
+}
+
+const bigOnDark: React.CSSProperties = {
+  fontFamily: 'var(--font-editorial-serif)',
+  fontSize: 22,
+  fontWeight: 500,
+  color: '#FFFFFF',
   letterSpacing: '-0.01em',
   margin: 0,
 }
@@ -171,21 +190,23 @@ export function DashboardSurface() {
 
         <section
           data-card="cash-master"
+          data-variant="dark"
           style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border-subtle)',
+            background: 'var(--forest-deep)',
+            border: '1px solid var(--forest-deep)',
             borderRadius: 12,
             overflow: 'hidden',
+            color: '#FFFFFF',
           }}
         >
-          <header style={{ padding: '14px 16px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={meta}>Patrimoine total</span>
+          <header style={{ padding: '16px 18px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={metaPale}>Ton argent</span>
             {isLoading && !hasData ? (
               <span
                 style={{
                   fontFamily: 'var(--font-editorial-mono)',
                   fontSize: 14,
-                  color: 'var(--ink-tertiary)',
+                  color: 'var(--forest-green-pale)',
                 }}
               >
                 Chargement…
@@ -195,62 +216,54 @@ export function DashboardSurface() {
                 style={{
                   fontFamily: 'var(--font-editorial-sans)',
                   fontSize: 13,
-                  color: 'var(--ink-secondary)',
+                  color: 'var(--forest-green-pale)',
                 }}
               >
                 Certaines données n’ont pas pu être mises à jour.
               </span>
-            ) : (
-              <>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-serif)',
-                    fontSize: 28,
-                    fontWeight: 500,
-                    color: 'var(--ink-primary)',
-                    letterSpacing: 'var(--tracking-display)',
-                  }}
-                >
-                  {patrimoine.display}
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: pnlColor,
-                  }}
-                >
-                  {patrimoine.pnl_display}
-                </span>
-              </>
-            )}
+            ) : null}
           </header>
 
-          {totals ? (
+          {totals && patrimoine ? (
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1px 1fr',
                 gap: 0,
-                padding: '12px 16px 14px',
+                padding: '6px 18px 16px',
                 alignItems: 'stretch',
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={meta}>Investi</span>
-                <span style={bigValue}>{totals.invested_display}</span>
-              </div>
-              <div aria-hidden style={{ background: 'var(--border-subtle)', margin: '4px 12px' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={meta}>Cash dispo</span>
+                <span style={metaPale}>Patrimoine</span>
+                <span style={bigOnDark}>{patrimoine.display}</span>
                 <span
                   style={{
-                    ...bigValue,
+                    fontFamily: 'var(--font-editorial-mono)',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: (patrimoine.pnl_eur ?? 0) >= 0 ? 'var(--forest-green-pale)' : '#F1A39B',
+                  }}
+                >
+                  {patrimoine.pnl_display}
+                </span>
+              </div>
+              <div
+                aria-hidden
+                style={{
+                  background: 'rgba(168, 196, 176, 0.25)',
+                  margin: '4px 14px',
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={metaPale}>Cash dispo</span>
+                <span
+                  style={{
+                    ...bigOnDark,
                     color:
                       Number(totals.cash_eur ?? 0) > 0
-                        ? 'var(--forest-green)'
-                        : 'var(--ink-primary)',
+                        ? 'var(--forest-green-pale)'
+                        : '#FFFFFF',
                   }}
                 >
                   {totals.cash_display}
@@ -266,8 +279,8 @@ export function DashboardSurface() {
             disabled={!hasData || visibleAccounts.length === 0}
             style={{
               width: '100%',
-              padding: '10px 16px',
-              borderTop: '1px solid var(--border-subtle)',
+              padding: '12px 18px',
+              borderTop: '1px solid rgba(168, 196, 176, 0.18)',
               background: 'transparent',
               cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
               display: 'flex',
@@ -275,13 +288,14 @@ export function DashboardSurface() {
               justifyContent: 'space-between',
               gap: 8,
               textAlign: 'left',
+              color: 'var(--forest-green-pale)',
             }}
           >
             <span
               style={{
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
-                color: 'var(--ink-tertiary)',
+                color: 'var(--forest-green-pale)',
                 fontWeight: 500,
               }}
             >
@@ -297,7 +311,7 @@ export function DashboardSurface() {
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
                 fontWeight: 600,
-                color: 'var(--ink-secondary)',
+                color: '#FFFFFF',
               }}
             >
               {expanded ? 'Masquer' : 'Détail'}
