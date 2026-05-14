@@ -7,7 +7,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Briefcase, Eye, Home, Settings, Target } from 'lucide-react'
+import { Briefcase, Eye, Home, Target } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 
 interface NavTab {
@@ -21,7 +21,6 @@ const TABS: NavTab[] = [
   { path: '/sniper', label: 'Sniper', Icon: Target },
   { path: '/portefeuille', label: 'Portefeuille', Icon: Briefcase },
   { path: '/watchlist', label: 'Watchlist', Icon: Eye },
-  { path: '/settings', label: 'Réglages', Icon: Settings },
 ]
 
 function isActive(pathname: string | null, path: string): boolean {
@@ -53,7 +52,7 @@ export function MobileBottomNav() {
       <ul
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           margin: 0,
           padding: 0,
           listStyle: 'none',

@@ -1,10 +1,13 @@
 'use client'
 
 // Unified mobile top header used across every v3 surface
-// (Aujourd'hui, Sniper, etc.). Pure presentational. Mounts the
-// notification bell and the build-version badge so every screen ships
-// the same diagnostic context for Olivier.
+// (Aujourd'hui, Sniper, Portefeuille, Watchlist, Settings). Pure
+// presentational. Mounts the notification bell, the settings shortcut
+// and the build-version badge so every screen ships the same
+// diagnostic context for Olivier.
 
+import Link from 'next/link'
+import { Settings as SettingsIcon } from 'lucide-react'
 import NotificationBellPanel from '@/components/NotificationBellPanel'
 import { MobileVersionBadge } from './MobileVersionBadge'
 
@@ -21,6 +24,8 @@ interface MobileTopHeaderProps {
   loudVersion?: boolean
   /** Show the bell. Defaults true. */
   showBell?: boolean
+  /** Show the settings shortcut. Defaults true. */
+  showSettings?: boolean
 }
 
 export function MobileTopHeader({
@@ -30,6 +35,7 @@ export function MobileTopHeader({
   contextLine,
   loudVersion = true,
   showBell = true,
+  showSettings = true,
 }: MobileTopHeaderProps) {
   return (
     <header
@@ -106,7 +112,29 @@ export function MobileTopHeader({
         }}
       >
         <MobileVersionBadge variant={loudVersion ? 'loud' : 'header'} />
-        {showBell ? <NotificationBellPanel compact /> : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {showBell ? <NotificationBellPanel compact /> : null}
+          {showSettings ? (
+            <Link
+              href="/settings"
+              aria-label="Réglages"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--surface)',
+                color: 'var(--ink-secondary)',
+                textDecoration: 'none',
+              }}
+            >
+              <SettingsIcon size={16} aria-hidden />
+            </Link>
+          ) : null}
+        </div>
       </div>
     </header>
   )
