@@ -1,13 +1,18 @@
 'use client'
 
-// Portfolio mobile surface — patrimoine total, cash/investi, comptes
-// dépliables, positions à la demande. Mounts AppShell + MobileTopHeader
-// (with MarketStatusBadge + DataFreshnessBadge in extras, identical to
-// /dashboard). Pure render: no metier, no ranking, no recompute. Engine
-// fields (score, suggested_action, top_alert_kind) are NOT surfaced.
+// Portfolio mobile surface — outil compact, mobile-first.
+// Mounts AppShell + MobileTopHeader (with MarketStatusBadge +
+// DataFreshnessBadge in extras, identical to /dashboard).
+// Pure render: no metier, no ranking, no recompute. Engine fields
+// (score, suggested_action, top_alert_kind) are NOT surfaced.
+//
+// Visible accounts whitelisted on the frontend until backend exposes
+// a proper is_active flag: PEA + main CTO IBKR only. Paper, Trade
+// Republic, Boursorama CTO, IBKR Lab/FULL_AUTO and any future IBKR
+// Nexial sub-account are hidden.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, RefreshCw } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
 import { DataFreshnessBadge } from '@/components/shell/DataFreshnessBadge'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
@@ -65,190 +70,352 @@ function formatPnlPct(value: number | undefined): string {
 }
 
 // ─────────────────────────────────────────────────────────
-// Local AccountCard — collapsible per account, collapsed by
-// default. Inline because CollapsibleSection's header only
-// exposes title + count, and we need 4 fields visible while
-// collapsed (name, total, cash, positions count).
+// Frontend whitelist — until backend exposes is_active per
+// account, we strictly limit visibility to PEA + main CTO
+// IBKR. Sub-accounts (Lab FULL_AUTO, Nexial test) and other
+// brokers (Trade Republic, Boursorama CTO, crypto, paper)
+// are hidden.
 // ─────────────────────────────────────────────────────────
-interface AccountCardProps {
-  account: PortfolioCashAccount
-  positions: PortfolioPosition[]
+function isAccountVisible(a: PortfolioCashAccount): boolean {
+  const name = (a.name ?? '').toLowerCase()
+  const broker = (a.broker ?? '').toLowerCase()
+  if (a.kind === 'crypto') return false
+  if (name.includes('paper')) return false
+  if (name.includes('trade republic')) return false
+  if (a.kind === 'pea') return true
+  if (a.kind === 'cto' && broker === 'ibkr') {
+    if (name.includes('lab') || name.includes('full_auto') || name.includes('full auto')) {
+      return false
+    }
+    if (name.includes('nexial')) return false
+    return true
+  }
+  return false
 }
 
-function AccountCard({ account, positions }: AccountCardProps) {
-  const [open, setOpen] = useState(false)
-  const Chevron = open ? ChevronDown : ChevronRight
+type ChipKey = 'all' | 'pea' | 'ibkr' | 'winners' | 'watch'
+
+interface ChipDef {
+  key: ChipKey
+  label: string
+  count: number
+}
+
+// ─────────────────────────────────────────────────────────
+// MoneyBar — bande compacte plate, 3 colonnes
+// Patrimoine · Perf · Cash + footer "Détail ▾"
+// ─────────────────────────────────────────────────────────
+interface MoneyBarProps {
+  patrimoineDisplay?: string
+  pnlDisplay?: string
+  pnlPositive: boolean
+  cashDisplay?: string
+  loading: boolean
+  open: boolean
+  onToggle: () => void
+  visibleAccounts: PortfolioCashAccount[]
+}
+
+function MoneyBar({
+  patrimoineDisplay,
+  pnlDisplay,
+  pnlPositive,
+  cashDisplay,
+  loading,
+  open,
+  onToggle,
+  visibleAccounts,
+}: MoneyBarProps) {
+  const eyebrow: React.CSSProperties = {
+    fontFamily: 'var(--font-editorial-sans)',
+    fontSize: 9,
+    color: 'var(--forest-green-pale)',
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  }
+  const value: React.CSSProperties = {
+    fontFamily: 'var(--font-editorial-mono)',
+    fontSize: 16,
+    fontWeight: 600,
+    color: '#FFFFFF',
+    letterSpacing: '0.01em',
+    whiteSpace: 'nowrap',
+  }
+  const divider: React.CSSProperties = {
+    width: 1,
+    background: 'rgba(168,196,176,0.22)',
+    alignSelf: 'stretch',
+  }
+  const pnlColor = pnlPositive ? 'var(--forest-green-pale)' : '#F0B4B4'
 
   return (
     <section
-      data-account-card={account.account_id}
-      data-account-kind={account.kind}
-      data-open={open ? 'true' : 'false'}
+      data-card="money-bar"
       style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border-subtle)',
+        background: 'var(--forest-deep)',
+        border: '1px solid #15321F',
         borderRadius: 12,
         padding: '12px 14px',
+        color: '#FFFFFF',
         display: 'flex',
         flexDirection: 'column',
-        gap: open ? 10 : 0,
+        gap: 0,
       }}
     >
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={eyebrow}>Patrimoine</div>
+          <div style={value}>{loading ? '…' : (patrimoineDisplay ?? '—')}</div>
+        </div>
+        <div style={divider} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={eyebrow}>Perf</div>
+          <div style={{ ...value, color: pnlColor }}>
+            {loading ? '…' : (pnlDisplay ?? '—')}
+          </div>
+        </div>
+        <div style={divider} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={eyebrow}>Cash</div>
+          <div style={value}>{loading ? '…' : (cashDisplay ?? '—')}</div>
+        </div>
+      </div>
+
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         aria-expanded={open}
         style={{
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: '1px solid rgba(168,196,176,0.18)',
           background: 'transparent',
           border: 'none',
-          padding: 0,
-          margin: 0,
-          textAlign: 'left',
+          borderTopColor: 'rgba(168,196,176,0.18)',
+          borderTopStyle: 'solid',
+          borderTopWidth: 1,
+          color: '#FFFFFF',
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 12,
+          fontWeight: 600,
+          letterSpacing: '0.02em',
           cursor: 'pointer',
           display: 'flex',
-          alignItems: 'flex-start',
+          alignItems: 'center',
           justifyContent: 'space-between',
           gap: 8,
+          padding: '10px 0 0',
         }}
       >
-        <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
-          <Chevron
-            size={16}
-            aria-hidden
-            style={{ color: 'var(--ink-tertiary)', flexShrink: 0, marginTop: 2 }}
-          />
-          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-serif)',
-                fontSize: 16,
-                fontWeight: 500,
-                color: 'var(--ink-primary)',
-                letterSpacing: 'var(--tracking-display)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {account.name}
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 11,
-                color: 'var(--ink-tertiary)',
-                letterSpacing: '0.04em',
-              }}
-            >
-              Cash {account.cash_display} · {positions.length} position
-              {positions.length > 1 ? 's' : ''}
-            </span>
-          </span>
+        <span style={{ color: 'var(--forest-green-pale)' }}>
+          {visibleAccounts.length} compte{visibleAccounts.length > 1 ? 's' : ''}
         </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 13,
-            fontWeight: 600,
-            color: 'var(--ink-primary)',
-            whiteSpace: 'nowrap',
-            marginLeft: 8,
-          }}
-        >
-          {account.invested_display}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          {open ? 'Masquer' : 'Détail'}
+          <ChevronDown
+            size={14}
+            aria-hidden
+            style={{
+              transform: open ? 'rotate(180deg)' : 'none',
+              transition: 'transform 180ms',
+            }}
+          />
         </span>
       </button>
 
       {open ? (
-        positions.length === 0 ? (
-          <p
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 13,
-              color: 'var(--ink-tertiary)',
-            }}
-          >
-            Aucune position détenue actuellement.
-          </p>
-        ) : (
-          <ul
-            style={{
-              listStyle: 'none',
-              margin: 0,
-              padding: 0,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {positions.map((p, idx) => {
-              const pnlPctColor =
-                (p.unrealized_pnl_pct ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
-              return (
-                <li
-                  key={p.asset_id}
+        <ul
+          style={{
+            listStyle: 'none',
+            margin: 0,
+            padding: '10px 0 2px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          {visibleAccounts.length === 0 ? (
+            <li
+              style={{
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 12,
+                color: 'var(--forest-green-pale)',
+              }}
+            >
+              Aucun compte rattaché.
+            </li>
+          ) : (
+            visibleAccounts.map((a) => (
+              <li
+                key={a.account_id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <span
                   style={{
-                    padding: '10px 0',
-                    borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle)',
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 8,
+                    fontFamily: 'var(--font-editorial-sans)',
+                    fontSize: 12,
+                    color: '#FFFFFF',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-editorial-sans)',
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: 'var(--ink-primary)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        maxWidth: 220,
-                      }}
-                    >
-                      {p.asset_name}
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-editorial-mono)',
-                        fontSize: 11,
-                        color: 'var(--ink-secondary)',
-                        letterSpacing: '0.03em',
-                      }}
-                    >
-                      {p.ticker} · {p.quantity} × {formatPrice(p.pru, p.currency)}
-                    </span>
-                  </span>
-                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-editorial-mono)',
-                        fontSize: 13,
-                        color: 'var(--ink-primary)',
-                      }}
-                    >
-                      {formatPrice(p.market_value, p.currency)}
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-editorial-mono)',
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: pnlPctColor,
-                      }}
-                    >
-                      {formatPnlPct(p.unrealized_pnl_pct)}
-                    </span>
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        )
+                  {a.name}
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-editorial-mono)',
+                    fontSize: 12,
+                    color: 'var(--forest-green-pale)',
+                  }}
+                >
+                  Cash {a.cash_display}
+                </span>
+              </li>
+            ))
+          )}
+        </ul>
       ) : null}
+    </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────
+// FilterChip — chips visibles, sélection unique
+// ─────────────────────────────────────────────────────────
+interface ChipProps {
+  active: boolean
+  label: string
+  count: number
+  onClick: () => void
+}
+
+function Chip({ active, label, count, onClick }: ChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        flexShrink: 0,
+        padding: '6px 12px',
+        borderRadius: 999,
+        border: active ? '1px solid var(--ink-primary)' : '1px solid var(--border-subtle)',
+        background: active ? 'var(--ink-primary)' : 'transparent',
+        color: active ? 'var(--ink-on-dark, #FFFFFF)' : 'var(--ink-secondary)',
+        fontFamily: 'var(--font-editorial-sans)',
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: '0.02em',
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span>{label}</span>
+      <span
+        style={{
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 11,
+          color: active ? 'rgba(255,255,255,0.85)' : 'var(--ink-tertiary)',
+        }}
+      >
+        {count}
+      </span>
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────
+// AddMenu — CTA discret, UX only (pas d'écriture backend
+// pour P10-R1, les 2 actions sont désactivées avec une
+// indication "Bientôt").
+// ─────────────────────────────────────────────────────────
+function AddMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null
+  const row: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: '10px 12px',
+    borderRadius: 8,
+    background: 'rgba(0,0,0,0.03)',
+    border: '1px solid var(--border-subtle)',
+    fontFamily: 'var(--font-editorial-sans)',
+    fontSize: 13,
+    color: 'var(--ink-secondary)',
+  }
+  const hint: React.CSSProperties = {
+    fontFamily: 'var(--font-editorial-mono)',
+    fontSize: 10,
+    color: 'var(--ink-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  }
+  return (
+    <section
+      data-card="add-menu"
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 12,
+        padding: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-serif)',
+            fontSize: 14,
+            fontWeight: 500,
+            color: 'var(--ink-primary)',
+          }}
+        >
+          Ajouter une position
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            fontFamily: 'var(--font-editorial-sans)',
+            fontSize: 12,
+            color: 'var(--ink-tertiary)',
+          }}
+        >
+          Fermer
+        </button>
+      </header>
+      <div style={row} aria-disabled="true">
+        <span>Enregistrer un achat exécuté</span>
+        <span style={hint}>Bientôt</span>
+      </div>
+      <div style={row} aria-disabled="true">
+        <span>Créer un ordre dans Orders</span>
+        <span style={hint}>Bientôt</span>
+      </div>
     </section>
   )
 }
@@ -261,6 +428,10 @@ export function PortfolioSurface() {
   const [cashBreakdown, setCashBreakdown] =
     useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
   const [portfolio, setPortfolio] = useState<SurfaceState<PortfolioEnrichedPayload>>(initial)
+  const [moneyOpen, setMoneyOpen] = useState(false)
+  const [chip, setChip] = useState<ChipKey>('all')
+  const [addOpen, setAddOpen] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -287,35 +458,103 @@ export function PortfolioSurface() {
       cancelled = true
       ctrl.abort()
     }
-  }, [])
+  }, [refreshTick])
 
-  const patrimoine = header.data?.patrimoine
   const market = header.data?.market
   const freshness = header.data?.data_freshness
-  const totals = cashBreakdown.data?.totals
-  const accounts = useMemo(() => {
-    const list = cashBreakdown.data?.accounts ?? []
+  const patrimoine = header.data?.patrimoine
+
+  const visibleAccounts = useMemo(() => {
+    const list = (cashBreakdown.data?.accounts ?? []).filter(isAccountVisible)
     return [...list].sort((a, b) => (b.total_eur ?? 0) - (a.total_eur ?? 0))
   }, [cashBreakdown.data?.accounts])
+  const visibleAccountIds = useMemo(
+    () => new Set(visibleAccounts.map((a) => a.account_id)),
+    [visibleAccounts],
+  )
 
-  const positionsByAccount = useMemo(() => {
-    const map = new Map<string, PortfolioPosition[]>()
-    for (const p of portfolio.data?.positions ?? []) {
+  const visibleCashDisplay = useMemo(() => {
+    if (!cashBreakdown.data) return undefined
+    if (visibleAccounts.length === cashBreakdown.data.accounts.length) {
+      return cashBreakdown.data.totals.cash_display
+    }
+    const sum = visibleAccounts.reduce((acc, a) => acc + (a.cash_eur ?? 0), 0)
+    return `${sum.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`
+  }, [cashBreakdown.data, visibleAccounts])
+
+  const visiblePositions = useMemo(() => {
+    const list = (portfolio.data?.positions ?? []).filter(
+      (p) => p.account?.id && visibleAccountIds.has(p.account.id),
+    )
+    return [...list].sort((a, b) => (b.market_value ?? 0) - (a.market_value ?? 0))
+  }, [portfolio.data?.positions, visibleAccountIds])
+
+  const chips: ChipDef[] = useMemo(() => {
+    const peaIds = new Set(
+      visibleAccounts.filter((a) => a.kind === 'pea').map((a) => a.account_id),
+    )
+    const ibkrIds = new Set(
+      visibleAccounts
+        .filter((a) => a.kind === 'cto' && (a.broker ?? '').toLowerCase() === 'ibkr')
+        .map((a) => a.account_id),
+    )
+    const pea = visiblePositions.filter((p) => peaIds.has(p.account.id)).length
+    const ibkr = visiblePositions.filter((p) => ibkrIds.has(p.account.id)).length
+    const winners = visiblePositions.filter(
+      (p) => (p.unrealized_pnl_pct ?? 0) > 0,
+    ).length
+    const watch = visiblePositions.filter(
+      (p) => (p.active_alerts_count ?? 0) > 0,
+    ).length
+    return [
+      { key: 'all', label: 'Tous', count: visiblePositions.length },
+      { key: 'pea', label: 'PEA', count: pea },
+      { key: 'ibkr', label: 'IBKR', count: ibkr },
+      { key: 'winners', label: 'Gagnants', count: winners },
+      { key: 'watch', label: 'Surveillance', count: watch },
+    ]
+  }, [visibleAccounts, visiblePositions])
+
+  const filteredPositions = useMemo(() => {
+    if (chip === 'all') return visiblePositions
+    if (chip === 'pea') {
+      const peaIds = new Set(
+        visibleAccounts.filter((a) => a.kind === 'pea').map((a) => a.account_id),
+      )
+      return visiblePositions.filter((p) => peaIds.has(p.account.id))
+    }
+    if (chip === 'ibkr') {
+      const ibkrIds = new Set(
+        visibleAccounts
+          .filter((a) => a.kind === 'cto' && (a.broker ?? '').toLowerCase() === 'ibkr')
+          .map((a) => a.account_id),
+      )
+      return visiblePositions.filter((p) => ibkrIds.has(p.account.id))
+    }
+    if (chip === 'winners') {
+      return visiblePositions.filter((p) => (p.unrealized_pnl_pct ?? 0) > 0)
+    }
+    if (chip === 'watch') {
+      return visiblePositions.filter((p) => (p.active_alerts_count ?? 0) > 0)
+    }
+    return visiblePositions
+  }, [chip, visiblePositions, visibleAccounts])
+
+  const groupedByAccount = useMemo(() => {
+    const order = visibleAccounts.map((a) => a.account_id)
+    const map = new Map<string, { account: PortfolioCashAccount; positions: PortfolioPosition[] }>()
+    for (const a of visibleAccounts) {
+      map.set(a.account_id, { account: a, positions: [] })
+    }
+    for (const p of filteredPositions) {
       const id = p.account?.id
-      if (!id) continue
-      if (!map.has(id)) map.set(id, [])
-      map.get(id)!.push(p)
+      if (!id || !map.has(id)) continue
+      map.get(id)!.positions.push(p)
     }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => (b.market_value ?? 0) - (a.market_value ?? 0))
-    }
-    return map
-  }, [portfolio.data?.positions])
-
-  const pnlColor =
-    (patrimoine?.pnl_eur ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
-  const pnlPale =
-    (patrimoine?.pnl_eur ?? 0) >= 0 ? 'rgba(216,240,224,0.95)' : 'rgba(255,210,210,0.95)'
+    return order
+      .map((id) => map.get(id)!)
+      .filter((g) => g.positions.length > 0)
+  }, [filteredPositions, visibleAccounts])
 
   const marketExtras =
     market || freshness ? (
@@ -340,22 +579,23 @@ export function PortfolioSurface() {
       </div>
     ) : null
 
-  const metaPale: React.CSSProperties = {
-    fontFamily: 'var(--font-editorial-mono)',
-    fontSize: 10,
-    color: 'rgba(216,240,224,0.85)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-  }
-
   const isLoading = header.loading || cashBreakdown.loading || portfolio.loading
-  const hasError = header.error && cashBreakdown.error && portfolio.error
+  const totalErrors = [header.error, cashBreakdown.error, portfolio.error].filter(Boolean).length
+  const allFailed = totalErrors === 3
+
+  const contextLine =
+    !isLoading && visiblePositions.length > 0
+      ? `${visiblePositions.length} position${visiblePositions.length > 1 ? 's' : ''} · ${visibleAccounts.length} compte${visibleAccounts.length > 1 ? 's' : ''}`
+      : undefined
+
+  const refresh = () => setRefreshTick((t) => t + 1)
 
   return (
     <AppShell>
       <MobileTopHeader
         eyebrow="Patrimoine"
-        title="Portefeuille"
+        title={patrimoine?.display ?? 'Portefeuille'}
+        contextLine={contextLine}
         extras={marketExtras}
         compact
       />
@@ -367,117 +607,114 @@ export function PortfolioSurface() {
           padding: '0 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 12,
         }}
       >
-        <section
-          data-card="patrimoine-master"
-          data-variant="dark"
+        <MoneyBar
+          patrimoineDisplay={patrimoine?.display}
+          pnlDisplay={patrimoine?.pnl_display}
+          pnlPositive={(patrimoine?.pnl_eur ?? 0) >= 0}
+          cashDisplay={visibleCashDisplay}
+          loading={isLoading && !patrimoine}
+          open={moneyOpen}
+          onToggle={() => setMoneyOpen((v) => !v)}
+          visibleAccounts={visibleAccounts}
+        />
+
+        <div
           style={{
-            background:
-              'linear-gradient(135deg, #2A5A40 0%, var(--forest-deep) 60%, #15321F 100%)',
-            border: '1px solid #15321F',
-            borderRadius: 12,
-            overflow: 'hidden',
-            color: '#FFFFFF',
-            boxShadow:
-              '0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(15,42,28,0.18)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
           }}
         >
-          <header style={{ padding: '16px 18px 4px' }}>
-            <span style={metaPale}>Patrimoine total</span>
-          </header>
+          <button
+            type="button"
+            onClick={() => setAddOpen((v) => !v)}
+            aria-expanded={addOpen}
+            style={{
+              padding: '7px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface)',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Plus size={14} strokeWidth={2.2} aria-hidden />
+            Ajouter
+          </button>
+          <button
+            type="button"
+            onClick={refresh}
+            aria-label="Rafraîchir"
+            disabled={isLoading}
+            style={{
+              padding: 7,
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface)',
+              cursor: isLoading ? 'default' : 'pointer',
+              color: 'var(--ink-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              opacity: isLoading ? 0.6 : 1,
+            }}
+          >
+            <RefreshCw size={14} strokeWidth={2.2} aria-hidden />
+          </button>
+        </div>
 
-          {header.loading && !patrimoine ? (
-            <div style={{ padding: '6px 18px 18px' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-mono)',
-                  fontSize: 12,
-                  color: 'rgba(216,240,224,0.75)',
-                }}
-              >
-                Chargement…
-              </span>
-            </div>
-          ) : !patrimoine ? (
-            <div style={{ padding: '6px 18px 18px' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-sans)',
-                  fontSize: 13,
-                  color: 'rgba(216,240,224,0.85)',
-                }}
-              >
-                Certaines données n’ont pas pu être mises à jour.
-              </span>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: '0 18px 16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-serif)',
-                  fontSize: 30,
-                  fontWeight: 500,
-                  color: '#FFFFFF',
-                  letterSpacing: 'var(--tracking-display)',
-                  lineHeight: 1.05,
-                }}
-              >
-                {patrimoine.display}
-              </span>
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-mono)',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: pnlColor,
-                }}
-              >
-                {patrimoine.pnl_display}
-              </span>
-              {totals ? (
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 12,
-                    color: pnlPale,
-                    marginTop: 6,
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  Cash {totals.cash_display} · Investi {totals.invested_display}
-                </span>
-              ) : null}
-            </div>
-          )}
-        </section>
+        <AddMenu open={addOpen} onClose={() => setAddOpen(false)} />
 
-        {isLoading && accounts.length === 0 ? (
+        <div
+          role="tablist"
+          aria-label="Filtres portefeuille"
+          style={{
+            display: 'flex',
+            gap: 6,
+            overflowX: 'auto',
+            paddingBottom: 2,
+            margin: '0 -16px',
+            padding: '2px 16px 4px',
+          }}
+        >
+          {chips.map((c) => (
+            <Chip
+              key={c.key}
+              active={chip === c.key}
+              label={c.label}
+              count={c.count}
+              onClick={() => setChip(c.key)}
+            />
+          ))}
+        </div>
+
+        {isLoading && visiblePositions.length === 0 ? (
           <section
-            style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
             aria-busy="true"
+            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
           >
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
                 style={{
-                  height: 64,
-                  borderRadius: 12,
+                  height: 56,
+                  borderRadius: 10,
                   background: 'rgba(0,0,0,0.04)',
                   border: '1px solid var(--border-subtle)',
                 }}
               />
             ))}
           </section>
-        ) : hasError ? (
+        ) : allFailed ? (
           <section
             role="status"
             style={{
@@ -498,7 +735,7 @@ export function PortfolioSurface() {
               Impossible de charger le portefeuille.
             </p>
           </section>
-        ) : accounts.length === 0 ? (
+        ) : groupedByAccount.length === 0 ? (
           <section
             style={{
               background: 'var(--surface)',
@@ -515,17 +752,134 @@ export function PortfolioSurface() {
                 color: 'var(--ink-tertiary)',
               }}
             >
-              Aucun compte n’est rattaché pour le moment.
+              {chip === 'all'
+                ? 'Aucune position détenue actuellement.'
+                : 'Aucune position pour ce filtre.'}
             </p>
           </section>
         ) : (
-          accounts.map((acc) => (
-            <AccountCard
-              key={acc.account_id}
-              account={acc}
-              positions={positionsByAccount.get(acc.account_id) ?? []}
-            />
-          ))
+          <section
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 12,
+              overflow: 'hidden',
+            }}
+          >
+            {groupedByAccount.map((group, gIdx) => (
+              <div
+                key={group.account.account_id}
+                data-account-group={group.account.kind}
+                style={{ borderTop: gIdx === 0 ? 'none' : '1px solid var(--border-subtle)' }}
+              >
+                <header
+                  style={{
+                    padding: '8px 14px',
+                    background: 'rgba(0,0,0,0.02)',
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-editorial-mono)',
+                      fontSize: 10,
+                      color: 'var(--ink-tertiary)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                    }}
+                  >
+                    {group.account.name}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-editorial-mono)',
+                      fontSize: 11,
+                      color: 'var(--ink-tertiary)',
+                    }}
+                  >
+                    {group.positions.length}
+                  </span>
+                </header>
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {group.positions.map((p, idx) => {
+                    const pnlPctColor =
+                      (p.unrealized_pnl_pct ?? 0) >= 0
+                        ? 'var(--forest-green)'
+                        : 'var(--burgundy)'
+                    return (
+                      <li
+                        key={p.asset_id}
+                        style={{
+                          padding: '10px 14px',
+                          borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-editorial-sans)',
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: 'var(--ink-primary)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: 220,
+                            }}
+                          >
+                            {p.asset_name}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-editorial-mono)',
+                              fontSize: 11,
+                              color: 'var(--ink-secondary)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {p.ticker} · {p.quantity} × {formatPrice(p.pru, p.currency)}
+                          </span>
+                        </span>
+                        <span
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-end',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-editorial-mono)',
+                              fontSize: 13,
+                              color: 'var(--ink-primary)',
+                            }}
+                          >
+                            {formatPrice(p.market_value, p.currency)}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-editorial-mono)',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: pnlPctColor,
+                            }}
+                          >
+                            {formatPnlPct(p.unrealized_pnl_pct)}
+                          </span>
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </section>
         )}
       </div>
     </AppShell>
