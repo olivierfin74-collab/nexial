@@ -64,37 +64,44 @@ async function fetchEnvelope<T>(
   }
 }
 
-// Cash master visual tokens — Nexial Atelier "Papier Orné" palette.
-// Warm light paper with discreet gold accents, calm at morning
-// reading. Replaces previous forest variants entirely; the card now
-// reads premium without going dark.
-const CASH_BG = 'linear-gradient(180deg, #FBF6E7 0%, #F2E9D0 100%)'
-const CASH_BORDER = 'rgba(122, 80, 30, 0.25)'
-const CASH_DIVIDER = 'rgba(122, 80, 30, 0.18)'
+// Editorial premium palette — Nexial Atelier "Papier Orné" refined.
+// Direction: page éditoriale calme (Financial Times privé /
+// carnet de décision), no longer parchemin jaune ni widget admin
+// beige. Borders fade out, the paper itself does the framing,
+// typography carries the hierarchy.
+const CASH_BG = '#F5F1E8'
+const CASH_BORDER = 'rgba(122, 80, 30, 0.10)'
+const CASH_DIVIDER = 'rgba(122, 80, 30, 0.10)'
 const CASH_INK = '#2A1E0C'
 const CASH_INK_SOFT = '#5C3F12'
+const CASH_SEPIA_MUTED = '#9A7E4A'
 const CASH_POSITIVE = '#2D6B1F'
 const CASH_NEGATIVE = '#A8302C'
 const CASH_GOLD = '#B8924A'
 const PAPER_CARD_BG = '#FBF8F1'
-const PAPER_CARD_BORDER = 'rgba(122, 80, 30, 0.25)'
+const PAPER_CARD_BORDER = 'rgba(122, 80, 30, 0.10)'
 
+// Editorial eyebrow — small caps mono, sepia muted, generous tracking.
+// Less "system tag", more "magazine eyebrow".
 const metaPale: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-mono)',
-  fontSize: 10,
-  color: CASH_INK_SOFT,
+  fontSize: 9,
+  color: CASH_SEPIA_MUTED,
   textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  fontWeight: 600,
+  letterSpacing: '0.14em',
+  fontWeight: 500,
   margin: 0,
 }
 
+// Numerical "lede" — serif, large, premium. Reused for Patrimoine
+// and Cash dispo so the column hierarchy stays clear without a
+// visible divider.
 const bigOnDark: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-serif)',
-  fontSize: 22,
+  fontSize: 28,
   fontWeight: 500,
   color: CASH_INK,
-  letterSpacing: '-0.01em',
+  letterSpacing: '-0.015em',
   margin: 0,
 }
 
@@ -215,86 +222,60 @@ export function DashboardSurface() {
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
 
-  // Inline paper-style header meta line — replaces the shell pills
-  // (MarketStatusBadge / DataFreshnessBadge) with a calm typographic
-  // row aligned to the rest of the Nexial Atelier palette. Other
-  // surfaces continue to use the shell badges; this is Dashboard-
-  // local on purpose.
+  // Editorial header meta — pure typographic, no pills, no dots.
+  // Replaces the shell badges (MarketStatusBadge / DataFreshnessBadge)
+  // on /dashboard only with a sober two-line block: market state
+  // in serif italic + freshness in tiny mono caps. Other surfaces
+  // (Portfolio, Orders, Watchlist) continue to use the shell badges.
+  // Wording is 100 % backend-driven: only the eu_open / us_open
+  // booleans are formatted client-side ("EU ouverts" / "US ouverts"
+  // / "EU et US ouverts" / "Marchés fermés"), the regime and the
+  // freshness labels come verbatim from the API.
+  const headerMarketLabel = (() => {
+    if (!market) return null
+    const eu = market.eu_open === true
+    const us = market.us_open === true
+    let states: string
+    if (eu && us) states = 'EU et US ouverts'
+    else if (eu) states = 'EU ouverts'
+    else if (us) states = 'US ouverts'
+    else states = 'Marchés fermés'
+    const regime = market.regime_label_fr?.trim() ?? ''
+    return regime ? `${states} · ${regime}` : states
+  })()
+
   const marketExtras =
-    market || freshness ? (
+    headerMarketLabel || (freshness && freshness.label_fr) ? (
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
-          gap: 3,
+          gap: 2,
         }}
       >
-        {market ? (
-          <div
+        {headerMarketLabel ? (
+          <span
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 10,
+              fontFamily: 'var(--font-editorial-serif)',
+              fontSize: 12,
+              fontStyle: 'italic',
               color: CASH_INK_SOFT,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
+              letterSpacing: '0.005em',
+              lineHeight: 1.35,
             }}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span
-                aria-hidden
-                style={{
-                  width: 5,
-                  height: 5,
-                  borderRadius: 999,
-                  background: market.eu_open ? CASH_POSITIVE : 'transparent',
-                  border: market.eu_open ? 'none' : `1px solid ${CASH_INK_SOFT}`,
-                }}
-              />
-              EU
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span
-                aria-hidden
-                style={{
-                  width: 5,
-                  height: 5,
-                  borderRadius: 999,
-                  background: market.us_open ? CASH_POSITIVE : 'transparent',
-                  border: market.us_open ? 'none' : `1px solid ${CASH_INK_SOFT}`,
-                }}
-              />
-              US
-            </span>
-            {market.regime_label_fr ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-serif)',
-                  fontSize: 12,
-                  fontStyle: 'italic',
-                  color: CASH_INK,
-                  textTransform: 'none',
-                  letterSpacing: 'normal',
-                  fontWeight: 500,
-                }}
-              >
-                {market.regime_label_fr}
-              </span>
-            ) : null}
-          </div>
+            {headerMarketLabel}
+          </span>
         ) : null}
         {freshness && freshness.label_fr ? (
           <span
             style={{
               fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 9.5,
-              letterSpacing: '0.06em',
+              fontSize: 9,
+              letterSpacing: '0.14em',
               textTransform: 'uppercase',
-              color: CASH_INK_SOFT,
+              color: CASH_SEPIA_MUTED,
             }}
           >
             {freshness.label_fr}
@@ -330,7 +311,7 @@ export function DashboardSurface() {
       >
         <section
           data-card="cash-master"
-          data-variant="paper-orne"
+          data-variant="editorial"
           style={{
             background: CASH_BG,
             border: `1px solid ${CASH_BORDER}`,
@@ -338,12 +319,12 @@ export function DashboardSurface() {
             overflow: 'hidden',
             color: CASH_INK,
             boxShadow:
-              '0 1px 0 rgba(255,255,255,0.55) inset, 0 2px 8px rgba(122,80,30,0.10)',
+              '0 1px 0 rgba(255,255,255,0.65) inset, 0 10px 28px rgba(122,80,30,0.06)',
           }}
         >
           <header
             style={{
-              padding: '16px 18px 4px',
+              padding: '20px 22px 6px',
               display: 'flex',
               alignItems: 'flex-start',
               gap: 12,
@@ -380,20 +361,21 @@ export function DashboardSurface() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1px 1fr',
-                gap: 0,
-                padding: '6px 18px 16px',
-                alignItems: 'stretch',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 22,
+                padding: '4px 22px 22px',
+                alignItems: 'start',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={metaPale}>Patrimoine</span>
                 <span style={bigOnDark}>{patrimoine.display}</span>
                 <span
                   style={{
                     fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 12,
-                    fontWeight: 700,
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    letterSpacing: '0.01em',
                     color:
                       (patrimoine.pnl_eur ?? 0) >= 0
                         ? CASH_POSITIVE
@@ -403,18 +385,12 @@ export function DashboardSurface() {
                   {patrimoine.pnl_display}
                 </span>
               </div>
-              <div
-                aria-hidden
-                style={{
-                  background: CASH_DIVIDER,
-                  margin: '4px 14px',
-                }}
-              />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={metaPale}>Cash dispo</span>
                 <span
                   style={{
                     ...bigOnDark,
+                    fontSize: 22,
                     color:
                       Number(totals.cash_eur ?? 0) > 0
                         ? CASH_POSITIVE
@@ -434,7 +410,7 @@ export function DashboardSurface() {
             disabled={!hasData || visibleAccounts.length === 0}
             style={{
               width: '100%',
-              padding: '12px 18px',
+              padding: '14px 22px',
               borderTop: `1px solid ${CASH_DIVIDER}`,
               background: 'transparent',
               cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
@@ -563,27 +539,18 @@ export function DashboardSurface() {
             border: `1px solid ${PAPER_CARD_BORDER}`,
             borderRadius: 12,
             overflow: 'hidden',
-            boxShadow: '0 1px 0 rgba(255,255,255,0.4) inset, 0 1px 4px rgba(122,80,30,0.06)',
+            boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 8px 20px rgba(122,80,30,0.05)',
           }}
         >
           <header
             style={{
-              padding: '14px 16px 10px',
+              padding: '18px 22px 8px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 4,
+              gap: 6,
             }}
           >
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 10,
-                color: CASH_INK_SOFT,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                fontWeight: 600,
-              }}
-            >
+            <span style={metaPale}>
               {morningPriorities.length > 0
                 ? `Ce matin · ${morningPriorities.length} proposition${morningPriorities.length > 1 ? 's' : ''}`
                 : 'Ce matin'}
@@ -593,10 +560,11 @@ export function DashboardSurface() {
             ) : morningMarketLine ? (
               <span
                 style={{
-                  fontFamily: 'var(--font-editorial-sans)',
-                  fontSize: 13,
-                  color: CASH_INK,
-                  lineHeight: 1.4,
+                  fontFamily: 'var(--font-editorial-serif)',
+                  fontSize: 12.5,
+                  fontStyle: 'italic',
+                  color: CASH_INK_SOFT,
+                  lineHeight: 1.45,
                 }}
               >
                 {morningMarketLine}
@@ -823,8 +791,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
     <li
       data-ticker={item.ticker}
       style={{
-        borderTop: '1px solid var(--border-subtle)',
-        borderBottom: isLast ? 'none' : 'none',
+        borderBottom: isLast ? 'none' : `1px solid ${PAPER_CARD_BORDER}`,
       }}
     >
       <button
@@ -834,12 +801,12 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
           width: '100%',
           background: 'transparent',
           border: 'none',
-          padding: '12px 16px',
+          padding: '14px 22px 16px',
           textAlign: 'left',
           cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
-          gap: 4,
+          gap: 6,
         }}
       >
         <div
@@ -847,28 +814,18 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
             display: 'flex',
             alignItems: 'baseline',
             justifyContent: 'space-between',
-            gap: 8,
+            gap: 10,
           }}
         >
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-            <span
-              aria-hidden
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: 999,
-                background: accent,
-                flexShrink: 0,
-                alignSelf: 'center',
-              }}
-            />
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
             <span
               style={{
                 fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 12,
-                fontWeight: 700,
-                color: 'var(--ink-primary)',
-                letterSpacing: '0.02em',
+                fontSize: 11,
+                fontWeight: 600,
+                color: CASH_SEPIA_MUTED,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
               }}
             >
               {item.ticker}
@@ -878,7 +835,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 13,
                 fontWeight: 500,
-                color: 'var(--ink-secondary)',
+                color: CASH_INK,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -891,8 +848,8 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
             <span
               style={{
                 fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 13,
-                color: 'var(--ink-primary)',
+                fontSize: 12.5,
+                color: CASH_INK,
                 whiteSpace: 'nowrap',
               }}
             >
@@ -901,49 +858,54 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
           ) : null}
         </div>
 
+        {item.verdict?.label_fr ? (
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-serif)',
+              fontSize: 17,
+              fontStyle: 'italic',
+              fontWeight: 500,
+              color: accent,
+              letterSpacing: '-0.005em',
+              lineHeight: 1.2,
+            }}
+          >
+            {item.verdict.label_fr}
+          </span>
+        ) : null}
+
         <div
           style={{
             display: 'flex',
             alignItems: 'baseline',
             justifyContent: 'space-between',
             gap: 8,
+            marginTop: 2,
           }}
         >
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-            {item.verdict?.label_fr ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-sans)',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: accent,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {item.verdict.label_fr}
-              </span>
-            ) : null}
-            {deltaDisplay ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-mono)',
-                  fontSize: 11,
-                  color: 'var(--ink-tertiary)',
-                }}
-              >
-                {deltaDisplay}
-              </span>
-            ) : null}
-          </span>
+          {deltaDisplay ? (
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 11,
+                color: CASH_SEPIA_MUTED,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {deltaDisplay}
+            </span>
+          ) : (
+            <span aria-hidden />
+          )}
           <span
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
-              fontFamily: 'var(--font-editorial-sans)',
+              fontFamily: 'var(--font-editorial-serif)',
               fontSize: 12,
-              fontWeight: 600,
+              fontStyle: 'italic',
+              fontWeight: 500,
               color: CASH_GOLD,
               whiteSpace: 'nowrap',
             }}
