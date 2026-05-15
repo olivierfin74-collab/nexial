@@ -69,6 +69,10 @@ function formatPnlPct(value: number | undefined): string {
   return `${sign}${value.toFixed(1)} %`
 }
 
+function formatEur(value: number): string {
+  return `${value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`
+}
+
 // ─────────────────────────────────────────────────────────
 // Frontend whitelist — until backend exposes is_active per
 // account, we strictly limit visibility to PEA + main CTO
@@ -103,28 +107,28 @@ interface ChipDef {
 
 // ─────────────────────────────────────────────────────────
 // MoneyBar — bande compacte plate, 3 colonnes
-// Patrimoine · Perf · Cash + footer "Détail ▾"
+// Investi · Disponible · Total + détail compact par compte.
 // ─────────────────────────────────────────────────────────
 interface MoneyBarProps {
-  patrimoineDisplay?: string
-  pnlDisplay?: string
-  pnlPositive: boolean
-  cashDisplay?: string
+  scopeLabel: string
+  investedDisplay?: string
+  availableDisplay?: string
+  totalDisplay?: string
   loading: boolean
   open: boolean
   onToggle: () => void
-  visibleAccounts: PortfolioCashAccount[]
+  accounts: PortfolioCashAccount[]
 }
 
 function MoneyBar({
-  patrimoineDisplay,
-  pnlDisplay,
-  pnlPositive,
-  cashDisplay,
+  scopeLabel,
+  investedDisplay,
+  availableDisplay,
+  totalDisplay,
   loading,
   open,
   onToggle,
-  visibleAccounts,
+  accounts,
 }: MoneyBarProps) {
   const eyebrow: React.CSSProperties = {
     fontFamily: 'var(--font-editorial-sans)',
@@ -148,8 +152,6 @@ function MoneyBar({
     background: 'rgba(168,196,176,0.22)',
     alignSelf: 'stretch',
   }
-  const pnlColor = pnlPositive ? 'var(--forest-green-pale)' : '#F0B4B4'
-
   return (
     <section
       data-card="money-bar"
@@ -164,22 +166,32 @@ function MoneyBar({
         gap: 0,
       }}
     >
+      <div
+        style={{
+          marginBottom: 10,
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--forest-green-pale)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        {scopeLabel}
+      </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={eyebrow}>Patrimoine</div>
-          <div style={value}>{loading ? '…' : (patrimoineDisplay ?? '—')}</div>
+          <div style={eyebrow}>Investi</div>
+          <div style={value}>{loading ? '…' : (investedDisplay ?? '—')}</div>
         </div>
         <div style={divider} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={eyebrow}>Perf</div>
-          <div style={{ ...value, color: pnlColor }}>
-            {loading ? '…' : (pnlDisplay ?? '—')}
-          </div>
+          <div style={eyebrow}>Disponible</div>
+          <div style={value}>{loading ? '…' : (availableDisplay ?? '—')}</div>
         </div>
         <div style={divider} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={eyebrow}>Cash</div>
-          <div style={value}>{loading ? '…' : (cashDisplay ?? '—')}</div>
+          <div style={eyebrow}>Total</div>
+          <div style={value}>{loading ? '…' : (totalDisplay ?? '—')}</div>
         </div>
       </div>
 
@@ -210,7 +222,7 @@ function MoneyBar({
         }}
       >
         <span style={{ color: 'var(--forest-green-pale)' }}>
-          {visibleAccounts.length} compte{visibleAccounts.length > 1 ? 's' : ''}
+          {accounts.length} compte{accounts.length > 1 ? 's' : ''}
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           {open ? 'Masquer' : 'Détail'}
@@ -236,7 +248,7 @@ function MoneyBar({
             gap: 8,
           }}
         >
-          {visibleAccounts.length === 0 ? (
+          {accounts.length === 0 ? (
             <li
               style={{
                 fontFamily: 'var(--font-editorial-sans)',
@@ -247,14 +259,15 @@ function MoneyBar({
               Aucun compte rattaché.
             </li>
           ) : (
-            visibleAccounts.map((a) => (
+            accounts.map((a) => (
               <li
                 key={a.account_id}
                 style={{
                   display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
+                  flexDirection: 'column',
                   gap: 8,
+                  paddingTop: 8,
+                  borderTop: '1px solid rgba(168,196,176,0.14)',
                 }}
               >
                 <span
@@ -269,15 +282,26 @@ function MoneyBar({
                 >
                   {a.name}
                 </span>
-                <span
+                <div
                   style={{
-                    fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 12,
-                    color: 'var(--forest-green-pale)',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    gap: 8,
                   }}
                 >
-                  Cash {a.cash_display}
-                </span>
+                  <span style={detailMetric}>
+                    <span style={detailLabel}>Investi</span>
+                    <span>{a.invested_display}</span>
+                  </span>
+                  <span style={detailMetric}>
+                    <span style={detailLabel}>Disponible</span>
+                    <span>{a.cash_display}</span>
+                  </span>
+                  <span style={detailMetric}>
+                    <span style={detailLabel}>Total</span>
+                    <span>{formatEur(a.total_eur ?? 0)}</span>
+                  </span>
+                </div>
               </li>
             ))
           )}
@@ -285,6 +309,28 @@ function MoneyBar({
       ) : null}
     </section>
   )
+}
+
+// ─────────────────────────────────────────────────────────
+// MoneyBar detail metrics.
+// ─────────────────────────────────────────────────────────
+const detailMetric: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 0,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  color: '#FFFFFF',
+  whiteSpace: 'nowrap',
+}
+
+const detailLabel: React.CSSProperties = {
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 9,
+  color: 'var(--forest-green-pale)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
 }
 
 // ─────────────────────────────────────────────────────────
@@ -468,19 +514,35 @@ export function PortfolioSurface() {
     const list = (cashBreakdown.data?.accounts ?? []).filter(isAccountVisible)
     return [...list].sort((a, b) => (b.total_eur ?? 0) - (a.total_eur ?? 0))
   }, [cashBreakdown.data?.accounts])
+  const allCashAccounts = useMemo(() => {
+    const list = cashBreakdown.data?.accounts ?? []
+    return [...list].sort((a, b) => (b.total_eur ?? 0) - (a.total_eur ?? 0))
+  }, [cashBreakdown.data?.accounts])
   const visibleAccountIds = useMemo(
     () => new Set(visibleAccounts.map((a) => a.account_id)),
     [visibleAccounts],
   )
 
-  const visibleCashDisplay = useMemo(() => {
-    if (!cashBreakdown.data) return undefined
-    if (visibleAccounts.length === cashBreakdown.data.accounts.length) {
-      return cashBreakdown.data.totals.cash_display
+  const cashScope = useMemo(() => {
+    const accounts =
+      chip === 'pea'
+        ? allCashAccounts.filter((a) => a.kind === 'pea')
+        : chip === 'ibkr'
+          ? allCashAccounts.filter(
+            (a) => a.kind === 'cto' && (a.broker ?? '').toLowerCase() === 'ibkr',
+          )
+          : allCashAccounts
+    const invested = accounts.reduce((acc, a) => acc + (a.invested_eur ?? 0), 0)
+    const available = accounts.reduce((acc, a) => acc + (a.cash_eur ?? 0), 0)
+    const total = accounts.reduce((acc, a) => acc + (a.total_eur ?? 0), 0)
+    return {
+      label: chip === 'pea' ? 'PEA' : chip === 'ibkr' ? 'CTO IBKR' : 'Tous comptes',
+      accounts,
+      investedDisplay: formatEur(invested),
+      availableDisplay: formatEur(available),
+      totalDisplay: formatEur(total),
     }
-    const sum = visibleAccounts.reduce((acc, a) => acc + (a.cash_eur ?? 0), 0)
-    return `${sum.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`
-  }, [cashBreakdown.data, visibleAccounts])
+  }, [allCashAccounts, chip])
 
   const visiblePositions = useMemo(() => {
     const list = (portfolio.data?.positions ?? []).filter(
@@ -611,14 +673,14 @@ export function PortfolioSurface() {
         }}
       >
         <MoneyBar
-          patrimoineDisplay={patrimoine?.display}
-          pnlDisplay={patrimoine?.pnl_display}
-          pnlPositive={(patrimoine?.pnl_eur ?? 0) >= 0}
-          cashDisplay={visibleCashDisplay}
-          loading={isLoading && !patrimoine}
+          scopeLabel={cashScope.label}
+          investedDisplay={cashScope.investedDisplay}
+          availableDisplay={cashScope.availableDisplay}
+          totalDisplay={cashScope.totalDisplay}
+          loading={cashBreakdown.loading && !cashBreakdown.data}
           open={moneyOpen}
           onToggle={() => setMoneyOpen((v) => !v)}
-          visibleAccounts={visibleAccounts}
+          accounts={cashScope.accounts}
         />
 
         <div
