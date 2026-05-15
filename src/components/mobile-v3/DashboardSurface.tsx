@@ -78,8 +78,6 @@ const CASH_SEPIA_MUTED = '#9A7E4A'
 const CASH_POSITIVE = '#2D6B1F'
 const CASH_NEGATIVE = '#A8302C'
 const CASH_GOLD = '#B8924A'
-const PAPER_CARD_BG = '#FBF8F1'
-const PAPER_CARD_BORDER = 'rgba(122, 80, 30, 0.10)'
 
 // Editorial eyebrow — small caps mono, sepia muted, generous tracking.
 // Less "system tag", more "magazine eyebrow".
@@ -154,6 +152,20 @@ function buildMarketLine(ctx: MarketContext | undefined): string {
   else if (us) parts.push('US ouverts')
   else parts.push('Marchés fermés')
   return parts.join(' · ')
+}
+
+// Front-side override for the freshness chip wording. Backend ships
+// freshness.label_fr verbatim — but when status is FRESH the label
+// can still read like "À rafraîchir" depending on backend phrasing,
+// which contradicts the market being live. We override the FRESH
+// case to a calm positive wording; DELAYED / STALE / other states
+// keep the backend label as-is.
+function computeFreshnessLabel(
+  freshness: DashboardHeaderPayload['data_freshness'] | undefined,
+): string | null {
+  if (!freshness || !freshness.label_fr) return null
+  if (freshness.status === 'FRESH') return 'Données à jour'
+  return freshness.label_fr
 }
 
 function emptyMorningMessage(payload: FocusTodayPayload | null | undefined): string {
@@ -245,14 +257,16 @@ export function DashboardSurface() {
     return regime ? `${states} · ${regime}` : states
   })()
 
+  const freshnessLabel = computeFreshnessLabel(freshness)
+
   const marketExtras =
-    headerMarketLabel || (freshness && freshness.label_fr) ? (
+    headerMarketLabel || freshnessLabel ? (
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
-          gap: 3,
+          gap: 2,
         }}
       >
         {headerMarketLabel ? (
@@ -268,7 +282,7 @@ export function DashboardSurface() {
             {headerMarketLabel}
           </span>
         ) : null}
-        {freshness && freshness.label_fr ? (
+        {freshnessLabel ? (
           <span
             style={{
               fontFamily: 'var(--font-editorial-sans)',
@@ -278,7 +292,7 @@ export function DashboardSurface() {
               lineHeight: 1.3,
             }}
           >
-            {freshness.label_fr}
+            {freshnessLabel}
           </span>
         ) : null}
       </div>
@@ -540,72 +554,33 @@ export function DashboardSurface() {
           ) : null}
         </section>
 
-        <section
-          data-card="morning-brief"
-          style={{
-            background: PAPER_CARD_BG,
-            border: `1px solid ${PAPER_CARD_BORDER}`,
-            borderRadius: 12,
-            overflow: 'hidden',
-            boxShadow: '0 1px 0 rgba(255,255,255,0.55) inset, 0 8px 20px rgba(122,80,30,0.05)',
-          }}
+        <CollapsibleSection
+          groupKey="dashboard-morning-brief"
+          title={
+            morningPriorities.length > 0
+              ? `Aujourd’hui · ${morningPriorities.length} proposition${morningPriorities.length > 1 ? 's' : ''}`
+              : 'Aujourd’hui'
+          }
+          count={null}
+          subtitle={morningMarketLine || undefined}
+          defaultOpen
         >
-          <header
-            style={{
-              padding: '18px 22px 8px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}
-          >
-            <span style={metaPale}>
-              {morningPriorities.length > 0
-                ? `Ce matin · ${morningPriorities.length} proposition${morningPriorities.length > 1 ? 's' : ''}`
-                : 'Ce matin'}
-            </span>
-            {focusToday.loading && !focusToday.data ? (
-              <span style={paragraph}>Chargement…</span>
-            ) : morningMarketLine ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-serif)',
-                  fontSize: 12.5,
-                  fontStyle: 'italic',
-                  color: CASH_INK_SOFT,
-                  lineHeight: 1.45,
-                }}
-              >
-                {morningMarketLine}
-              </span>
-            ) : null}
-          </header>
-
           {focusToday.loading && !focusToday.data ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <div
-                aria-busy="true"
-                style={{
-                  height: 52,
-                  borderRadius: 8,
-                  background: 'rgba(0,0,0,0.04)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              />
-            </div>
+            <p aria-busy="true" style={paragraph}>
+              Chargement…
+            </p>
           ) : focusToday.error ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
-            </div>
+            <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : morningPriorities.length === 0 ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
-            </div>
+            <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
           ) : (
             <ul
               style={{
                 listStyle: 'none',
                 margin: 0,
                 padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
               }}
             >
               {morningPriorities.map((item, idx) => (
@@ -618,7 +593,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-        </section>
+        </CollapsibleSection>
 
         <CollapsibleSection
           groupKey="dashboard-sniper-ribbon"
@@ -799,7 +774,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
     <li
       data-ticker={item.ticker}
       style={{
-        borderBottom: isLast ? 'none' : `1px solid ${PAPER_CARD_BORDER}`,
+        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
       }}
     >
       <button
@@ -809,7 +784,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
           width: '100%',
           background: 'transparent',
           border: 'none',
-          padding: '12px 20px',
+          padding: '12px 0',
           textAlign: 'left',
           cursor: 'pointer',
           display: 'flex',
