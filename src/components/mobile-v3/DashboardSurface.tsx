@@ -93,16 +93,17 @@ const metaPale: React.CSSProperties = {
   margin: 0,
 }
 
-// Numerical "lede" — serif, large, premium. Reused for Patrimoine
-// and Cash dispo so the column hierarchy stays clear without a
-// visible divider.
+// Numerical "lede" — serif, large, premium. Reused for Patrimoine;
+// Cash dispo overrides fontSize to enforce hierarchy (Patrimoine
+// dominant, Cash subordinated).
 const bigOnDark: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-serif)',
-  fontSize: 28,
+  fontSize: 30,
   fontWeight: 500,
   color: CASH_INK,
   letterSpacing: '-0.015em',
   margin: 0,
+  lineHeight: 1.1,
 }
 
 function hasMoney(a: PortfolioCashAccount): boolean {
@@ -251,18 +252,17 @@ export function DashboardSurface() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
-          gap: 2,
+          gap: 3,
         }}
       >
         {headerMarketLabel ? (
           <span
             style={{
-              fontFamily: 'var(--font-editorial-serif)',
-              fontSize: 12,
-              fontStyle: 'italic',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 13,
+              fontWeight: 500,
               color: CASH_INK_SOFT,
-              letterSpacing: '0.005em',
-              lineHeight: 1.35,
+              lineHeight: 1.3,
             }}
           >
             {headerMarketLabel}
@@ -271,11 +271,11 @@ export function DashboardSurface() {
         {freshness && freshness.label_fr ? (
           <span
             style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 9,
-              letterSpacing: '0.14em',
-              textTransform: 'uppercase',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 11,
+              fontWeight: 400,
               color: CASH_SEPIA_MUTED,
+              lineHeight: 1.3,
             }}
           >
             {freshness.label_fr}
@@ -324,7 +324,7 @@ export function DashboardSurface() {
         >
           <header
             style={{
-              padding: '20px 22px 6px',
+              padding: '16px 20px 4px',
               display: 'flex',
               alignItems: 'flex-start',
               gap: 12,
@@ -361,13 +361,13 @@ export function DashboardSurface() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 22,
-                padding: '4px 22px 22px',
+                gridTemplateColumns: '1fr 1px 1fr',
+                gap: 0,
+                padding: '2px 20px 18px',
                 alignItems: 'start',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <span style={metaPale}>Patrimoine</span>
                 <span style={bigOnDark}>{patrimoine.display}</span>
                 <span
@@ -376,6 +376,7 @@ export function DashboardSurface() {
                     fontSize: 11.5,
                     fontWeight: 600,
                     letterSpacing: '0.01em',
+                    marginTop: 2,
                     color:
                       (patrimoine.pnl_eur ?? 0) >= 0
                         ? CASH_POSITIVE
@@ -385,12 +386,19 @@ export function DashboardSurface() {
                   {patrimoine.pnl_display}
                 </span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                aria-hidden
+                style={{
+                  background: 'rgba(122, 80, 30, 0.10)',
+                  margin: '6px 16px',
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <span style={metaPale}>Cash dispo</span>
                 <span
                   style={{
                     ...bigOnDark,
-                    fontSize: 22,
+                    fontSize: 20,
                     color:
                       Number(totals.cash_eur ?? 0) > 0
                         ? CASH_POSITIVE
@@ -410,7 +418,7 @@ export function DashboardSurface() {
             disabled={!hasData || visibleAccounts.length === 0}
             style={{
               width: '100%',
-              padding: '14px 22px',
+              padding: '12px 20px',
               borderTop: `1px solid ${CASH_DIVIDER}`,
               background: 'transparent',
               cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
@@ -801,12 +809,12 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
           width: '100%',
           background: 'transparent',
           border: 'none',
-          padding: '14px 22px 16px',
+          padding: '12px 20px',
           textAlign: 'left',
           cursor: 'pointer',
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
+          gap: 4,
         }}
       >
         <div
@@ -858,54 +866,49 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
           ) : null}
         </div>
 
-        {item.verdict?.label_fr ? (
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-serif)',
-              fontSize: 17,
-              fontStyle: 'italic',
-              fontWeight: 500,
-              color: accent,
-              letterSpacing: '-0.005em',
-              lineHeight: 1.2,
-            }}
-          >
-            {item.verdict.label_fr}
-          </span>
-        ) : null}
-
         <div
           style={{
             display: 'flex',
             alignItems: 'baseline',
             justifyContent: 'space-between',
-            gap: 8,
-            marginTop: 2,
+            gap: 10,
           }}
         >
-          {deltaDisplay ? (
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 11,
-                color: CASH_SEPIA_MUTED,
-                letterSpacing: '0.02em',
-              }}
-            >
-              {deltaDisplay}
-            </span>
-          ) : (
-            <span aria-hidden />
-          )}
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+            {item.verdict?.label_fr ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: accent,
+                  letterSpacing: '0.01em',
+                }}
+              >
+                {item.verdict.label_fr}
+              </span>
+            ) : null}
+            {deltaDisplay ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-mono)',
+                  fontSize: 11,
+                  color: CASH_SEPIA_MUTED,
+                  letterSpacing: '0.02em',
+                }}
+              >
+                · {deltaDisplay}
+              </span>
+            ) : null}
+          </span>
           <span
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
-              fontFamily: 'var(--font-editorial-serif)',
-              fontSize: 12,
-              fontStyle: 'italic',
-              fontWeight: 500,
+              gap: 3,
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 11.5,
+              fontWeight: 600,
               color: CASH_GOLD,
               whiteSpace: 'nowrap',
             }}
