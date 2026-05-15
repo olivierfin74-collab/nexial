@@ -1,53 +1,82 @@
 'use client'
 
-// Orders surface (P4 RESTORE FUNCTIONAL MASTER).
+// Orders surface (V1 execution readability).
 //
-// Re-uses the existing useActiveOrders hook from
-// @/lib/hooks/useActiveOrders (already split off the monolith) and
-// adapts the legacy OrdersPage / OrderRow visual pattern from
-// nexial-app-complete.jsx inside the unified AppShell V3.
+// Doctrine cible Orders : "Comment exécuter cette décision proprement ?"
+// pas "Liste brute d'ordres". V1 read-only — pas de mutation, pas de
+// cross-surface state, pas de calcul métier inventé (PRU impact, frais,
+// probabilité chiffrée). On surface tout ce que fn_get_active_orders_for_user
+// ship déjà et qu'on cachait : rationale (filtré jargon), montant total,
+// limit_likely_hit en wording doux, distance_to_placed_pct, account_name.
 //
-// READ-ONLY restoration: filter chips + grouping by ticker + status
-// row. No manual order creation, no edition, no execution dispatch.
-// The full workflow stays in the legacy desktop monolith for now;
-// this surface answers "où en sont mes ordres ?" in one screen.
+// Sections (conditionnelles à non-vide) :
+//   À poser manuellement   status ∈ {PENDING, PROPOSED, DRAFT}
+//   En attente d'exécution status ∈ {PLACED, OPEN, WORKING, ACCEPTED}
+//   Ordres actifs          fallback pour statuts non reconnus
+//   Historique récent      FILLED/EXECUTED/DONE/EXPIRED/CANCELLED/CANCELED
+//                          (5 items max côté front, pas de "Voir plus")
+//
+// Gap documenté V2 : asset_name_fr non disponible côté
+// fn_get_active_orders_for_user ; enrichissement backend recommandé
+// pour appliquer "nom action > ticker" comme sur les autres surfaces.
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { AppShell } from '@/components/shell/AppShell'
+import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import { useActiveOrders, type ActiveOrder } from '@/lib/hooks/useActiveOrders'
 
-type OrderStatusKey = 'pending' | 'filled' | 'expired'
+// ─────────────────────────────────────────────────────────
+// Status bucketing
+// ─────────────────────────────────────────────────────────
+type OrderBucket = 'to_place' | 'placed' | 'active_unknown' | 'history'
 
-function orderStatusKey(status: string | undefined): OrderStatusKey {
-  const value = String(status || '').toUpperCase()
-  if (['FILLED', 'EXECUTED', 'DONE'].includes(value)) return 'filled'
-  if (['EXPIRED', 'CANCELLED', 'CANCELED'].includes(value)) return 'expired'
-  return 'pending'
+const STATUS_TO_PLACE = new Set(['PENDING', 'PROPOSED', 'DRAFT'])
+const STATUS_PLACED = new Set(['PLACED', 'OPEN', 'WORKING', 'ACCEPTED'])
+const STATUS_FILLED = new Set(['FILLED', 'EXECUTED', 'DONE'])
+const STATUS_EXPIRED = new Set(['EXPIRED'])
+const STATUS_CANCELLED = new Set(['CANCELLED', 'CANCELED'])
+
+function orderBucket(status: string | undefined): OrderBucket {
+  const v = String(status ?? '').toUpperCase()
+  if (STATUS_TO_PLACE.has(v)) return 'to_place'
+  if (STATUS_PLACED.has(v)) return 'placed'
+  if (STATUS_FILLED.has(v) || STATUS_EXPIRED.has(v) || STATUS_CANCELLED.has(v)) {
+    return 'history'
+  }
+  return 'active_unknown'
 }
 
-const STATUS_LABEL: Record<OrderStatusKey, string> = {
-  pending: 'À confirmer',
-  filled: 'Exécuté',
-  expired: 'Expiré',
+function historyStatusLabel(status: string | undefined): string {
+  const v = String(status ?? '').toUpperCase()
+  if (STATUS_FILLED.has(v)) return 'Exécuté'
+  if (STATUS_EXPIRED.has(v)) return 'Expiré'
+  if (STATUS_CANCELLED.has(v)) return 'Annulé'
+  return '—'
 }
 
-const STATUS_COLOR: Record<OrderStatusKey, string> = {
-  pending: 'var(--ink-secondary)',
-  filled: 'var(--forest-green)',
-  expired: '#8B6914',
-}
-
-function formatPrice(value: number, currency: string): string {
+// ─────────────────────────────────────────────────────────
+// Formatting helpers — fr-FR locale-aware.
+// ─────────────────────────────────────────────────────────
+function formatMoney(value: number, currency: string): string {
   if (!Number.isFinite(value)) return '—'
-  const symbol = currency === 'EUR' ? '€' : currency === 'USD' ? '$' : currency
-  return `${value.toFixed(2)} ${symbol}`
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: currency || 'EUR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${value.toFixed(2)} ${currency || 'EUR'}`
+  }
 }
 
 function formatPct(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${value.toFixed(2)} %`
+  const abs = Math.abs(value).toFixed(2).replace('.', ',')
+  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
+  return `${sign}${abs} %`
 }
 
 function formatExpire(value: string | null | undefined): string {
@@ -57,208 +86,386 @@ function formatExpire(value: string | null | undefined): string {
   return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(date)
 }
 
-interface ChipProps {
-  active: boolean
-  onClick: () => void
-  count: number
-  children: React.ReactNode
+function formatQty(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 }).format(value)
 }
 
-function FilterChip({ active, onClick, count, children }: ChipProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '6px 12px',
-        borderRadius: 999,
-        background: active ? 'var(--forest-green)' : 'var(--surface)',
-        color: active ? '#FFFFFF' : 'var(--ink-secondary)',
-        border: `1px solid ${active ? 'var(--forest-green)' : 'var(--border-subtle)'}`,
-        fontFamily: 'var(--font-editorial-sans)',
-        fontSize: 12,
-        fontWeight: 600,
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span>{children}</span>
-      <span
-        style={{
-          fontFamily: 'var(--font-editorial-mono)',
-          fontSize: 11,
-          fontWeight: 700,
-          opacity: 0.85,
-        }}
-      >
-        {count}
-      </span>
-    </button>
-  )
+// ─────────────────────────────────────────────────────────
+// Rationale cleanup — hide the line entirely when the backend
+// rationale leaks engine jargon (signal codes, RSI/MACD, Z1/Z2,
+// SIGNAL_*, etc.). When clean, render verbatim with a 2-line
+// ellipsis clamp.
+// ─────────────────────────────────────────────────────────
+const ENGINE_JARGON = new RegExp(
+  '\\b(' +
+    'BUY_ZONE|SELL_ZONE|STRONG_BUY|STRONG_SELL|' +
+    'MACD|RSI|EMA|SMA|' +
+    'SIGNAL_[A-Z_]+|' +
+    'Z[12]_PRICE|Z[12]|' +
+    'HOT_PULLBACK|WATCH_PULLBACK|WATCH_BORDERLINE|OVERBOUGHT_HOLD|TOO_EXPENSIVE|DOWNTREND_DANGER|' +
+    'OPPORTUNITY_LIGHT|OPPORTUNITY_STRONG|NEUTRAL_HOLD|' +
+    'BUY_SCORE|TRIGGER_[A-Z_]+|' +
+    'score_now|technical_score' +
+    ')\\b',
+  'i',
+)
+
+function cleanRationale(raw: string | undefined): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (trimmed.length < 2) return null
+  if (ENGINE_JARGON.test(trimmed)) return null
+  return trimmed
 }
 
-interface OrderRowProps {
+// ─────────────────────────────────────────────────────────
+// limit_likely_hit — soft wording, never "probable" without
+// backend confirmation. Hide when undefined / null.
+// ─────────────────────────────────────────────────────────
+type LimitHint = { label: string; color: string; bg: string } | null
+
+function limitHint(value: boolean | undefined): LimitHint {
+  if (value === true) {
+    return {
+      label: 'Proche du prix',
+      color: 'var(--forest-green)',
+      bg: 'rgba(45,107,31,0.08)',
+    }
+  }
+  if (value === false) {
+    return {
+      label: 'Encore à distance',
+      color: 'var(--ink-tertiary)',
+      bg: 'rgba(0,0,0,0.03)',
+    }
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────
+// Row components (inline — no new exported component).
+// ─────────────────────────────────────────────────────────
+interface ActiveRowProps {
   order: ActiveOrder
-  status: OrderStatusKey
   isLast: boolean
 }
 
-function OrderRow({ order, status, isLast }: OrderRowProps) {
-  const dist = Number(order.price_change_since_proposal_pct ?? 0)
-  const distColor = dist < 0 ? 'var(--burgundy)' : 'var(--forest-green)'
+function ActiveOrderRow({ order, isLast }: ActiveRowProps) {
+  const currency = order.currency || 'EUR'
+  const price = Number(order.effective_price ?? 0)
+  const qty = Number(order.effective_quantity ?? 0)
+  const totalRaw = Number(order.effective_amount ?? NaN)
+  const total = Number.isFinite(totalRaw) ? totalRaw : price * qty
+
+  const sideLabel = order.side === 'sell' ? 'Vente' : 'Achat'
+  const typeLabel = (order.order_type || 'LIMIT').toUpperCase()
+  const accountLabel = order.account_name || ''
+  const expireLabel = order.expires_at ? `expire le ${formatExpire(order.expires_at)}` : ''
+  const marketPriceNow = Number(order.market_price_now ?? NaN)
+  const priceChange = Number(order.price_change_since_proposal_pct ?? NaN)
+  const limit = limitHint(order.limit_likely_hit)
+  const distance = Number(order.distance_to_placed_pct ?? NaN)
+  const distanceLabel = Number.isFinite(distance)
+    ? `À ${Math.abs(distance).toFixed(2).replace('.', ',')} % du palier`
+    : null
+  const rationale = cleanRationale(order.rationale)
+
+  const metaParts = [
+    `${sideLabel} ${typeLabel}`,
+    accountLabel,
+    expireLabel,
+  ].filter(Boolean)
 
   return (
-    <div
+    <li
+      data-order-id={order.id}
+      data-status={order.status}
       style={{
-        padding: '12px 14px',
+        padding: '12px 0',
         borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: 6,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 12,
-            color: 'var(--ink-tertiary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            fontWeight: 600,
-          }}
-        >
-          {order.side === 'sell' ? 'Vente' : 'Achat'} · {order.order_type ?? 'limit'}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 11,
-            fontWeight: 700,
-            color: STATUS_COLOR[status],
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-          }}
-        >
-          {STATUS_LABEL[status]}
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 18,
-            color: 'var(--ink-primary)',
-            fontWeight: 600,
-          }}
-        >
-          {formatPrice(Number(order.effective_price ?? 0), order.currency || 'EUR')}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 11,
-            color: 'var(--ink-tertiary)',
-          }}
-        >
-          × {Number(order.effective_quantity ?? 0)}
-        </span>
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 11,
-            fontWeight: 700,
-            color: distColor,
-          }}
-        >
-          {formatPct(dist)}
-        </span>
-      </div>
-
       <div
         style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 14,
+            fontWeight: 700,
+            color: 'var(--ink-primary)',
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {order.ticker}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--ink-primary)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {formatMoney(total, currency)}
+        </span>
+      </div>
+
+      <p
+        style={{
+          margin: 0,
           fontFamily: 'var(--font-editorial-sans)',
-          fontSize: 11,
-          color: 'var(--ink-tertiary)',
+          fontSize: 12,
+          color: 'var(--ink-secondary)',
           lineHeight: 1.4,
         }}
       >
-        {order.market_price_now != null
-          ? `Cours actuel ${formatPrice(Number(order.market_price_now), order.currency || 'EUR')}`
+        {metaParts.join(' · ')}
+      </p>
+
+      <p
+        style={{
+          margin: 0,
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 11.5,
+          color: 'var(--ink-tertiary)',
+          lineHeight: 1.4,
+          letterSpacing: '0.02em',
+        }}
+      >
+        {`${formatQty(qty)} × ${formatMoney(price, currency)}`}
+        {Number.isFinite(marketPriceNow) && marketPriceNow > 0
+          ? `  ·  Cours ${formatMoney(marketPriceNow, currency)}`
           : ''}
-        {order.expires_at ? ` · expire le ${formatExpire(order.expires_at)}` : ''}
-        {order.account_name ? ` · ${order.account_name}` : ''}
-      </div>
-    </div>
+        {Number.isFinite(priceChange)
+          ? `  (${formatPct(priceChange)})`
+          : ''}
+      </p>
+
+      {limit || distanceLabel ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            marginTop: 2,
+          }}
+        >
+          {limit ? (
+            <span
+              data-hint="limit"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '3px 9px',
+                borderRadius: 999,
+                background: limit.bg,
+                border: `1px solid ${limit.color}`,
+                color: limit.color,
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.01em',
+              }}
+            >
+              {limit.label}
+            </span>
+          ) : null}
+          {distanceLabel ? (
+            <span
+              data-hint="distance"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '3px 9px',
+                borderRadius: 999,
+                background: 'rgba(0,0,0,0.02)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--ink-secondary)',
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {distanceLabel}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {rationale ? (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: 'var(--font-editorial-sans)',
+            fontSize: 12,
+            color: 'var(--ink-secondary)',
+            lineHeight: 1.45,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            marginTop: 2,
+          } as React.CSSProperties}
+        >
+          {rationale}
+        </p>
+      ) : null}
+    </li>
   )
 }
 
-interface GroupedOrders {
-  ticker: string
-  orders: ActiveOrder[]
+interface HistoryRowProps {
+  order: ActiveOrder
+  isLast: boolean
 }
 
+function HistoryOrderRow({ order, isLast }: HistoryRowProps) {
+  const currency = order.currency || 'EUR'
+  const price = Number(order.effective_price ?? 0)
+  const qty = Number(order.effective_quantity ?? 0)
+  const totalRaw = Number(order.effective_amount ?? NaN)
+  const total = Number.isFinite(totalRaw) ? totalRaw : price * qty
+  const sideLabel = order.side === 'sell' ? 'Vente' : 'Achat'
+  const statusLabel = historyStatusLabel(order.status)
+  const expireLabel = order.expires_at ? formatExpire(order.expires_at) : ''
+
+  return (
+    <li
+      data-order-id={order.id}
+      data-status={order.status}
+      style={{
+        padding: '10px 0',
+        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        gap: 10,
+      }}
+    >
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--ink-primary)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {order.ticker}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'var(--ink-tertiary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+            }}
+          >
+            {statusLabel}
+            {expireLabel ? ` · ${expireLabel}` : ''}
+          </span>
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 11,
+            color: 'var(--ink-tertiary)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          {sideLabel} {formatQty(qty)} × {formatMoney(price, currency)}
+        </span>
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 12.5,
+          color: 'var(--ink-secondary)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        {formatMoney(total, currency)}
+      </span>
+    </li>
+  )
+}
+
+// ─────────────────────────────────────────────────────────
+// Surface
+// ─────────────────────────────────────────────────────────
 export function OrdersSurface() {
-  const [filterStatus, setFilterStatus] = useState<OrderStatusKey>('pending')
-  const { orders, summary, loading, error } = useActiveOrders()
+  const { orders, loading, error } = useActiveOrders()
 
-  const taggedOrders = useMemo(
-    () => (orders || []).map((o) => ({ order: o, status: orderStatusKey(o.status) })),
-    [orders],
-  )
-
-  const filteredOrders = useMemo(
-    () => taggedOrders.filter((t) => t.status === filterStatus),
-    [taggedOrders, filterStatus],
-  )
-
-  const grouped = useMemo<GroupedOrders[]>(() => {
-    const map = new Map<string, ActiveOrder[]>()
-    for (const { order } of filteredOrders) {
-      if (!map.has(order.ticker)) map.set(order.ticker, [])
-      map.get(order.ticker)!.push(order)
-    }
-    return Array.from(map.entries())
-      .map(([ticker, list]) => ({ ticker, orders: list }))
-      .sort((a, b) => a.ticker.localeCompare(b.ticker))
-  }, [filteredOrders])
-
-  const counts = useMemo(() => {
-    if (summary) {
-      const pending = (summary.pending ?? 0) + (summary.placed ?? 0)
-      return {
-        pending,
-        filled: summary.filled ?? 0,
-        expired: summary.expired ?? 0,
+  const sections = useMemo(() => {
+    const items = orders ?? []
+    const to_place: ActiveOrder[] = []
+    const placed: ActiveOrder[] = []
+    const active_unknown: ActiveOrder[] = []
+    const history: ActiveOrder[] = []
+    for (const o of items) {
+      switch (orderBucket(o.status)) {
+        case 'to_place':
+          to_place.push(o)
+          break
+        case 'placed':
+          placed.push(o)
+          break
+        case 'history':
+          history.push(o)
+          break
+        default:
+          active_unknown.push(o)
       }
     }
     return {
-      pending: taggedOrders.filter((t) => t.status === 'pending').length,
-      filled: taggedOrders.filter((t) => t.status === 'filled').length,
-      expired: taggedOrders.filter((t) => t.status === 'expired').length,
+      to_place,
+      placed,
+      active_unknown,
+      history: history.slice(0, 5),
     }
-  }, [summary, taggedOrders])
+  }, [orders])
+
+  const totalActive =
+    sections.to_place.length + sections.placed.length + sections.active_unknown.length
+  const contextLine =
+    loading && !orders.length
+      ? 'Chargement…'
+      : totalActive > 0
+        ? `Plan d’exécution · ${totalActive} ordre${totalActive > 1 ? 's' : ''} actif${totalActive > 1 ? 's' : ''}`
+        : 'Plan d’exécution'
+
+  const hasAnyContent =
+    sections.to_place.length > 0 ||
+    sections.placed.length > 0 ||
+    sections.active_unknown.length > 0 ||
+    sections.history.length > 0
 
   return (
     <AppShell>
       <MobileTopHeader
         eyebrow="Exécution"
         title="Orders"
-        contextLine={
-          loading
-            ? 'Chargement…'
-            : filterStatus === 'pending'
-              ? 'Plans d’entrée à confirmer'
-              : filterStatus === 'filled'
-                ? 'Ordres exécutés'
-                : 'Ordres expirés'
-        }
+        contextLine={contextLine}
         compact
       />
 
@@ -272,37 +479,6 @@ export function OrdersSurface() {
           gap: 12,
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            overflowX: 'auto',
-            paddingBottom: 4,
-          }}
-        >
-          <FilterChip
-            active={filterStatus === 'pending'}
-            onClick={() => setFilterStatus('pending')}
-            count={counts.pending}
-          >
-            À confirmer
-          </FilterChip>
-          <FilterChip
-            active={filterStatus === 'filled'}
-            onClick={() => setFilterStatus('filled')}
-            count={counts.filled}
-          >
-            Exécutés
-          </FilterChip>
-          <FilterChip
-            active={filterStatus === 'expired'}
-            onClick={() => setFilterStatus('expired')}
-            count={counts.expired}
-          >
-            Expirés
-          </FilterChip>
-        </div>
-
         {error ? (
           <section
             role="status"
@@ -324,14 +500,16 @@ export function OrdersSurface() {
               Certaines données n’ont pas pu être mises à jour.
             </p>
           </section>
-        ) : loading ? (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        ) : loading && !hasAnyContent ? (
+          <section
+            aria-busy="true"
+            style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+          >
             {[0, 1].map((i) => (
               <div
                 key={i}
-                aria-busy="true"
                 style={{
-                  height: 96,
+                  height: 110,
                   borderRadius: 12,
                   background: 'rgba(0,0,0,0.04)',
                   border: '1px solid var(--border-subtle)',
@@ -339,7 +517,7 @@ export function OrdersSurface() {
               />
             ))}
           </section>
-        ) : grouped.length === 0 ? (
+        ) : !hasAnyContent ? (
           <section
             style={{
               background: 'var(--surface)',
@@ -356,68 +534,99 @@ export function OrdersSurface() {
                 color: 'var(--ink-tertiary)',
               }}
             >
-              {filterStatus === 'pending'
-                ? "Aucun plan d’entrée à confirmer."
-                : filterStatus === 'filled'
-                  ? 'Aucun ordre exécuté.'
-                  : 'Aucun ordre expiré.'}
+              Aucun ordre pour le moment.
             </p>
           </section>
         ) : (
-          grouped.map((group) => (
-            <section
-              key={group.ticker}
-              data-ticker={group.ticker}
-              style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 12,
-                overflow: 'hidden',
-              }}
-            >
-              <header
-                style={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  padding: '10px 14px',
-                  borderBottom: '1px solid var(--border-subtle)',
-                  background: 'var(--canvas)',
-                }}
+          <>
+            {sections.to_place.length > 0 ? (
+              <CollapsibleSection
+                groupKey="orders-to-place"
+                title="À poser manuellement"
+                count={sections.to_place.length}
+                subtitle="Ordres acceptés à placer chez le broker."
+                defaultOpen
               >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 13,
-                    fontWeight: 800,
-                    color: 'var(--ink-primary)',
-                  }}
-                >
-                  {group.ticker}
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-mono)',
-                    fontSize: 11,
-                    color: 'var(--ink-tertiary)',
-                  }}
-                >
-                  {group.orders.length} palier{group.orders.length > 1 ? 's' : ''}
-                </span>
-              </header>
-              {group.orders.map((order, idx) => (
-                <OrderRow
-                  key={order.id}
-                  order={order}
-                  status={orderStatusKey(order.status)}
-                  isLast={idx === group.orders.length - 1}
-                />
-              ))}
-            </section>
-          ))
+                <ul style={listReset}>
+                  {sections.to_place.map((o, idx) => (
+                    <ActiveOrderRow
+                      key={o.id}
+                      order={o}
+                      isLast={idx === sections.to_place.length - 1}
+                    />
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            ) : null}
+
+            {sections.placed.length > 0 ? (
+              <CollapsibleSection
+                groupKey="orders-placed"
+                title="En attente d’exécution"
+                count={sections.placed.length}
+                subtitle="Ordres posés au broker, en attente d’exécution."
+                defaultOpen
+              >
+                <ul style={listReset}>
+                  {sections.placed.map((o, idx) => (
+                    <ActiveOrderRow
+                      key={o.id}
+                      order={o}
+                      isLast={idx === sections.placed.length - 1}
+                    />
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            ) : null}
+
+            {sections.active_unknown.length > 0 ? (
+              <CollapsibleSection
+                groupKey="orders-active"
+                title="Ordres actifs"
+                count={sections.active_unknown.length}
+                subtitle="Ordres en cours."
+                defaultOpen
+              >
+                <ul style={listReset}>
+                  {sections.active_unknown.map((o, idx) => (
+                    <ActiveOrderRow
+                      key={o.id}
+                      order={o}
+                      isLast={idx === sections.active_unknown.length - 1}
+                    />
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            ) : null}
+
+            {sections.history.length > 0 ? (
+              <CollapsibleSection
+                groupKey="orders-history"
+                title="Historique récent"
+                count={sections.history.length}
+                subtitle="Exécutés, expirés, annulés."
+                defaultOpen={false}
+              >
+                <ul style={listReset}>
+                  {sections.history.map((o, idx) => (
+                    <HistoryOrderRow
+                      key={o.id}
+                      order={o}
+                      isLast={idx === sections.history.length - 1}
+                    />
+                  ))}
+                </ul>
+              </CollapsibleSection>
+            ) : null}
+          </>
         )}
       </div>
     </AppShell>
   )
+}
+
+const listReset: React.CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
 }
