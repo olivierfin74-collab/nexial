@@ -66,10 +66,19 @@ async function fetchEnvelope<T>(
   }
 }
 
+// Cash master visual tokens (soft "ivoire/graphite" variant).
+// The previous dark forest gradient was too dominant on a list-dense
+// surface; we keep the same structural layout but on a calm canvas.
+const CASH_BG = '#F4F1EA'
+const CASH_BORDER = '#E3DED2'
+const CASH_INK = '#12352A'
+const CASH_INK_SOFT = '#5A7869'
+const CASH_POSITIVE = '#2F6B4F'
+
 const metaPale: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-mono)',
   fontSize: 10,
-  color: 'var(--forest-green-pale)',
+  color: CASH_INK_SOFT,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   fontWeight: 600,
@@ -80,7 +89,7 @@ const bigOnDark: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-serif)',
   fontSize: 22,
   fontWeight: 500,
-  color: '#FFFFFF',
+  color: CASH_INK,
   letterSpacing: '-0.01em',
   margin: 0,
 }
@@ -338,15 +347,14 @@ export function DashboardSurface() {
 
         <section
           data-card="cash-master"
-          data-variant="dark"
+          data-variant="soft"
           style={{
-            background:
-              'linear-gradient(135deg, #2A5A40 0%, var(--forest-deep) 60%, #15321F 100%)',
-            border: '1px solid #15321F',
+            background: CASH_BG,
+            border: `1px solid ${CASH_BORDER}`,
             borderRadius: 12,
             overflow: 'hidden',
-            color: '#FFFFFF',
-            boxShadow: '0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(15,42,28,0.18)',
+            color: CASH_INK,
+            boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset, 0 2px 10px rgba(18,53,42,0.08)',
           }}
         >
           <header
@@ -366,7 +374,7 @@ export function DashboardSurface() {
                 style={{
                   fontFamily: 'var(--font-editorial-mono)',
                   fontSize: 14,
-                  color: 'var(--forest-green-pale)',
+                  color: CASH_INK_SOFT,
                 }}
               >
                 Chargement…
@@ -378,7 +386,7 @@ export function DashboardSurface() {
                 style={{
                   fontFamily: 'var(--font-editorial-sans)',
                   fontSize: 13,
-                  color: 'var(--forest-green-pale)',
+                  color: CASH_INK_SOFT,
                 }}
               >
                 Certaines données n’ont pas pu être mises à jour.
@@ -404,8 +412,8 @@ export function DashboardSurface() {
                     fontWeight: 700,
                     color:
                       (patrimoine.pnl_eur ?? 0) >= 0
-                        ? 'var(--forest-green-pale)'
-                        : '#F1A39B',
+                        ? CASH_POSITIVE
+                        : 'var(--burgundy)',
                   }}
                 >
                   {patrimoine.pnl_display}
@@ -414,7 +422,7 @@ export function DashboardSurface() {
               <div
                 aria-hidden
                 style={{
-                  background: 'rgba(168, 196, 176, 0.25)',
+                  background: CASH_BORDER,
                   margin: '4px 14px',
                 }}
               />
@@ -425,8 +433,8 @@ export function DashboardSurface() {
                     ...bigOnDark,
                     color:
                       Number(totals.cash_eur ?? 0) > 0
-                        ? 'var(--forest-green-pale)'
-                        : '#FFFFFF',
+                        ? CASH_POSITIVE
+                        : CASH_INK,
                   }}
                 >
                   {totals.cash_display}
@@ -443,7 +451,7 @@ export function DashboardSurface() {
             style={{
               width: '100%',
               padding: '12px 18px',
-              borderTop: '1px solid rgba(168, 196, 176, 0.18)',
+              borderTop: `1px solid ${CASH_BORDER}`,
               background: 'transparent',
               cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
               display: 'flex',
@@ -451,14 +459,14 @@ export function DashboardSurface() {
               justifyContent: 'space-between',
               gap: 8,
               textAlign: 'left',
-              color: 'var(--forest-green-pale)',
+              color: CASH_INK_SOFT,
             }}
           >
             <span
               style={{
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
-                color: 'var(--forest-green-pale)',
+                color: CASH_INK_SOFT,
                 fontWeight: 500,
               }}
             >
@@ -474,7 +482,7 @@ export function DashboardSurface() {
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
                 fontWeight: 600,
-                color: '#FFFFFF',
+                color: CASH_INK,
               }}
             >
               {expanded ? 'Masquer' : 'Détail'}
