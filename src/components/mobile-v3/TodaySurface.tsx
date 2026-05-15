@@ -18,11 +18,11 @@
 // "Je passe" est local-only (state React, non persistant) — limite
 // documentée pour V2.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
-import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import {
@@ -235,6 +235,26 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
 }
 
 // ─────────────────────────────────────────────────────────
+// Local action lifecycle — V1 client-only simulation. When the
+// user clicks an actionable CTA that opens a decisional modal,
+// the item is marked "treated" in a local Map and the row swaps
+// its CTA for a visual "Done" chip. State is not persisted: a
+// refresh, a data change or a new session restores the items.
+// ─────────────────────────────────────────────────────────
+type ActionPhase = 'plan_activated' | 'order_prepared' | 'strategy_defined'
+
+function treatedChipLabel(phase: ActionPhase): string {
+  switch (phase) {
+    case 'plan_activated':
+      return 'Plan activé'
+    case 'order_prepared':
+      return 'Ordre préparé'
+    case 'strategy_defined':
+      return 'Stratégie définie'
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Modal slot resolution (unchanged from previous Today).
 // ─────────────────────────────────────────────────────────
 type ModalSlot =
@@ -288,28 +308,157 @@ function resolveSlot(kind: RedirectKind | undefined): ModalSlot | null {
   }
 }
 
+function slotToPhase(slot: ModalSlot): ActionPhase {
+  switch (slot) {
+    case 'open_ladder_modal':
+      return 'plan_activated'
+    case 'open_exit_modal':
+      return 'order_prepared'
+    case 'open_thesis_modal':
+    case 'open_thesis_modal_urgent':
+      return 'strategy_defined'
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// TodaySection — inline collapsible with a structuring title.
+// Built locally (rather than reusing CollapsibleSection) so the
+// section titles can read stronger and more contrasted on this
+// surface, without modifying the shell component.
+// ─────────────────────────────────────────────────────────
+interface TodaySectionProps {
+  groupKey: string
+  title: string
+  count?: number | null
+  subtitle?: string
+  defaultOpen?: boolean
+  children: ReactNode
+}
+
+function TodaySection({
+  groupKey,
+  title,
+  count = null,
+  subtitle,
+  defaultOpen = true,
+  children,
+}: TodaySectionProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  const Chevron = open ? ChevronDown : ChevronRight
+  return (
+    <section
+      data-collapsible={groupKey}
+      data-open={open ? 'true' : 'false'}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 12,
+        padding: '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          margin: 0,
+          textAlign: 'left',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <Chevron
+            size={16}
+            aria-hidden
+            style={{ color: 'var(--ink-secondary)' }}
+          />
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-serif)',
+              fontSize: 18,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
+              letterSpacing: 'var(--tracking-display)',
+            }}
+          >
+            {title}
+          </span>
+        </span>
+        {count != null ? (
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--ink-tertiary)',
+              letterSpacing: '0.04em',
+              minWidth: 18,
+              textAlign: 'right',
+            }}
+          >
+            {count}
+          </span>
+        ) : null}
+      </button>
+
+      {open && subtitle ? (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: 'var(--font-editorial-sans)',
+            fontSize: 12,
+            color: 'var(--ink-secondary)',
+            lineHeight: 1.4,
+          }}
+        >
+          {subtitle}
+        </p>
+      ) : null}
+
+      {open ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {children}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 // ─────────────────────────────────────────────────────────
 // ActionRow — used by À TRAITER + À PRÉPARER. Carries the
 // primary CTA + "Je passe" dismiss.
 // ─────────────────────────────────────────────────────────
 interface ActionRowProps {
   item: ActionItem
+  treatedPhase: ActionPhase | undefined
   onCta: (item: ActionItem) => void
   onDismiss: (key: string) => void
   isLast: boolean
 }
 
-function ActionRow({ item, onCta, onDismiss, isLast }: ActionRowProps) {
+function ActionRow({ item, treatedPhase, onCta, onDismiss, isLast }: ActionRowProps) {
   const accent = verdictTone(item.verdict_color)
   return (
     <li
       data-ticker={item.ticker}
+      data-treated={treatedPhase ?? undefined}
       style={{
         borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
         padding: '12px 0',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
+        opacity: treatedPhase ? 0.78 : 1,
       }}
     >
       <div
@@ -323,28 +472,29 @@ function ActionRow({ item, onCta, onDismiss, isLast }: ActionRowProps) {
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
           <span
             style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 12,
-              fontWeight: 700,
-              color: 'var(--ink-primary)',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            {item.ticker}
-          </span>
-          <span
-            style={{
               fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 13,
-              fontWeight: 500,
-              color: 'var(--ink-secondary)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
           >
             {item.asset_name_fr}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              color: 'var(--ink-tertiary)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            {item.ticker}
           </span>
         </span>
         {item.price_display ? (
@@ -386,42 +536,67 @@ function ActionRow({ item, onCta, onDismiss, isLast }: ActionRowProps) {
           marginTop: 2,
         }}
       >
-        <button
-          type="button"
-          onClick={() => onCta(item)}
-          style={{
-            minHeight: 36,
-            padding: '7px 12px',
-            borderRadius: 8,
-            border: `1px solid ${accent}`,
-            background: 'transparent',
-            color: accent,
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          {item.cta_label}
-        </button>
-        <button
-          type="button"
-          onClick={() => onDismiss(item.key)}
-          style={{
-            minHeight: 36,
-            padding: '7px 10px',
-            borderRadius: 8,
-            border: '1px solid var(--border-subtle)',
-            background: 'transparent',
-            color: 'var(--ink-tertiary)',
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          Je passe
-        </button>
+        {treatedPhase ? (
+          <span
+            data-status="treated"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '7px 12px',
+              minHeight: 36,
+              borderRadius: 8,
+              border: '1px solid var(--forest-green)',
+              background: 'rgba(45,107,31,0.08)',
+              color: 'var(--forest-green)',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            <Check size={12} aria-hidden />
+            {treatedChipLabel(treatedPhase)}
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onCta(item)}
+              style={{
+                minHeight: 36,
+                padding: '7px 12px',
+                borderRadius: 8,
+                border: `1px solid ${accent}`,
+                background: 'transparent',
+                color: accent,
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {item.cta_label}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismiss(item.key)}
+              style={{
+                minHeight: 36,
+                padding: '7px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--border-subtle)',
+                background: 'transparent',
+                color: 'var(--ink-tertiary)',
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              Je passe
+            </button>
+          </>
+        )}
         {item.delta_display ? (
           <span
             style={{
@@ -467,27 +642,29 @@ function PassiveRow({ item, onCta, isLast }: PassiveRowProps) {
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span
             style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 11.5,
-              fontWeight: 700,
-              color: 'var(--ink-primary)',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            {item.ticker}
-          </span>
-          <span
-            style={{
               fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 12,
-              color: 'var(--ink-secondary)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
           >
             {item.asset_name_fr}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 10.5,
+              fontWeight: 500,
+              color: 'var(--ink-tertiary)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            {item.ticker}
           </span>
         </span>
         <span
@@ -636,6 +813,7 @@ export function TodaySurface() {
   const [decisions, setDecisions] = useState<SurfaceState<DecisionsToHandlePayload>>(initial)
   const [todos, setTodos] = useState<SurfaceState<TodoListPayload>>(initial)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [treated, setTreated] = useState<Map<string, ActionPhase>>(new Map())
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
 
   useEffect(() => {
@@ -727,6 +905,17 @@ export function TodaySurface() {
       const assetIdFromProps =
         typeof props.asset_id === 'string' ? props.asset_id : item.asset_id || null
       setModal({ slot, dispatchContext, assetId: assetIdFromProps, ticker: item.ticker })
+      // Local lifecycle simulation: mark the item as treated as soon
+      // as its decisional modal opens. Non-persistent — a refresh /
+      // data change / new session restores all items. V2 requires a
+      // backend mutation to persist this state.
+      const phase = slotToPhase(slot)
+      setTreated((prev) => {
+        if (prev.get(item.key) === phase) return prev
+        const next = new Map(prev)
+        next.set(item.key, phase)
+        return next
+      })
     },
     [router],
   )
@@ -775,14 +964,10 @@ export function TodaySurface() {
           gap: 12,
         }}
       >
-        <CollapsibleSection
+        <TodaySection
           groupKey="today-now"
-          title={
-            buckets.now.length > 0
-              ? `À traiter maintenant · ${buckets.now.length}`
-              : 'À traiter maintenant'
-          }
-          count={null}
+          title="À traiter maintenant"
+          count={buckets.now.length || null}
           subtitle="Décisions urgentes ou plans actifs."
           defaultOpen
         >
@@ -798,6 +983,7 @@ export function TodaySurface() {
                 <ActionRow
                   key={item.key}
                   item={item}
+                  treatedPhase={treated.get(item.key)}
                   onCta={handleCta}
                   onDismiss={handleDismiss}
                   isLast={idx === buckets.now.length - 1}
@@ -805,16 +991,12 @@ export function TodaySurface() {
               ))}
             </ul>
           )}
-        </CollapsibleSection>
+        </TodaySection>
 
-        <CollapsibleSection
+        <TodaySection
           groupKey="today-prepare"
-          title={
-            buckets.prepare.length > 0
-              ? `À préparer · ${buckets.prepare.length}`
-              : 'À préparer'
-          }
-          count={null}
+          title="À préparer"
+          count={buckets.prepare.length || null}
           subtitle="Approche de zone, stratégie ou hygiène à compléter."
           defaultOpen
         >
@@ -832,6 +1014,7 @@ export function TodaySurface() {
                     <ActionRow
                       key={item.key}
                       item={item}
+                      treatedPhase={treated.get(item.key)}
                       onCta={handleCta}
                       onDismiss={handleDismiss}
                       isLast={idx === buckets.prepare.length - 1}
@@ -842,16 +1025,12 @@ export function TodaySurface() {
               <HygieneSubblock items={hygiene} />
             </>
           )}
-        </CollapsibleSection>
+        </TodaySection>
 
-        <CollapsibleSection
+        <TodaySection
           groupKey="today-nothing"
-          title={
-            buckets.nothing.length > 0
-              ? `Rien à faire · ${buckets.nothing.length}`
-              : 'Rien à faire'
-          }
-          count={null}
+          title="Rien à faire"
+          count={buckets.nothing.length || null}
           subtitle="Surveillance seulement, aucune action immédiate."
           defaultOpen={false}
         >
@@ -873,7 +1052,7 @@ export function TodaySurface() {
               ))}
             </ul>
           )}
-        </CollapsibleSection>
+        </TodaySection>
       </div>
 
       <LadderBuilderModal
