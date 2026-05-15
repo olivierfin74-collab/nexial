@@ -254,6 +254,17 @@ function treatedChipLabel(phase: ActionPhase): string {
   }
 }
 
+function phaseToSecondaryCta(phase: ActionPhase): string {
+  switch (phase) {
+    case 'plan_activated':
+      return 'Voir le plan'
+    case 'order_prepared':
+      return 'Voir l’ordre'
+    case 'strategy_defined':
+      return 'Voir le suivi'
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Modal slot resolution (unchanged from previous Today).
 // ─────────────────────────────────────────────────────────
@@ -707,6 +718,136 @@ function PassiveRow({ item, onCta, isLast }: PassiveRowProps) {
 }
 
 // ─────────────────────────────────────────────────────────
+// TrackingRow — used by "Suivi du jour". An item that the user
+// has handled today: shown with a "Done" green chip and a
+// secondary link to re-open the modal that was originally fired
+// ("Voir le plan" / "Voir l'ordre" / "Voir le suivi" depending
+// on the action phase).
+// ─────────────────────────────────────────────────────────
+interface TrackingRowProps {
+  item: ActionItem
+  phase: ActionPhase
+  onReopen: (item: ActionItem) => void
+  isLast: boolean
+}
+
+function TrackingRow({ item, phase, onReopen, isLast }: TrackingRowProps) {
+  return (
+    <li
+      data-ticker={item.ticker}
+      data-tracking={phase}
+      style={{
+        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
+        padding: '10px 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {item.asset_name_fr}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              color: 'var(--ink-tertiary)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            {item.ticker}
+          </span>
+        </span>
+        {item.price_display ? (
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 12,
+              color: 'var(--ink-tertiary)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {item.price_display}
+          </span>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          data-status="treated"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '5px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--forest-green)',
+            background: 'rgba(45,107,31,0.08)',
+            color: 'var(--forest-green)',
+            fontFamily: 'var(--font-editorial-sans)',
+            fontSize: 11.5,
+            fontWeight: 600,
+          }}
+        >
+          <Check size={12} aria-hidden />
+          {treatedChipLabel(phase)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onReopen(item)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            color: 'var(--ink-secondary)',
+            fontFamily: 'var(--font-editorial-sans)',
+            fontSize: 12,
+            fontWeight: 600,
+            textDecoration: 'underline',
+            textUnderlineOffset: 3,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          {phaseToSecondaryCta(phase)}
+        </button>
+      </div>
+    </li>
+  )
+}
+
+// ─────────────────────────────────────────────────────────
 // HygieneSubblock — inline at the end of "À PRÉPARER".
 // Renders fn_todo_list.items as a discreet sub-list. No CTA.
 // ─────────────────────────────────────────────────────────
@@ -853,6 +994,7 @@ export function TodaySurface() {
     )
 
     const isDismissed = (i: ActionItem) => dismissed.has(i.key)
+    const isTreated = (i: ActionItem) => treated.has(i.key)
 
     const focusByBucket = {
       now: focusItems.filter((i) => focusBucket(i) === 'now').map(normalizeFocus),
@@ -875,16 +1017,29 @@ export function TodaySurface() {
         .map(normalizeDecision),
     }
 
+    // Combine raw active buckets (items that came from "now" or
+    // "prepare" originally). Once treated, an item is routed to the
+    // tracking bucket regardless of its original bucket. Dismissed
+    // items disappear from every bucket.
+    const rawNow = [...focusByBucket.now, ...decisionsByBucket.now]
+    const rawPrepare = [...focusByBucket.prepare, ...decisionsByBucket.prepare]
+    const rawNothing = [...focusByBucket.nothing, ...decisionsByBucket.nothing]
+
+    const tracking = [...rawNow, ...rawPrepare]
+      .filter((i) => isTreated(i) && !isDismissed(i))
+      .reduce<ActionItem[]>((acc, item) => {
+        if (acc.some((x) => x.key === item.key)) return acc
+        acc.push(item)
+        return acc
+      }, [])
+
     return {
-      now: [...focusByBucket.now, ...decisionsByBucket.now].filter((i) => !isDismissed(i)),
-      prepare: [...focusByBucket.prepare, ...decisionsByBucket.prepare].filter(
-        (i) => !isDismissed(i),
-      ),
-      nothing: [...focusByBucket.nothing, ...decisionsByBucket.nothing].filter(
-        (i) => !isDismissed(i),
-      ),
+      now: rawNow.filter((i) => !isDismissed(i) && !isTreated(i)),
+      prepare: rawPrepare.filter((i) => !isDismissed(i) && !isTreated(i)),
+      tracking,
+      nothing: rawNothing.filter((i) => !isDismissed(i)),
     }
-  }, [focus.data?.priorities, decisions.data?.top_decisions, dismissed])
+  }, [focus.data?.priorities, decisions.data?.top_decisions, dismissed, treated])
 
   const market = focus.data?.market_context
 
@@ -976,7 +1131,7 @@ export function TodaySurface() {
           ) : fetchErrored ? (
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : buckets.now.length === 0 ? (
-            <p style={paragraph}>Rien d’urgent à traiter pour le moment.</p>
+            <p style={paragraph}>Tout est traité pour le moment.</p>
           ) : (
             <ul style={listReset}>
               {buckets.now.map((item, idx) => (
@@ -1024,6 +1179,34 @@ export function TodaySurface() {
               )}
               <HygieneSubblock items={hygiene} />
             </>
+          )}
+        </TodaySection>
+
+        <TodaySection
+          groupKey="today-tracking"
+          title="Suivi du jour"
+          count={buckets.tracking.length || null}
+          subtitle="Actions traitées à surveiller."
+          defaultOpen
+        >
+          {buckets.tracking.length === 0 ? (
+            <p style={paragraph}>Aucune action traitée pour le moment.</p>
+          ) : (
+            <ul style={listReset}>
+              {buckets.tracking.map((item, idx) => {
+                const phase = treated.get(item.key)
+                if (!phase) return null
+                return (
+                  <TrackingRow
+                    key={item.key}
+                    item={item}
+                    phase={phase}
+                    onReopen={handleCta}
+                    isLast={idx === buckets.tracking.length - 1}
+                  />
+                )
+              })}
+            </ul>
           )}
         </TodaySection>
 
