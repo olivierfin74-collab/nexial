@@ -25,11 +25,12 @@ import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
   DashboardHeaderPayload,
-  DashboardOpportunityItem,
-  DashboardTopOpportunitiesPayload,
   FetchEnvelope,
   FocusAsset,
   FocusAssetsListPayload,
+  FocusTodayItem,
+  FocusTodayPayload,
+  MarketContext,
   PortfolioCashAccount,
   PortfolioCashBreakdownPayload,
 } from '@/types/nexial-v3'
@@ -105,9 +106,10 @@ function distanceTone(color: string | undefined): string {
   }
 }
 
-function priorityTone(color: string | undefined): string {
-  // Same palette as the distance tones but the semantic is "priority"
-  // (backend-driven). Kept separate so we can adjust independently.
+function verdictTone(color: string | undefined): string {
+  // Backend-driven verdict color → calm token. Same palette family as
+  // distanceTone but used for the morning brief verdict ("Acheter /
+  // Surveiller / Attendre / Ne rien faire" rendered verbatim).
   switch (color) {
     case 'green':
       return 'var(--forest-green)'
@@ -121,12 +123,35 @@ function priorityTone(color: string | undefined): string {
   }
 }
 
+function buildMarketLine(ctx: MarketContext | undefined): string {
+  if (!ctx) return ''
+  const parts: string[] = []
+  if (ctx.regime_label_fr) parts.push(ctx.regime_label_fr)
+  const eu = ctx.eu_open === true
+  const us = ctx.us_open === true
+  if (eu && us) parts.push('EU et US ouverts')
+  else if (eu) parts.push('EU ouverts')
+  else if (us) parts.push('US ouverts')
+  else parts.push('Marchés fermés')
+  return parts.join(' · ')
+}
+
+function emptyMorningMessage(payload: FocusTodayPayload | null | undefined): string {
+  const e = payload?.empty_state
+  if (e && typeof e === 'object') {
+    const candidate = (e as Record<string, unknown>).message_fr
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate
+    }
+  }
+  return 'Marchés calmes ce matin, rien d’urgent.'
+}
+
 export function DashboardSurface() {
   const router = useRouter()
   const [header, setHeader] = useState<SurfaceState<DashboardHeaderPayload>>(initial)
   const [cash, setCash] = useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
-  const [opportunities, setOpportunities] =
-    useState<SurfaceState<DashboardTopOpportunitiesPayload>>(initial)
+  const [focusToday, setFocusToday] = useState<SurfaceState<FocusTodayPayload>>(initial)
   const [focusAssets, setFocusAssets] = useState<SurfaceState<FocusAssetsListPayload>>(initial)
   const [expanded, setExpanded] = useState(false)
 
@@ -140,16 +165,13 @@ export function DashboardSurface() {
         '/api/mobile/portfolio-cash-breakdown',
         ctrl.signal,
       ),
-      fetchEnvelope<DashboardTopOpportunitiesPayload>(
-        '/api/mobile/dashboard-top-opportunities',
-        ctrl.signal,
-      ),
+      fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', ctrl.signal),
       fetchEnvelope<FocusAssetsListPayload>('/api/mobile/focus-assets-list', ctrl.signal),
-    ]).then(([h, c, o, fa]) => {
+    ]).then(([h, c, f, fa]) => {
       if (cancelled) return
       setHeader(h)
       setCash(c)
-      setOpportunities(o)
+      setFocusToday(f)
       setFocusAssets(fa)
     })
 
@@ -166,10 +188,14 @@ export function DashboardSurface() {
   const accountsAll = cash.data?.accounts ?? []
   const visibleAccounts = useMemo(() => accountsAll.filter(hasMoney), [accountsAll])
 
-  const oppPayload = opportunities.data
-  const oppItems = oppPayload?.items ?? []
-  const topOpportunities = useMemo(() => oppItems.slice(0, 3), [oppItems])
-  const oppEmpty = !!(oppPayload?.empty_state ?? null)
+  const morningPriorities = useMemo(
+    () => (focusToday.data?.priorities ?? []).slice(0, 3),
+    [focusToday.data?.priorities],
+  )
+  const morningMarketLine = useMemo(
+    () => buildMarketLine(focusToday.data?.market_context),
+    [focusToday.data?.market_context],
+  )
 
   const focusList = focusAssets.data?.focus_assets ?? []
   const sniperRibbon = useMemo(() => focusList.slice(0, 5), [focusList])
@@ -200,22 +226,11 @@ export function DashboardSurface() {
       </div>
     ) : null
 
-  // CTA dispatch on Dashboard — we keep it lightweight: every backend
-  // redirect_kind falls back to /aujourdhui where modals are wired,
-  // so the 30-second view never opens heavy UI locally.
-  const handleOpportunityCta = (item: DashboardOpportunityItem) => {
-    const kind = item.cta?.redirect_kind
-    if (kind === 'navigate_to_opportunities') {
-      router.push('/aujourdhui')
-      return
-    }
-    // open_ladder_modal / navigate_to_asset / unknown → /aujourdhui
-    router.push('/aujourdhui')
-  }
-
-  const handleOpportunitiesFooter = () => {
-    router.push('/aujourdhui')
-  }
+  // CTA dispatch on Dashboard stays lightweight: every row in the
+  // morning brief routes to /aujourdhui where modals (LadderBuilder,
+  // ExitPlan, ThesisEditor) are wired. The 30-second view never opens
+  // heavy UI locally.
+  const goAujourdhui = () => router.push('/aujourdhui')
 
   return (
     <AppShell>
@@ -236,6 +251,91 @@ export function DashboardSurface() {
           gap: 14,
         }}
       >
+        <section
+          data-card="morning-brief"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 12,
+            overflow: 'hidden',
+          }}
+        >
+          <header
+            style={{
+              padding: '14px 16px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 10,
+                color: 'var(--ink-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                fontWeight: 600,
+              }}
+            >
+              Ce matin
+            </span>
+            {focusToday.loading && !focusToday.data ? (
+              <span style={paragraph}>Chargement…</span>
+            ) : morningMarketLine ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 13,
+                  color: 'var(--ink-secondary)',
+                  lineHeight: 1.4,
+                }}
+              >
+                {morningMarketLine}
+              </span>
+            ) : null}
+          </header>
+
+          {focusToday.loading && !focusToday.data ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <div
+                aria-busy="true"
+                style={{
+                  height: 52,
+                  borderRadius: 8,
+                  background: 'rgba(0,0,0,0.04)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              />
+            </div>
+          ) : focusToday.error ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
+            </div>
+          ) : morningPriorities.length === 0 ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
+            </div>
+          ) : (
+            <ul
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+              }}
+            >
+              {morningPriorities.map((item, idx) => (
+                <MorningBriefRow
+                  key={item.alert_id || item.asset_id || item.ticker}
+                  item={item}
+                  isLast={idx === morningPriorities.length - 1}
+                  onOpen={goAujourdhui}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
         <section
           data-card="cash-master"
           data-variant="dark"
@@ -465,68 +565,6 @@ export function DashboardSurface() {
         </section>
 
         <CollapsibleSection
-          groupKey="dashboard-top-opportunities"
-          title={oppPayload?.title_fr ?? 'Opportunités du moment'}
-          count={oppPayload?.total_available ?? topOpportunities.length ?? null}
-          subtitle={oppPayload?.subtitle_fr ?? undefined}
-          defaultOpen
-        >
-          {opportunities.loading ? (
-            <p aria-busy="true" style={paragraph}>
-              Chargement…
-            </p>
-          ) : opportunities.error ? (
-            <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
-          ) : oppEmpty || oppItems.length === 0 ? (
-            <p style={paragraph}>
-              {oppPayload?.empty_state?.message_fr ?? 'Rien à signaler aujourd’hui.'}
-            </p>
-          ) : (
-            <>
-              <ul
-                style={{
-                  listStyle: 'none',
-                  margin: 0,
-                  padding: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                {topOpportunities.map((item, idx) => (
-                  <DashboardOpportunityRow
-                    key={item.asset_id || item.ticker}
-                    item={item}
-                    isLast={idx === topOpportunities.length - 1}
-                    onCta={handleOpportunityCta}
-                  />
-                ))}
-              </ul>
-              {oppPayload && oppPayload.total_available > topOpportunities.length ? (
-                <button
-                  type="button"
-                  onClick={handleOpportunitiesFooter}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    padding: 0,
-                    color: 'var(--forest-green)',
-                    fontFamily: 'var(--font-editorial-sans)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    textDecoration: 'underline',
-                    textUnderlineOffset: 3,
-                    cursor: 'pointer',
-                    alignSelf: 'flex-start',
-                  }}
-                >
-                  {oppPayload.footer_fr} →
-                </button>
-              ) : null}
-            </>
-          )}
-        </CollapsibleSection>
-
-        <CollapsibleSection
           groupKey="dashboard-sniper-ribbon"
           title="Actions en surveillance"
           count={sniperRibbon.length || null}
@@ -680,42 +718,61 @@ const paragraph: React.CSSProperties = {
   lineHeight: 1.4,
 }
 
-interface DashboardOpportunityRowProps {
-  item: DashboardOpportunityItem
+interface MorningBriefRowProps {
+  item: FocusTodayItem
   isLast: boolean
-  onCta: (item: DashboardOpportunityItem) => void
+  onOpen: () => void
 }
 
-function DashboardOpportunityRow({ item, isLast, onCta }: DashboardOpportunityRowProps) {
-  const accent = priorityTone(item.priority_color)
-  const tags = item.context_tags_fr ?? []
+function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
+  const accent = verdictTone(item.verdict?.color)
+  const priceDisplay =
+    typeof item.context_compact?.price_display === 'string'
+      ? item.context_compact.price_display
+      : null
+  const deltaDisplay =
+    typeof item.context_compact?.delta_display === 'string'
+      ? item.context_compact.delta_display
+      : null
+  const ctaLabel = item.cta?.label_fr ?? 'Voir plan'
 
   return (
     <li
       data-ticker={item.ticker}
       style={{
-        padding: '10px 0',
-        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
+        borderTop: '1px solid var(--border-subtle)',
+        borderBottom: isLast ? 'none' : 'none',
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={onOpen}
         style={{
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          padding: '12px 16px',
+          textAlign: 'left',
+          cursor: 'pointer',
           display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 8,
+          flexDirection: 'column',
+          gap: 4,
         }}
       >
-        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
             <span
               aria-hidden
               style={{
-                width: 6,
-                height: 6,
+                width: 7,
+                height: 7,
                 borderRadius: 999,
                 background: accent,
                 flexShrink: 0,
@@ -724,10 +781,21 @@ function DashboardOpportunityRow({ item, isLast, onCta }: DashboardOpportunityRo
             />
             <span
               style={{
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 14,
-                fontWeight: 600,
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 12,
+                fontWeight: 700,
                 color: 'var(--ink-primary)',
+                letterSpacing: '0.02em',
+              }}
+            >
+              {item.ticker}
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--ink-secondary)',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -735,118 +803,73 @@ function DashboardOpportunityRow({ item, isLast, onCta }: DashboardOpportunityRo
             >
               {item.asset_name_fr}
             </span>
+          </span>
+          {priceDisplay ? (
             <span
               style={{
                 fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 11,
-                color: 'var(--ink-secondary)',
-                letterSpacing: '0.03em',
+                fontSize: 13,
+                color: 'var(--ink-primary)',
+                whiteSpace: 'nowrap',
               }}
             >
-              {item.ticker}
+              {priceDisplay}
             </span>
-          </span>
-        </span>
-        <span
+          ) : null}
+        </div>
+
+        <div
           style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 13,
-            color: 'var(--ink-primary)',
-            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: 8,
           }}
         >
-          {item.price_display}
-        </span>
-      </div>
-
-      <span
-        style={{
-          fontFamily: 'var(--font-editorial-sans)',
-          fontSize: 12.5,
-          color: 'var(--ink-primary)',
-          lineHeight: 1.4,
-        }}
-      >
-        {item.headline_fr}
-      </span>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 6,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 11,
-            fontWeight: 700,
-            color: accent,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-          }}
-        >
-          {item.priority_label_fr}
-        </span>
-        {item.account_label_fr ? (
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 11,
-              color: 'var(--ink-tertiary)',
-            }}
-          >
-            · {item.account_label_fr}
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+            {item.verdict?.label_fr ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: accent,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {item.verdict.label_fr}
+              </span>
+            ) : null}
+            {deltaDisplay ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-mono)',
+                  fontSize: 11,
+                  color: 'var(--ink-tertiary)',
+                }}
+              >
+                {deltaDisplay}
+              </span>
+            ) : null}
           </span>
-        ) : null}
-        {tags.map((tag) => (
           <span
-            key={tag}
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
               fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 10,
-              fontWeight: 700,
-              color: 'var(--ink-secondary)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 4,
-              padding: '1px 6px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--forest-green)',
+              whiteSpace: 'nowrap',
             }}
           >
-            {tag}
+            {ctaLabel}
+            <ChevronRight size={12} aria-hidden />
           </span>
-        ))}
-      </div>
-
-      {item.cta ? (
-        <button
-          type="button"
-          onClick={() => onCta(item)}
-          style={{
-            alignSelf: 'flex-start',
-            marginTop: 2,
-            minHeight: 32,
-            borderRadius: 8,
-            padding: '6px 10px',
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 12,
-            fontWeight: 600,
-            background: 'transparent',
-            color: accent,
-            border: `1px solid ${accent}`,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          {item.cta.label_fr}
-          <ChevronRight size={12} aria-hidden />
-        </button>
-      ) : null}
+        </div>
+      </button>
     </li>
   )
 }
