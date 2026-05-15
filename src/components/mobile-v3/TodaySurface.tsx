@@ -25,11 +25,11 @@ import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
-import {
-  ExitPlanModal,
-  LadderBuilderModal,
-  ThesisEditorModal,
-} from '@/components/ui/decisional'
+// Only ExitPlanModal is still wired through the legacy decisional
+// slot — the "Activer le plan d'achat" and "Définir ma stratégie"
+// flows are now handled by LocalPlanPanel / LocalStrategyPanel
+// rendered inline in this surface (V1 client-only).
+import { ExitPlanModal } from '@/components/ui/decisional'
 import type { DispatchModalContext } from '@/types/decision'
 import type {
   DecisionsToHandlePayload,
@@ -246,11 +246,11 @@ type ActionPhase = 'plan_activated' | 'order_prepared' | 'strategy_defined'
 function treatedChipLabel(phase: ActionPhase): string {
   switch (phase) {
     case 'plan_activated':
-      return 'Plan activé'
+      return 'Plan activé localement'
     case 'order_prepared':
-      return 'Ordre préparé'
+      return 'Ordre préparé localement'
     case 'strategy_defined':
-      return 'Stratégie définie'
+      return 'Stratégie définie localement'
   }
 }
 
@@ -848,6 +848,307 @@ function TrackingRow({ item, phase, onReopen, isLast }: TrackingRowProps) {
 }
 
 // ─────────────────────────────────────────────────────────
+// LocalPanel — V1 simple in-app panel used by "Activer le plan
+// d'achat" and "Définir ma stratégie". Replaces the heavier
+// LadderBuilderModal / ThesisEditorModal placeholders so the user
+// sees real, immediate UX (no "Plan d'entrée bientôt disponible"
+// dead-end). All actions are local-only; nothing is sent to a
+// broker, nothing is written to the backend.
+// ─────────────────────────────────────────────────────────
+type LocalPanelKind = 'plan' | 'strategy'
+
+interface LocalPanelState {
+  kind: LocalPanelKind
+  item: ActionItem
+}
+
+interface LocalPlanPanelProps {
+  item: ActionItem
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function LocalPlanPanel({ item, onConfirm, onClose }: LocalPlanPanelProps) {
+  const accent = verdictTone(item.verdict_color)
+  return (
+    <div
+      data-panel="local-plan"
+      style={{
+        width: '100%',
+        maxWidth: 480,
+        background: 'var(--surface)',
+        borderRadius: 14,
+        boxShadow: '0 -12px 30px rgba(0,0,0,0.18)',
+        padding: '18px 18px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        marginBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      <span
+        style={{
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 10,
+          color: 'var(--ink-tertiary)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          fontWeight: 600,
+        }}
+      >
+        Activer le plan d’achat
+      </span>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-serif)',
+            fontSize: 20,
+            fontWeight: 600,
+            color: 'var(--ink-primary)',
+            letterSpacing: 'var(--tracking-display)',
+            lineHeight: 1.2,
+          }}
+        >
+          {item.asset_name_fr}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 11,
+            fontWeight: 500,
+            color: 'var(--ink-tertiary)',
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {item.ticker}
+        </span>
+      </div>
+
+      <dl
+        style={{
+          margin: 0,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(120px,auto) 1fr',
+          rowGap: 6,
+          columnGap: 12,
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 13,
+        }}
+      >
+        {item.price_display ? (
+          <>
+            <dt style={panelMeta}>Prix actuel</dt>
+            <dd style={{ ...panelValue, justifySelf: 'end' }}>{item.price_display}</dd>
+          </>
+        ) : null}
+        {item.delta_display ? (
+          <>
+            <dt style={panelMeta}>Distance avant achat</dt>
+            <dd style={{ ...panelValue, justifySelf: 'end' }}>{item.delta_display}</dd>
+          </>
+        ) : null}
+        {item.verdict_label_fr ? (
+          <>
+            <dt style={panelMeta}>Verdict</dt>
+            <dd style={{ ...panelValue, color: accent, fontWeight: 600, justifySelf: 'end' }}>
+              {item.verdict_label_fr}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+
+      <p
+        style={{
+          margin: 0,
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 11.5,
+          lineHeight: 1.5,
+          color: 'var(--ink-tertiary)',
+        }}
+      >
+        Activation locale V1. Aucune action marché, aucune écriture
+        backend. Le suivi reste sur cet appareil.
+      </p>
+
+      <button
+        type="button"
+        onClick={onConfirm}
+        style={{
+          minHeight: 44,
+          padding: '12px 14px',
+          borderRadius: 10,
+          border: '1px solid var(--forest-green)',
+          background: 'var(--forest-green)',
+          color: '#FFFFFF',
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        Activer en suivi local
+      </button>
+
+      <button
+        type="button"
+        onClick={onClose}
+        style={panelCancel}
+      >
+        Annuler
+      </button>
+    </div>
+  )
+}
+
+interface LocalStrategyPanelProps {
+  item: ActionItem
+  onChoose: () => void
+  onClose: () => void
+}
+
+const STRATEGY_CHOICES = [
+  'Core long terme',
+  'Opportuniste',
+  'À ignorer pour l’instant',
+] as const
+
+function LocalStrategyPanel({ item, onChoose, onClose }: LocalStrategyPanelProps) {
+  return (
+    <div
+      data-panel="local-strategy"
+      style={{
+        width: '100%',
+        maxWidth: 480,
+        background: 'var(--surface)',
+        borderRadius: 14,
+        boxShadow: '0 -12px 30px rgba(0,0,0,0.18)',
+        padding: '18px 18px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        marginBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      <span
+        style={{
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 10,
+          color: 'var(--ink-tertiary)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+          fontWeight: 600,
+        }}
+      >
+        Définir ma stratégie
+      </span>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-serif)',
+            fontSize: 20,
+            fontWeight: 600,
+            color: 'var(--ink-primary)',
+            letterSpacing: 'var(--tracking-display)',
+            lineHeight: 1.2,
+          }}
+        >
+          {item.asset_name_fr}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 11,
+            fontWeight: 500,
+            color: 'var(--ink-tertiary)',
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {item.ticker}
+        </span>
+      </div>
+
+      <p
+        style={{
+          margin: 0,
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 11.5,
+          lineHeight: 1.5,
+          color: 'var(--ink-tertiary)',
+        }}
+      >
+        Choix local V1. Aucune écriture backend, le suivi reste sur cet appareil.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {STRATEGY_CHOICES.map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            onClick={onChoose}
+            style={{
+              minHeight: 44,
+              padding: '12px 14px',
+              borderRadius: 10,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface)',
+              color: 'var(--ink-primary)',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            {choice}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={onClose}
+        style={panelCancel}
+      >
+        Annuler
+      </button>
+    </div>
+  )
+}
+
+const panelMeta: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  color: 'var(--ink-tertiary)',
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  fontWeight: 500,
+}
+
+const panelValue: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 13,
+  color: 'var(--ink-primary)',
+}
+
+const panelCancel: React.CSSProperties = {
+  alignSelf: 'center',
+  background: 'transparent',
+  border: 'none',
+  padding: '4px 8px',
+  color: 'var(--ink-tertiary)',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  fontWeight: 500,
+  cursor: 'pointer',
+}
+
+// ─────────────────────────────────────────────────────────
 // HygieneSubblock — inline at the end of "À PRÉPARER".
 // Renders fn_todo_list.items as a discreet sub-list. No CTA.
 // ─────────────────────────────────────────────────────────
@@ -955,6 +1256,7 @@ export function TodaySurface() {
   const [todos, setTodos] = useState<SurfaceState<TodoListPayload>>(initial)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [treated, setTreated] = useState<Map<string, ActionPhase>>(new Map())
+  const [localPanel, setLocalPanel] = useState<LocalPanelState | null>(null)
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
 
   useEffect(() => {
@@ -1050,6 +1352,20 @@ export function TodaySurface() {
         router.push('/sniper')
         return
       }
+      // V1 local panels — replace the heavy decisional placeholders
+      // with simple in-app panels for "Activer le plan d'achat" and
+      // "Définir ma stratégie". Item is marked treated only on
+      // confirm (see handleConfirmLocalPanel below).
+      if (kind === 'open_ladder_modal') {
+        setLocalPanel({ kind: 'plan', item })
+        return
+      }
+      if (kind === 'open_thesis_modal' || kind === 'open_thesis_modal_urgent') {
+        setLocalPanel({ kind: 'strategy', item })
+        return
+      }
+      // Legacy decisional modal flow for the remaining slot
+      // (open_exit_modal). Mark treated on open as before.
       const slot = resolveSlot(kind)
       if (!slot) {
         toast.info('Action bientôt disponible')
@@ -1060,10 +1376,6 @@ export function TodaySurface() {
       const assetIdFromProps =
         typeof props.asset_id === 'string' ? props.asset_id : item.asset_id || null
       setModal({ slot, dispatchContext, assetId: assetIdFromProps, ticker: item.ticker })
-      // Local lifecycle simulation: mark the item as treated as soon
-      // as its decisional modal opens. Non-persistent — a refresh /
-      // data change / new session restores all items. V2 requires a
-      // backend mutation to persist this state.
       const phase = slotToPhase(slot)
       setTreated((prev) => {
         if (prev.get(item.key) === phase) return prev
@@ -1074,6 +1386,27 @@ export function TodaySurface() {
     },
     [router],
   )
+
+  const handleConfirmLocalPanel = useCallback(
+    (phase: ActionPhase) => {
+      setLocalPanel((current) => {
+        if (!current) return null
+        const key = current.item.key
+        setTreated((prev) => {
+          if (prev.get(key) === phase) return prev
+          const next = new Map(prev)
+          next.set(key, phase)
+          return next
+        })
+        return null
+      })
+    },
+    [],
+  )
+
+  const handleCloseLocalPanel = useCallback(() => {
+    setLocalPanel(null)
+  }, [])
 
   const handleDismiss = useCallback((key: string) => {
     setDismissed((prev) => {
@@ -1238,23 +1571,45 @@ export function TodaySurface() {
         </TodaySection>
       </div>
 
-      <LadderBuilderModal
-        open={modal.slot === 'open_ladder_modal'}
-        context={modal.dispatchContext}
-        onClose={closeModal}
-      />
       <ExitPlanModal
         open={modal.slot === 'open_exit_modal'}
         context={modal.dispatchContext}
         onClose={closeModal}
       />
-      <ThesisEditorModal
-        open={modal.slot === 'open_thesis_modal' || modal.slot === 'open_thesis_modal_urgent'}
-        urgent={modal.slot === 'open_thesis_modal_urgent'}
-        assetId={modal.assetId}
-        ticker={modal.ticker ?? undefined}
-        onClose={closeModal}
-      />
+
+      {localPanel ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleCloseLocalPanel()
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            background: 'rgba(15,15,15,0.42)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          {localPanel.kind === 'plan' ? (
+            <LocalPlanPanel
+              item={localPanel.item}
+              onConfirm={() => handleConfirmLocalPanel('plan_activated')}
+              onClose={handleCloseLocalPanel}
+            />
+          ) : (
+            <LocalStrategyPanel
+              item={localPanel.item}
+              onChoose={() => handleConfirmLocalPanel('strategy_defined')}
+              onClose={handleCloseLocalPanel}
+            />
+          )}
+        </div>
+      ) : null}
     </AppShell>
   )
 }
