@@ -1,15 +1,15 @@
 'use client'
 
-// Dashboard mobile surface — UX-R1 / P6 refinement.
+// Dashboard mobile surface — UX-R1 / P6 / morning-brief refinement.
 //
-// Hierarchy (top-down, all stable inside AppShell V3):
+// Hierarchy (top-down, fixed order inside AppShell V3):
 //   - MobileTopHeader (compact, no version badge by default,
-//     compact freshness pill rendered in the body when STALE)
-//   - Cash master card (premium dark gradient, integrated accounts
-//     drawer, "Ton argent" eyebrow)
-//   - Top opportunités (CollapsibleSection, 3 FocusOpportunityCard
-//     items from fn_focus_today, CTA jumps to /aujourdhui)
-//   - Actions en surveillance (CollapsibleSection, 5-row Sniper
+//     market + freshness in the extras slot)
+//   - Cash master card "Ton argent" (premium deep-forest variant,
+//     integrated accounts drawer)
+//   - "Ce matin" morning brief (3-row max from fn_focus_today,
+//     verdict + price + delta + CTA → /aujourdhui)
+//   - "N actifs en surveillance" (CollapsibleSection, 5-row Sniper
 //     ribbon from fn_focus_assets_list, row click jumps to /sniper)
 //
 // No metier recompute, no client-side ranking. All amounts, labels,
@@ -66,14 +66,19 @@ async function fetchEnvelope<T>(
   }
 }
 
-// Cash master visual tokens (soft "ivoire/graphite" variant).
-// The previous dark forest gradient was too dominant on a list-dense
-// surface; we keep the same structural layout but on a calm canvas.
-const CASH_BG = '#F4F1EA'
-const CASH_BORDER = '#E3DED2'
-const CASH_INK = '#12352A'
-const CASH_INK_SOFT = '#5A7869'
-const CASH_POSITIVE = '#2F6B4F'
+// Cash master visual tokens (premium deep-forest variant).
+// Calmer than the original diagonal gradient (no glow, vertical
+// barely-perceptible gradient, off-white text) but unmistakably
+// premium dark — kept distinct from the surrounding paper-white
+// sections so "Ton argent" reads as the patrimoine block at first
+// glance.
+const CASH_BG = 'linear-gradient(180deg, #1F3829 0%, #16281D 100%)'
+const CASH_BORDER = '#0F1F16'
+const CASH_DIVIDER = 'rgba(234,230,221,0.14)'
+const CASH_INK = '#EAE6DD'
+const CASH_INK_SOFT = '#9CB2A6'
+const CASH_POSITIVE = '#9FCFAF'
+const CASH_NEGATIVE = '#E5B4AD'
 
 const metaPale: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-mono)',
@@ -261,100 +266,16 @@ export function DashboardSurface() {
         }}
       >
         <section
-          data-card="morning-brief"
-          style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 12,
-            overflow: 'hidden',
-          }}
-        >
-          <header
-            style={{
-              padding: '14px 16px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 10,
-                color: 'var(--ink-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                fontWeight: 600,
-              }}
-            >
-              Ce matin
-            </span>
-            {focusToday.loading && !focusToday.data ? (
-              <span style={paragraph}>Chargement…</span>
-            ) : morningMarketLine ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-sans)',
-                  fontSize: 13,
-                  color: 'var(--ink-secondary)',
-                  lineHeight: 1.4,
-                }}
-              >
-                {morningMarketLine}
-              </span>
-            ) : null}
-          </header>
-
-          {focusToday.loading && !focusToday.data ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <div
-                aria-busy="true"
-                style={{
-                  height: 52,
-                  borderRadius: 8,
-                  background: 'rgba(0,0,0,0.04)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              />
-            </div>
-          ) : focusToday.error ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
-            </div>
-          ) : morningPriorities.length === 0 ? (
-            <div style={{ padding: '4px 16px 14px' }}>
-              <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
-            </div>
-          ) : (
-            <ul
-              style={{
-                listStyle: 'none',
-                margin: 0,
-                padding: 0,
-              }}
-            >
-              {morningPriorities.map((item, idx) => (
-                <MorningBriefRow
-                  key={item.alert_id || item.asset_id || item.ticker}
-                  item={item}
-                  isLast={idx === morningPriorities.length - 1}
-                  onOpen={goAujourdhui}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section
           data-card="cash-master"
-          data-variant="soft"
+          data-variant="premium-dark"
           style={{
             background: CASH_BG,
             border: `1px solid ${CASH_BORDER}`,
             borderRadius: 12,
             overflow: 'hidden',
             color: CASH_INK,
-            boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset, 0 2px 10px rgba(18,53,42,0.08)',
+            boxShadow:
+              '0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 14px rgba(15,31,22,0.22)',
           }}
         >
           <header
@@ -413,7 +334,7 @@ export function DashboardSurface() {
                     color:
                       (patrimoine.pnl_eur ?? 0) >= 0
                         ? CASH_POSITIVE
-                        : 'var(--burgundy)',
+                        : CASH_NEGATIVE,
                   }}
                 >
                   {patrimoine.pnl_display}
@@ -422,7 +343,7 @@ export function DashboardSurface() {
               <div
                 aria-hidden
                 style={{
-                  background: CASH_BORDER,
+                  background: CASH_DIVIDER,
                   margin: '4px 14px',
                 }}
               />
@@ -451,7 +372,7 @@ export function DashboardSurface() {
             style={{
               width: '100%',
               padding: '12px 18px',
-              borderTop: `1px solid ${CASH_BORDER}`,
+              borderTop: `1px solid ${CASH_DIVIDER}`,
               background: 'transparent',
               cursor: hasData && visibleAccounts.length > 0 ? 'pointer' : 'default',
               display: 'flex',
@@ -572,10 +493,101 @@ export function DashboardSurface() {
           ) : null}
         </section>
 
+        <section
+          data-card="morning-brief"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 12,
+            overflow: 'hidden',
+          }}
+        >
+          <header
+            style={{
+              padding: '14px 16px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 10,
+                color: 'var(--ink-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                fontWeight: 600,
+              }}
+            >
+              {morningPriorities.length > 0
+                ? `Ce matin · ${morningPriorities.length} proposition${morningPriorities.length > 1 ? 's' : ''}`
+                : 'Ce matin'}
+            </span>
+            {focusToday.loading && !focusToday.data ? (
+              <span style={paragraph}>Chargement…</span>
+            ) : morningMarketLine ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 13,
+                  color: 'var(--ink-secondary)',
+                  lineHeight: 1.4,
+                }}
+              >
+                {morningMarketLine}
+              </span>
+            ) : null}
+          </header>
+
+          {focusToday.loading && !focusToday.data ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <div
+                aria-busy="true"
+                style={{
+                  height: 52,
+                  borderRadius: 8,
+                  background: 'rgba(0,0,0,0.04)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              />
+            </div>
+          ) : focusToday.error ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
+            </div>
+          ) : morningPriorities.length === 0 ? (
+            <div style={{ padding: '4px 16px 14px' }}>
+              <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
+            </div>
+          ) : (
+            <ul
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+              }}
+            >
+              {morningPriorities.map((item, idx) => (
+                <MorningBriefRow
+                  key={item.alert_id || item.asset_id || item.ticker}
+                  item={item}
+                  isLast={idx === morningPriorities.length - 1}
+                  onOpen={goAujourdhui}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
         <CollapsibleSection
           groupKey="dashboard-sniper-ribbon"
-          title="Actions en surveillance"
-          count={sniperRibbon.length || null}
+          title={
+            sniperRibbon.length > 0
+              ? `${sniperRibbon.length} actif${sniperRibbon.length > 1 ? 's' : ''} en surveillance`
+              : 'Actifs en surveillance'
+          }
+          count={null}
           subtitle="Actifs en surveillance rapprochée."
           defaultOpen
         >
