@@ -634,7 +634,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-          {focusList.length > sniperRibbon.length ? (
+          {sniperRibbon.length > 0 ? (
             <button
               type="button"
               onClick={() => router.push('/sniper')}
