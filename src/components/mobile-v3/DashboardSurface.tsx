@@ -20,8 +20,6 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronRight, Target } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
 import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
-import { DataFreshnessBadge } from '@/components/shell/DataFreshnessBadge'
-import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
   DashboardHeaderPayload,
@@ -66,19 +64,20 @@ async function fetchEnvelope<T>(
   }
 }
 
-// Cash master visual tokens (premium deep-forest variant).
-// Calmer than the original diagonal gradient (no glow, vertical
-// barely-perceptible gradient, off-white text) but unmistakably
-// premium dark — kept distinct from the surrounding paper-white
-// sections so "Ton argent" reads as the patrimoine block at first
-// glance.
-const CASH_BG = 'linear-gradient(180deg, #1F3829 0%, #16281D 100%)'
-const CASH_BORDER = '#0F1F16'
-const CASH_DIVIDER = 'rgba(234,230,221,0.14)'
-const CASH_INK = '#EAE6DD'
-const CASH_INK_SOFT = '#9CB2A6'
-const CASH_POSITIVE = '#9FCFAF'
-const CASH_NEGATIVE = '#E5B4AD'
+// Cash master visual tokens — Nexial Atelier "Papier Orné" palette.
+// Warm light paper with discreet gold accents, calm at morning
+// reading. Replaces previous forest variants entirely; the card now
+// reads premium without going dark.
+const CASH_BG = 'linear-gradient(180deg, #FBF6E7 0%, #F2E9D0 100%)'
+const CASH_BORDER = 'rgba(122, 80, 30, 0.25)'
+const CASH_DIVIDER = 'rgba(122, 80, 30, 0.18)'
+const CASH_INK = '#2A1E0C'
+const CASH_INK_SOFT = '#5C3F12'
+const CASH_POSITIVE = '#2D6B1F'
+const CASH_NEGATIVE = '#A8302C'
+const CASH_GOLD = '#B8924A'
+const PAPER_CARD_BG = '#FBF8F1'
+const PAPER_CARD_BORDER = 'rgba(122, 80, 30, 0.25)'
 
 const metaPale: React.CSSProperties = {
   fontFamily: 'var(--font-editorial-mono)',
@@ -109,31 +108,30 @@ function hasMoney(a: PortfolioCashAccount): boolean {
 function distanceTone(color: string | undefined): string {
   switch (color) {
     case 'green':
-      return 'var(--forest-green)'
+      return CASH_POSITIVE
     case 'yellow':
-      return '#8B6914'
+      return CASH_GOLD
     case 'red':
-      return 'var(--burgundy)'
+      return CASH_NEGATIVE
     case 'neutral':
     default:
-      return 'var(--ink-tertiary)'
+      return CASH_INK_SOFT
   }
 }
 
 function verdictTone(color: string | undefined): string {
-  // Backend-driven verdict color → calm token. Same palette family as
-  // distanceTone but used for the morning brief verdict ("Acheter /
-  // Surveiller / Attendre / Ne rien faire" rendered verbatim).
+  // Backend-driven verdict color → paper palette token. Same family
+  // as distanceTone; kept separate so we can adjust independently.
   switch (color) {
     case 'green':
-      return 'var(--forest-green)'
+      return CASH_POSITIVE
     case 'yellow':
-      return '#8B6914'
+      return CASH_GOLD
     case 'red':
-      return 'var(--burgundy)'
+      return CASH_NEGATIVE
     case 'neutral':
     default:
-      return 'var(--ink-secondary)'
+      return CASH_INK_SOFT
   }
 }
 
@@ -217,6 +215,11 @@ export function DashboardSurface() {
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
 
+  // Inline paper-style header meta line — replaces the shell pills
+  // (MarketStatusBadge / DataFreshnessBadge) with a calm typographic
+  // row aligned to the rest of the Nexial Atelier palette. Other
+  // surfaces continue to use the shell badges; this is Dashboard-
+  // local on purpose.
   const marketExtras =
     market || freshness ? (
       <div
@@ -224,18 +227,78 @@ export function DashboardSurface() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
-          gap: 6,
+          gap: 3,
         }}
       >
         {market ? (
-          <MarketStatusBadge
-            euOpen={market.eu_open}
-            usOpen={market.us_open}
-            regimeLabelFr={market.regime_label_fr}
-          />
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 10,
+              color: CASH_INK_SOFT,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: 999,
+                  background: market.eu_open ? CASH_POSITIVE : 'transparent',
+                  border: market.eu_open ? 'none' : `1px solid ${CASH_INK_SOFT}`,
+                }}
+              />
+              EU
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: 999,
+                  background: market.us_open ? CASH_POSITIVE : 'transparent',
+                  border: market.us_open ? 'none' : `1px solid ${CASH_INK_SOFT}`,
+                }}
+              />
+              US
+            </span>
+            {market.regime_label_fr ? (
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-serif)',
+                  fontSize: 12,
+                  fontStyle: 'italic',
+                  color: CASH_INK,
+                  textTransform: 'none',
+                  letterSpacing: 'normal',
+                  fontWeight: 500,
+                }}
+              >
+                {market.regime_label_fr}
+              </span>
+            ) : null}
+          </div>
         ) : null}
         {freshness && freshness.label_fr ? (
-          <DataFreshnessBadge status={freshness.status} labelFr={freshness.label_fr} />
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 9.5,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: CASH_INK_SOFT,
+            }}
+          >
+            {freshness.label_fr}
+          </span>
         ) : null}
       </div>
     ) : null
@@ -267,7 +330,7 @@ export function DashboardSurface() {
       >
         <section
           data-card="cash-master"
-          data-variant="premium-dark"
+          data-variant="paper-orne"
           style={{
             background: CASH_BG,
             border: `1px solid ${CASH_BORDER}`,
@@ -275,7 +338,7 @@ export function DashboardSurface() {
             overflow: 'hidden',
             color: CASH_INK,
             boxShadow:
-              '0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 14px rgba(15,31,22,0.22)',
+              '0 1px 0 rgba(255,255,255,0.55) inset, 0 2px 8px rgba(122,80,30,0.10)',
           }}
         >
           <header
@@ -479,7 +542,7 @@ export function DashboardSurface() {
                         style={{
                           fontFamily: 'var(--font-editorial-mono)',
                           fontSize: 11,
-                          color: 'var(--forest-green)',
+                          color: CASH_POSITIVE,
                           fontWeight: 700,
                         }}
                       >
@@ -496,10 +559,11 @@ export function DashboardSurface() {
         <section
           data-card="morning-brief"
           style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border-subtle)',
+            background: PAPER_CARD_BG,
+            border: `1px solid ${PAPER_CARD_BORDER}`,
             borderRadius: 12,
             overflow: 'hidden',
+            boxShadow: '0 1px 0 rgba(255,255,255,0.4) inset, 0 1px 4px rgba(122,80,30,0.06)',
           }}
         >
           <header
@@ -514,7 +578,7 @@ export function DashboardSurface() {
               style={{
                 fontFamily: 'var(--font-editorial-mono)',
                 fontSize: 10,
-                color: 'var(--ink-muted)',
+                color: CASH_INK_SOFT,
                 textTransform: 'uppercase',
                 letterSpacing: '0.08em',
                 fontWeight: 600,
@@ -531,7 +595,7 @@ export function DashboardSurface() {
                 style={{
                   fontFamily: 'var(--font-editorial-sans)',
                   fontSize: 13,
-                  color: 'var(--ink-secondary)',
+                  color: CASH_INK,
                   lineHeight: 1.4,
                 }}
               >
@@ -588,7 +652,7 @@ export function DashboardSurface() {
               : 'Actifs en surveillance'
           }
           count={null}
-          subtitle="Actifs en surveillance rapprochée."
+          subtitle="Actifs proches d’une zone ou à suivre."
           defaultOpen
         >
           {focusAssets.loading ? (
@@ -627,7 +691,7 @@ export function DashboardSurface() {
                 background: 'transparent',
                 border: 'none',
                 padding: 0,
-                color: 'var(--forest-green)',
+                color: CASH_GOLD,
                 fontFamily: 'var(--font-editorial-sans)',
                 fontSize: 12,
                 fontWeight: 600,
@@ -683,7 +747,7 @@ function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
         <Target
           size={14}
           aria-hidden
-          style={{ color: 'var(--forest-green)', flexShrink: 0 }}
+          style={{ color: CASH_GOLD, flexShrink: 0 }}
         />
         <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
           <span
@@ -720,8 +784,7 @@ function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
               whiteSpace: 'nowrap',
             }}
           >
-            {distancePct >= 0 ? '+' : ''}
-            {distancePct.toFixed(2)} % du palier
+            {Math.abs(distancePct).toFixed(2)} % avant achat
           </span>
         ) : null}
         <ChevronRight size={14} aria-hidden style={{ color: 'var(--ink-tertiary)', flexShrink: 0 }} />
@@ -881,7 +944,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
               fontFamily: 'var(--font-editorial-sans)',
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--forest-green)',
+              color: CASH_GOLD,
               whiteSpace: 'nowrap',
             }}
           >
