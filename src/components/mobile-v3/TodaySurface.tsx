@@ -190,6 +190,9 @@ interface ActionItem {
   modal_context: ModalContext | null
   alert_id: string
   asset_id: string
+  sourceRank: number | null
+  sourceScore: number | null
+  sourceTier: string | null
 }
 
 interface AssetThesis {
@@ -227,6 +230,9 @@ function normalizeFocus(item: FocusTodayItem): ActionItem {
     modal_context: item.cta?.modal_context ?? null,
     alert_id: item.alert_id,
     asset_id: item.asset_id,
+    sourceRank: item.rank,
+    sourceScore: item.priority_score,
+    sourceTier: null,
   }
 }
 
@@ -246,6 +252,9 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
     modal_context: item.cta?.modal_context ?? null,
     alert_id: item.alert_id,
     asset_id: item.asset_id,
+    sourceRank: item.rank,
+    sourceScore: item.score,
+    sourceTier: item.tier,
   }
 }
 
@@ -284,6 +293,9 @@ function actionItemToCapitalInput(
     sectorRoom: 'unknown',
     accountRouting: 'possible',
     weightState: 'unknown',
+    sourceRank: item.sourceRank,
+    sourceScore: item.sourceScore,
+    sourceTier: item.sourceTier,
   }
 }
 

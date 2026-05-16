@@ -49,6 +49,9 @@ export interface CapitalOpportunityInput {
   targetGapPct?: number | null
   drawdownPct?: number | null
   capitalAvailable?: boolean
+  sourceRank?: number | null
+  sourceScore?: number | null
+  sourceTier?: string | null
 }
 
 export interface CapitalAllocationItem {
@@ -95,6 +98,13 @@ const SECTION_ORDER: CapitalSectionKey[] = [
   'exit_watch',
 ]
 
+type CapitalSortableItem = CapitalAllocationItem & {
+  relevance: number
+  sourceRank?: number | null
+  sourceScore?: number | null
+  sourceTier?: string | null
+}
+
 function normaliseConviction(value: CapitalConvictionLevel | null | undefined): CapitalConvictionLevel {
   return value ?? 'NEUTRAL'
 }
@@ -126,6 +136,34 @@ function scoreRouting(value: CapitalAccountRouting | undefined): number {
   if (value === 'possible') return 0.6
   if (value === 'blocked') return 0
   return 0.35
+}
+
+function sourceTierPriority(value: string | null | undefined): number {
+  if (value === 'CRITIQUE') return 4
+  if (value === 'ACTION') return 3
+  if (value === 'SURVEILLANCE') return 2
+  if (value === 'INFORMATION') return 1
+  return 0
+}
+
+function sourceRankPriority(value: number | null | undefined): number {
+  return value != null && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+}
+
+function sourceScorePriority(value: number | null | undefined): number {
+  return value != null && Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY
+}
+
+function compareAllocationItems(a: CapitalSortableItem, b: CapitalSortableItem): number {
+  const relevanceDelta = b.relevance - a.relevance
+  if (Math.abs(relevanceDelta) > 0.02) return relevanceDelta
+
+  return (
+    sourceTierPriority(b.sourceTier) - sourceTierPriority(a.sourceTier) ||
+    sourceRankPriority(a.sourceRank) - sourceRankPriority(b.sourceRank) ||
+    sourceScorePriority(b.sourceScore) - sourceScorePriority(a.sourceScore) ||
+    a.ticker.localeCompare(b.ticker)
+  )
 }
 
 function personalCapitalRelevance(item: CapitalOpportunityInput): number {
@@ -313,14 +351,20 @@ function classifyOne(item: CapitalOpportunityInput):
 export function buildCapitalAllocationIntelligence(
   inputs: CapitalOpportunityInput[],
 ): CapitalAllocationResult {
-  const buckets = new Map<CapitalSectionKey, Array<CapitalAllocationItem & { relevance: number }>>()
+  const buckets = new Map<CapitalSectionKey, CapitalSortableItem[]>()
   const hiddenItems: CapitalHiddenItem[] = []
 
   for (const input of inputs) {
     const classified = classifyOne(input)
     if (classified.visible) {
       const list = buckets.get(classified.visible.section) ?? []
-      list.push({ ...classified.visible, relevance: classified.relevance })
+      list.push({
+        ...classified.visible,
+        relevance: classified.relevance,
+        sourceRank: input.sourceRank,
+        sourceScore: input.sourceScore,
+        sourceTier: input.sourceTier,
+      })
       buckets.set(classified.visible.section, list)
     } else {
       hiddenItems.push(classified.hidden)
@@ -332,8 +376,14 @@ export function buildCapitalAllocationIntelligence(
       key,
       title: SECTION_TITLES[key],
       items: (buckets.get(key) ?? [])
-        .sort((a, b) => b.relevance - a.relevance || a.ticker.localeCompare(b.ticker))
-        .map(({ relevance: _relevance, ...item }) => item),
+        .sort(compareAllocationItems)
+        .map(({
+          relevance: _relevance,
+          sourceRank: _sourceRank,
+          sourceScore: _sourceScore,
+          sourceTier: _sourceTier,
+          ...item
+        }) => item),
     })),
     hidden: hiddenItems,
   }
