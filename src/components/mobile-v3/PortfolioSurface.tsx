@@ -73,6 +73,27 @@ function formatEur(value: number): string {
   return `${value.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`
 }
 
+function formatSignedEur(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
+  return `${sign}${Math.abs(value).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`
+}
+
+function formatQuantity(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: 4 })
+}
+
+function formatDayPct(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) return 'Jour —'
+  const sign = value > 0 ? '+' : ''
+  return `Jour ${sign}${value.toFixed(1).replace('.', ',')} %`
+}
+
+function positionKey(p: PortfolioPosition): string {
+  return `${p.account.id}:${p.asset_id}`
+}
+
 // ─────────────────────────────────────────────────────────
 // Frontend whitelist — until backend exposes is_active per
 // account, we strictly limit visibility to PEA + main CTO
@@ -478,6 +499,7 @@ export function PortfolioSurface() {
   const [chip, setChip] = useState<ChipKey>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
+  const [pnlPctVisible, setPnlPctVisible] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -866,33 +888,43 @@ export function PortfolioSurface() {
                 </header>
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {group.positions.map((p, idx) => {
+                    const key = positionKey(p)
+                    const showPct = pnlPctVisible.has(key)
                     const pnlPctColor =
                       (p.unrealized_pnl_pct ?? 0) >= 0
                         ? 'var(--forest-green)'
                         : 'var(--burgundy)'
+                    const dayColor =
+                      (p.perf_1d_pct ?? 0) >= 0 ? 'var(--forest-green)' : 'var(--burgundy)'
                     return (
                       <li
-                        key={p.asset_id}
+                        key={key}
                         style={{
-                          padding: '10px 14px',
+                          padding: '12px 14px',
                           borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle)',
                           display: 'flex',
-                          alignItems: 'baseline',
-                          justifyContent: 'space-between',
-                          gap: 8,
+                          flexDirection: 'column',
+                          gap: 5,
                         }}
                       >
-                        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
                           <span
                             style={{
                               fontFamily: 'var(--font-editorial-sans)',
-                              fontSize: 14,
-                              fontWeight: 600,
+                              fontSize: 14.5,
+                              fontWeight: 650,
                               color: 'var(--ink-primary)',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
-                              maxWidth: 220,
+                              minWidth: 0,
                             }}
                           >
                             {p.asset_name}
@@ -900,41 +932,79 @@ export function PortfolioSurface() {
                           <span
                             style={{
                               fontFamily: 'var(--font-editorial-mono)',
-                              fontSize: 11,
-                              color: 'var(--ink-secondary)',
-                              letterSpacing: '0.03em',
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: 'var(--ink-primary)',
+                              whiteSpace: 'nowrap',
                             }}
                           >
-                            {p.ticker} · {p.quantity} × {formatPrice(p.pru, p.currency)}
+                            {formatPrice(p.market_value, p.currency)}
                           </span>
-                        </span>
-                        <span
+                        </div>
+                        <div
                           style={{
                             display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'flex-end',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
                           }}
                         >
                           <span
                             style={{
                               fontFamily: 'var(--font-editorial-mono)',
-                              fontSize: 13,
-                              color: 'var(--ink-primary)',
+                              fontSize: 12,
+                              color: 'var(--ink-secondary)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              minWidth: 0,
                             }}
                           >
-                            {formatPrice(p.market_value, p.currency)}
+                            {formatPrice(p.last_price, p.currency)} ·{' '}
+                            <span style={{ color: dayColor }}>{formatDayPct(p.perf_1d_pct)}</span>
                           </span>
-                          <span
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPnlPctVisible((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(key)) next.delete(key)
+                                else next.add(key)
+                                return next
+                              })
+                            }}
                             style={{
+                              border: `1px solid ${pnlPctColor}`,
+                              background: 'transparent',
+                              borderRadius: 999,
+                              padding: '4px 9px',
                               fontFamily: 'var(--font-editorial-mono)',
                               fontSize: 11,
                               fontWeight: 700,
                               color: pnlPctColor,
+                              whiteSpace: 'nowrap',
+                              cursor: 'pointer',
                             }}
                           >
-                            {formatPnlPct(p.unrealized_pnl_pct)}
-                          </span>
-                        </span>
+                            {showPct
+                              ? formatPnlPct(p.unrealized_pnl_pct)
+                              : formatSignedEur(p.unrealized_pnl)}
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: 'var(--font-editorial-mono)',
+                            fontSize: 11,
+                            color: 'var(--ink-tertiary)',
+                            letterSpacing: '0.03em',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {p.ticker} · {formatQuantity(p.quantity)} · PRU{' '}
+                          {formatPrice(p.pru, p.currency)}
+                        </div>
                       </li>
                     )
                   })}
