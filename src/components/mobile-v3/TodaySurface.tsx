@@ -26,6 +26,10 @@ import { AppShell } from '@/components/shell/AppShell'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import {
+  useUserAssetThesisBulk,
+  type UserAssetThesis,
+} from '@/hooks/useUserAssetThesisBulk'
+import {
   buildCapitalAllocationIntelligence,
   type CapitalAllocationResult,
   type CapitalConvictionLevel,
@@ -195,15 +199,9 @@ interface ActionItem {
   sourceTier: string | null
 }
 
-interface AssetThesis {
-  asset_id?: string | null
+type AssetThesis = UserAssetThesis & {
   conviction_level?: CapitalConvictionLevel | null
-  thesis_md?: string | null
-  context_fr?: string | null
 }
-
-type ThesisByAsset = Record<string, AssetThesis>
-const MAX_THESIS_BULK_ASSETS = 200
 
 function dismissKey(item: { alert_id?: string; asset_id?: string; ticker: string }): string {
   return item.alert_id || item.asset_id || item.ticker
@@ -313,24 +311,6 @@ function actionItemToCapitalInput(
     sourceScore: item.sourceScore,
     sourceTier: item.sourceTier,
   }
-}
-
-async function fetchThesisBulk(
-  assetIds: string[],
-  signal: AbortSignal,
-): Promise<ThesisByAsset> {
-  if (assetIds.length === 0) return {}
-  const safeAssetIds = assetIds.slice(0, MAX_THESIS_BULK_ASSETS)
-  const res = await fetch('/api/mobile/user-asset-thesis-bulk', {
-    method: 'POST',
-    cache: 'no-store',
-    signal,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assetIds: safeAssetIds }),
-  })
-  if (!res.ok) return {}
-  const json = (await res.json()) as { theses?: ThesisByAsset }
-  return json.theses ?? {}
 }
 
 type ActionPhase = 'plan_activated' | 'order_prepared' | 'strategy_defined'
@@ -1447,7 +1427,6 @@ export function TodaySurface() {
   const [treated, setTreated] = useState<Map<string, ActionPhase>>(new Map())
   const [localPanel, setLocalPanel] = useState<LocalPanelState | null>(null)
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
-  const [thesisByAsset, setThesisByAsset] = useState<ThesisByAsset>({})
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -1481,23 +1460,7 @@ export function TodaySurface() {
     return Array.from(new Set(ids)).sort()
   }, [focus.data?.priorities, decisions.data?.top_decisions])
 
-  useEffect(() => {
-    const ctrl = new AbortController()
-    let cancelled = false
-
-    fetchThesisBulk(thesisAssetIds, ctrl.signal)
-      .then((map) => {
-        if (!cancelled) setThesisByAsset(map)
-      })
-      .catch(() => {
-        if (!cancelled) setThesisByAsset({})
-      })
-
-    return () => {
-      cancelled = true
-      ctrl.abort()
-    }
-  }, [thesisAssetIds])
+  const { thesesByAssetId } = useUserAssetThesisBulk({ assetIds: thesisAssetIds })
 
   const buckets = useMemo(() => {
     const focusItems = focus.data?.priorities ?? []
@@ -1562,9 +1525,14 @@ export function TodaySurface() {
   const capitalAllocation = useMemo<CapitalAllocationResult>(() => {
     const items = [...buckets.now, ...buckets.prepare, ...buckets.nothing]
     return buildCapitalAllocationIntelligence(
-      items.map((item) => actionItemToCapitalInput(item, thesisByAsset[item.asset_id])),
+      items.map((item) =>
+        actionItemToCapitalInput(
+          item,
+          thesesByAssetId[item.asset_id] as AssetThesis | undefined,
+        ),
+      ),
     )
-  }, [buckets, thesisByAsset])
+  }, [buckets, thesesByAssetId])
 
   const market = focus.data?.market_context
 
