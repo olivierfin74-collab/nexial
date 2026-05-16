@@ -258,6 +258,18 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
   }
 }
 
+function parseExplicitDrawdownFromPeak(value: string | null): number | null {
+  const text = value?.trim()
+  if (!text) return null
+
+  const match = text.match(/^(-?\d+(?:[,.]\d+)?)\s*%\s+du\s+sommet$/i)
+  if (!match) return null
+
+  const pct = Number(match[1].replace(',', '.'))
+  if (!Number.isFinite(pct)) return null
+  return -Math.abs(pct)
+}
+
 // ─────────────────────────────────────────────────────────
 // Local action lifecycle — V1 client-only simulation. When the
 // user clicks an actionable CTA that opens a decisional modal,
@@ -269,6 +281,8 @@ function actionItemToCapitalInput(
   item: ActionItem,
   thesis: AssetThesis | undefined,
 ): CapitalOpportunityInput {
+  const drawdownPct = parseExplicitDrawdownFromPeak(item.delta_display)
+
   return {
     assetId: item.asset_id,
     ticker: item.ticker,
@@ -293,6 +307,7 @@ function actionItemToCapitalInput(
     sectorRoom: 'unknown',
     accountRouting: 'possible',
     weightState: 'unknown',
+    drawdownPct,
     sourceRank: item.sourceRank,
     sourceScore: item.sourceScore,
     sourceTier: item.sourceTier,

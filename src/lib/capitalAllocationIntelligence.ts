@@ -176,11 +176,10 @@ function personalCapitalRelevance(item: CapitalOpportunityInput): number {
 }
 
 function hasEnoughWeakness(item: CapitalOpportunityInput): boolean {
-  if (item.priceQuality === 'attractive') return true
   if (item.drawdownPct != null && Number.isFinite(item.drawdownPct)) {
     return item.drawdownPct <= -8
   }
-  return item.signalQuality === 'strong' && item.priceQuality !== 'extended'
+  return false
 }
 
 function hasRealStrategicSignal(item: CapitalOpportunityInput, conviction: CapitalConvictionLevel): boolean {
@@ -275,21 +274,28 @@ function classifyOne(item: CapitalOpportunityInput):
     const overweight = item.weightState === 'overweight'
     const extended = item.priceQuality === 'extended'
     const noCapital = item.capitalAvailable === false
+    const reinforcementConditionMet =
+      item.signalQuality === 'strong' &&
+      item.drawdownPct != null &&
+      Number.isFinite(item.drawdownPct) &&
+      item.drawdownPct <= -8
     const context = overweight
       ? 'Surpondération acceptée, achat encore déconseillé'
       : extended
         ? 'Prix encore trop élevé pour votre stratégie'
         : noCapital
           ? 'Capital disponible insuffisant pour prioriser maintenant'
-          : 'Condition de renfort non atteinte'
+          : reinforcementConditionMet
+            ? 'Condition de renfort atteinte'
+            : 'Condition de renfort non atteinte'
     return {
       visible: baseItem(
         item,
         'strategic_reinforcement',
         'Renforcement suivant plan stratégique',
         context,
-        'wait',
-        'deferred',
+        reinforcementConditionMet && !overweight && !extended && !noCapital ? 'prepare' : 'wait',
+        reinforcementConditionMet && !overweight && !extended && !noCapital ? 'candidate' : 'deferred',
       ),
       relevance: 0.9,
     }
@@ -298,7 +304,7 @@ function classifyOne(item: CapitalOpportunityInput):
   if (conviction === 'BUY_DIPS') {
     if (!hasEnoughWeakness(item)) {
       return {
-        hidden: hidden(item, 'dip_not_deep_enough', 'Condition de repli non atteinte'),
+        hidden: hidden(item, 'dip_not_deep_enough', 'Faiblesse encore insuffisante'),
         relevance: 0,
       }
     }
@@ -307,7 +313,7 @@ function classifyOne(item: CapitalOpportunityInput):
         item,
         'buy_the_dip',
         'Achat sur repli',
-        'Faiblesse suffisante pour préparer une décision disciplinée',
+        'Condition de repli atteinte',
         'prepare',
         'candidate',
       ),
