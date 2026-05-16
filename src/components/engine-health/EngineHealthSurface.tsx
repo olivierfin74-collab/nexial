@@ -5,48 +5,42 @@ import { AppShell } from '@/components/shell/AppShell'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 
 const proofRows = [
-  ['Alpha vs baseline', 'leger avantage observe'],
-  ['Drawdown evite', 'signal de protection a confirmer'],
-  ['Qualite moyenne signaux', 'correcte, branchement en attente'],
-  ['Faux positifs', 'a mesurer'],
-  ['Opportunites detectees', 'couverture en validation'],
+  ['Alpha vs baseline', 'En attente de mesure'],
+  ['Qualité moyenne des signaux', 'Non disponible'],
+  ['Faux positifs', 'En attente de mesure'],
+  ['Drawdown évité', 'Non disponible'],
+  ['Opportunités détectées', 'En attente de mesure'],
 ]
 
 const anomalies = [
-  'Aucune anomalie critique',
-  'Verification de rythme a prevoir',
-  'Donnees encore insuffisantes',
+  'Pas d’anomalie critique détectée dans les données disponibles.',
 ]
 
 export function EngineHealthSurface() {
   return (
     <AppShell>
       <MobileTopHeader
-        eyebrow="Sante moteur"
-        title="Sante moteur"
-        subtitle="Lecture provisoire, sans branchement moteur."
+        eyebrow="Moteur"
+        title="Santé du moteur"
+        subtitle="Qualité des décisions et signaux récents"
+        extras={<StatusBadge label="En observation" />}
         compact
       />
 
       <main style={surface}>
         <section style={verdictBlock} aria-labelledby="engine-health-verdict">
-          <span style={eyebrow}>Verdict</span>
+          <span style={eyebrowOnDark}>Verdict moteur</span>
           <h1 id="engine-health-verdict" style={verdictTitle}>
-            Le moteur progresse
+            Moteur en observation
           </h1>
-          <p style={verdictNote}>Score indicatif en attente de branchement moteur.</p>
-        </section>
-
-        <section style={section}>
-          <span style={eyebrow}>Explication courte</span>
-          <p style={explanation}>
-            Les signaux recents semblent legerement meilleurs qu&apos;un scenario simple de
-            reference.
+          <p style={verdictNote}>
+            Les premières mesures sont en place. Le moteur doit maintenant accumuler
+            davantage de résultats pour être évalué correctement.
           </p>
         </section>
 
         <section style={section}>
-          <span style={eyebrow}>Preuves minimales</span>
+          <span style={eyebrow}>KPI essentiels</span>
           <ul style={listReset}>
             {proofRows.map(([label, value], index) => (
               <li
@@ -64,7 +58,7 @@ export function EngineHealthSurface() {
         </section>
 
         <section style={section}>
-          <span style={eyebrow}>Anomalies</span>
+          <span style={eyebrow}>Ce qui dégrade le moteur</span>
           <ul style={listReset}>
             {anomalies.map((item, index) => (
               <li
@@ -74,13 +68,7 @@ export function EngineHealthSurface() {
                   borderTop: index === 0 ? 'none' : '1px solid var(--border-subtle)',
                 }}
               >
-                <span
-                  aria-hidden
-                  style={{
-                    ...dot,
-                    background: index === 0 ? 'var(--forest-green)' : '#B8924A',
-                  }}
-                />
+                <span aria-hidden style={{ ...dot, background: 'var(--forest-green)' }} />
                 <span>{item}</span>
               </li>
             ))}
@@ -89,20 +77,31 @@ export function EngineHealthSurface() {
 
         <section style={section}>
           <span style={eyebrow}>Graphique unique</span>
-          <div aria-label="Nexial vs baseline" style={chartBox}>
+          <div aria-label="Historique de qualité moteur" style={chartBox}>
             <div style={chartHeader}>
-              <span style={chartTitle}>Nexial vs baseline</span>
-              <span style={chartStatus}>Placeholder</span>
+              <span style={chartTitle}>Qualité moteur</span>
+              <span style={chartStatus}>Mesure en cours</span>
             </div>
-            <div aria-hidden style={chartPlot}>
-              <span style={baselineLine} />
-              <span style={nexialLine} />
+            <div style={chartEmptyState}>
+              Historique de qualité moteur en cours de constitution.
             </div>
           </div>
+        </section>
+
+        <section style={section}>
+          <span style={eyebrow}>Prochaine mesure utile</span>
+          <p style={explanation}>
+            Accumuler les résultats des signaux à 1j, 5j et 20j pour comparer V3,
+            versions expérimentales et baseline ETF.
+          </p>
         </section>
       </main>
     </AppShell>
   )
+}
+
+function StatusBadge({ label }: { label: string }) {
+  return <span style={statusBadge}>{label}</span>
 }
 
 const surface: CSSProperties = {
@@ -144,6 +143,11 @@ const eyebrow: CSSProperties = {
   textTransform: 'uppercase',
 }
 
+const eyebrowOnDark: CSSProperties = {
+  ...eyebrow,
+  color: 'var(--forest-green-pale)',
+}
+
 const verdictTitle: CSSProperties = {
   margin: 0,
   fontFamily: 'var(--font-editorial-serif)',
@@ -176,9 +180,9 @@ const listReset: CSSProperties = {
 }
 
 const compactRow: CSSProperties = {
-  minHeight: 34,
+  minHeight: 36,
   display: 'grid',
-  gridTemplateColumns: 'minmax(132px, 0.8fr) minmax(0, 1.2fr)',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
   gap: 12,
   alignItems: 'center',
 }
@@ -192,10 +196,11 @@ const rowLabel: CSSProperties = {
 
 const rowValue: CSSProperties = {
   fontFamily: 'var(--font-editorial-sans)',
-  fontSize: 12,
+  fontSize: 11.5,
   lineHeight: 1.35,
-  color: 'var(--ink-secondary)',
+  color: 'var(--ink-tertiary)',
   textAlign: 'right',
+  whiteSpace: 'nowrap',
 }
 
 const anomalyRow: CSSProperties = {
@@ -216,7 +221,7 @@ const dot: CSSProperties = {
 }
 
 const chartBox: CSSProperties = {
-  height: 118,
+  minHeight: 112,
   borderRadius: 8,
   border: '1px solid var(--border-subtle)',
   background: '#FBF9F4',
@@ -249,30 +254,32 @@ const chartStatus: CSSProperties = {
   letterSpacing: '0.05em',
 }
 
-const chartPlot: CSSProperties = {
-  position: 'relative',
-  height: 58,
-  borderBottom: '1px solid rgba(31,49,37,0.14)',
+const chartEmptyState: CSSProperties = {
+  minHeight: 58,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderTop: '1px solid rgba(31,49,37,0.08)',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12.5,
+  lineHeight: 1.4,
+  color: 'var(--ink-secondary)',
+  textAlign: 'center',
 }
 
-const baselineLine: CSSProperties = {
-  position: 'absolute',
-  left: 0,
-  right: 0,
-  bottom: 17,
-  height: 2,
+const statusBadge: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  width: 'fit-content',
+  minHeight: 24,
+  padding: '0 9px',
   borderRadius: 999,
-  background: 'rgba(31,49,37,0.24)',
-}
-
-const nexialLine: CSSProperties = {
-  position: 'absolute',
-  left: 0,
-  right: 0,
-  bottom: 24,
-  height: 2,
-  borderRadius: 999,
-  background: 'var(--forest-green)',
-  transform: 'rotate(-1.5deg)',
-  transformOrigin: 'left center',
+  border: '1px solid rgba(45,95,63,0.18)',
+  background: 'rgba(45,95,63,0.06)',
+  color: 'var(--forest-green)',
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
 }
