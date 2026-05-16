@@ -1881,7 +1881,7 @@ export function TodaySurface() {
           title="Suivi du jour"
           count={buckets.tracking.length || null}
           subtitle="Actions traitées à surveiller."
-          defaultOpen
+          defaultOpen={false}
         >
           {buckets.tracking.length === 0 ? (
             <p style={paragraph}>Aucune action traitée pour le moment.</p>
