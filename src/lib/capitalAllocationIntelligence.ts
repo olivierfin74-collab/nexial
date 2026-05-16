@@ -39,6 +39,7 @@ export interface CapitalOpportunityInput {
   assetName?: string | null
   sector?: string | null
   convictionLevel?: CapitalConvictionLevel | null
+  hasRealThesisSignal?: boolean
   isHeld?: boolean
   signalQuality?: CapitalSignalQuality
   priceQuality?: CapitalPriceQuality
@@ -144,6 +145,20 @@ function hasEnoughWeakness(item: CapitalOpportunityInput): boolean {
   return item.signalQuality === 'strong' && item.priceQuality !== 'extended'
 }
 
+function hasRealStrategicSignal(item: CapitalOpportunityInput, conviction: CapitalConvictionLevel): boolean {
+  return item.hasRealThesisSignal === true || conviction !== 'NEUTRAL'
+}
+
+function hasSolidPriorityInputs(item: CapitalOpportunityInput): boolean {
+  const hasAllocationDefaultsOnly =
+    item.sectorRoom === 'unknown' &&
+    item.weightState === 'unknown' &&
+    item.accountRouting === 'possible' &&
+    item.targetGapPct == null
+
+  return !hasAllocationDefaultsOnly
+}
+
 function baseItem(
   item: CapitalOpportunityInput,
   section: CapitalSectionKey,
@@ -186,6 +201,13 @@ function classifyOne(item: CapitalOpportunityInput):
   if (conviction === 'CORE_HOLD') {
     return {
       hidden: hidden(item, 'core_hold', 'Position centrale : aucun arbitrage proposé'),
+      relevance: 0,
+    }
+  }
+
+  if (!hasRealStrategicSignal(item, conviction)) {
+    return {
+      hidden: hidden(item, 'not_priority_now', 'Opportunité non prioritaire actuellement'),
       relevance: 0,
     }
   }
@@ -256,6 +278,12 @@ function classifyOne(item: CapitalOpportunityInput):
   }
 
   const relevance = personalCapitalRelevance(item)
+  if (!hasSolidPriorityInputs(item)) {
+    return {
+      hidden: hidden(item, 'not_priority_now', 'Opportunité non prioritaire actuellement'),
+      relevance,
+    }
+  }
   if (item.sectorRoom === 'saturated') {
     return {
       hidden: hidden(item, 'sector_saturated', 'Secteur déjà fortement exposé'),

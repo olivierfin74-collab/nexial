@@ -265,6 +265,7 @@ function actionItemToCapitalInput(
     ticker: item.ticker,
     assetName: item.asset_name_fr,
     convictionLevel: thesis?.conviction_level ?? 'NEUTRAL',
+    hasRealThesisSignal: Boolean(thesis?.conviction_level),
     isHeld: Boolean(thesis),
     signalQuality:
       item.verdict_color === 'red'
