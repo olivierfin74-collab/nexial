@@ -30,6 +30,10 @@ import {
   type UserAssetThesis,
 } from '@/hooks/useUserAssetThesisBulk'
 import {
+  adjustVerdict,
+  type OpportunityStandardIntent,
+} from '@/lib/adjustVerdict'
+import {
   buildCapitalAllocationIntelligence,
   type CapitalAllocationResult,
   type CapitalConvictionLevel,
@@ -197,6 +201,7 @@ interface ActionItem {
   sourceRank: number | null
   sourceScore: number | null
   sourceTier: string | null
+  strategicFiltered: boolean
 }
 
 type AssetThesis = UserAssetThesis & {
@@ -232,6 +237,7 @@ function normalizeFocus(item: FocusTodayItem): ActionItem {
     sourceRank: item.rank,
     sourceScore: item.priority_score,
     sourceTier: null,
+    strategicFiltered: false,
   }
 }
 
@@ -254,6 +260,7 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
     sourceRank: item.rank,
     sourceScore: item.score,
     sourceTier: item.tier,
+    strategicFiltered: false,
   }
 }
 
@@ -267,6 +274,59 @@ function parseExplicitDrawdownFromPeak(value: string | null): number | null {
   const pct = Number(match[1].replace(',', '.'))
   if (!Number.isFinite(pct)) return null
   return -Math.abs(pct)
+}
+
+function standardIntentFromActionItem(item: ActionItem): OpportunityStandardIntent {
+  if (item.redirect_kind === 'open_exit_modal') return 'trim'
+  if (item.redirect_kind === 'open_ladder_modal') {
+    const context = `${item.verdict_label_fr} ${item.headline_fr}`.toLowerCase()
+    return context.includes('renfor') || context.includes('position') ? 'reinforce' : 'buy'
+  }
+  return 'watch'
+}
+
+function isHeldFromActionContext(item: ActionItem): boolean {
+  const context = `${item.verdict_label_fr} ${item.headline_fr}`.toLowerCase()
+  return context.includes('position') || context.includes('renfor')
+}
+
+function isOverweightFromActionContext(item: ActionItem): boolean {
+  const context = `${item.verdict_label_fr} ${item.headline_fr}`.toLowerCase()
+  return context.includes('surpond')
+}
+
+function applyAdjustedVerdict(item: ActionItem, thesis: AssetThesis | undefined): ActionItem {
+  if (!thesis?.conviction_level) return item
+
+  const drawdownPct = parseExplicitDrawdownFromPeak(item.delta_display)
+  const opportunityAcceptable =
+    item.verdict_color === 'green' &&
+    drawdownPct != null &&
+    Number.isFinite(drawdownPct) &&
+    drawdownPct <= -8
+  const adjusted = adjustVerdict(
+    {
+      standardVerdict: item.verdict_label_fr || item.verdict_color,
+      standardLabel: item.verdict_label_fr,
+      standardIntent: standardIntentFromActionItem(item),
+      isHeld: isHeldFromActionContext(item),
+      isOverweight: isOverweightFromActionContext(item),
+      opportunityAcceptable,
+      conditionMet: opportunityAcceptable,
+    },
+    thesis,
+  )
+
+  if (adjusted.reason === 'Aucune stratégie avancée définie : règle standard appliquée') {
+    return item
+  }
+
+  return {
+    ...item,
+    verdict_label_fr: adjusted.reason,
+    headline_fr: '',
+    strategicFiltered: adjusted.shouldDisplay === false || adjusted.isFiltered,
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1477,34 +1537,52 @@ export function TodaySurface() {
     const isDismissed = (i: ActionItem) => dismissed.has(i.key)
     const isTreated = (i: ActionItem) => treated.has(i.key)
 
+    const withAdjustedVerdict = (item: ActionItem) =>
+      applyAdjustedVerdict(item, thesesByAssetId[item.asset_id] as AssetThesis | undefined)
+
     const focusByBucket = {
-      now: focusItems.filter((i) => focusBucket(i) === 'now').map(normalizeFocus),
+      now: focusItems
+        .filter((i) => focusBucket(i) === 'now')
+        .map(normalizeFocus)
+        .map(withAdjustedVerdict),
       prepare: focusItems
         .filter((i) => focusBucket(i) === 'prepare')
-        .map(normalizeFocus),
+        .map(normalizeFocus)
+        .map(withAdjustedVerdict),
       nothing: focusItems
         .filter((i) => focusBucket(i) === 'nothing')
-        .map(normalizeFocus),
+        .map(normalizeFocus)
+        .map(withAdjustedVerdict),
     }
     const decisionsByBucket = {
       now: dedupedDecisions
         .filter((i) => decisionBucket(i) === 'now')
-        .map(normalizeDecision),
+        .map(normalizeDecision)
+        .map(withAdjustedVerdict),
       prepare: dedupedDecisions
         .filter((i) => decisionBucket(i) === 'prepare')
-        .map(normalizeDecision),
+        .map(normalizeDecision)
+        .map(withAdjustedVerdict),
       nothing: dedupedDecisions
         .filter((i) => decisionBucket(i) === 'nothing')
-        .map(normalizeDecision),
+        .map(normalizeDecision)
+        .map(withAdjustedVerdict),
     }
 
     // Combine raw active buckets (items that came from "now" or
     // "prepare" originally). Once treated, an item is routed to the
     // tracking bucket regardless of its original bucket. Dismissed
     // items disappear from every bucket.
-    const rawNow = [...focusByBucket.now, ...decisionsByBucket.now]
-    const rawPrepare = [...focusByBucket.prepare, ...decisionsByBucket.prepare]
-    const rawNothing = [...focusByBucket.nothing, ...decisionsByBucket.nothing]
+    const activeNow = [...focusByBucket.now, ...decisionsByBucket.now]
+    const activePrepare = [...focusByBucket.prepare, ...decisionsByBucket.prepare]
+    const rawNow = activeNow.filter((i) => !i.strategicFiltered)
+    const rawPrepare = activePrepare.filter((i) => !i.strategicFiltered)
+    const rawNothing = [
+      ...focusByBucket.nothing,
+      ...decisionsByBucket.nothing,
+      ...activeNow.filter((i) => i.strategicFiltered),
+      ...activePrepare.filter((i) => i.strategicFiltered),
+    ]
 
     const tracking = [...rawNow, ...rawPrepare]
       .filter((i) => isTreated(i) && !isDismissed(i))
@@ -1520,7 +1598,13 @@ export function TodaySurface() {
       tracking,
       nothing: rawNothing.filter((i) => !isDismissed(i)),
     }
-  }, [focus.data?.priorities, decisions.data?.top_decisions, dismissed, treated])
+  }, [
+    focus.data?.priorities,
+    decisions.data?.top_decisions,
+    dismissed,
+    treated,
+    thesesByAssetId,
+  ])
 
   const capitalAllocation = useMemo<CapitalAllocationResult>(() => {
     const items = [...buckets.now, ...buckets.prepare, ...buckets.nothing]
