@@ -121,9 +121,9 @@ function mapCtaLabel(
 ): string {
   switch (kind) {
     case 'open_ladder_modal':
-      return "Activer le plan d’achat"
+      return 'Préparer le plan'
     case 'open_exit_modal':
-      return 'Préparer un ordre'
+      return 'Préparer la décision'
     case 'open_thesis_modal':
     case 'open_thesis_modal_urgent':
       return 'Définir ma stratégie'
@@ -396,7 +396,7 @@ function phaseToSecondaryCta(phase: ActionPhase): string {
     case 'plan_activated':
       return 'Voir le plan'
     case 'order_prepared':
-      return 'Voir l’ordre'
+      return 'Voir la préparation'
     case 'strategy_defined':
       return 'Voir le suivi'
   }
@@ -1221,7 +1221,7 @@ function LocalPlanPanel({ item, onConfirm, onClose }: LocalPlanPanelProps) {
           fontWeight: 600,
         }}
       >
-        Activer le plan d’achat
+        Préparer le plan
       </span>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
