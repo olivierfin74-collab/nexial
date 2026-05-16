@@ -31,6 +31,7 @@ import {
 } from '@/hooks/useUserAssetThesisBulk'
 import {
   adjustVerdict,
+  type AdjustedSectionHint,
   type OpportunityStandardIntent,
 } from '@/lib/adjustVerdict'
 import {
@@ -202,6 +203,7 @@ interface ActionItem {
   sourceScore: number | null
   sourceTier: string | null
   strategicFiltered: boolean
+  strategicSectionHint: AdjustedSectionHint
 }
 
 type AssetThesis = UserAssetThesis & {
@@ -238,6 +240,7 @@ function normalizeFocus(item: FocusTodayItem): ActionItem {
     sourceScore: item.priority_score,
     sourceTier: null,
     strategicFiltered: false,
+    strategicSectionHint: 'standard',
   }
 }
 
@@ -261,6 +264,7 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
     sourceScore: item.score,
     sourceTier: item.tier,
     strategicFiltered: false,
+    strategicSectionHint: 'standard',
   }
 }
 
@@ -326,6 +330,7 @@ function applyAdjustedVerdict(item: ActionItem, thesis: AssetThesis | undefined)
     verdict_label_fr: adjusted.reason,
     headline_fr: '',
     strategicFiltered: adjusted.shouldDisplay === false || adjusted.isFiltered,
+    strategicSectionHint: adjusted.sectionHint,
   }
 }
 
@@ -684,6 +689,97 @@ interface ActionRowProps {
   onCta: (item: ActionItem) => void
   onDismiss: (key: string) => void
   isLast: boolean
+}
+
+type DecisionFamilyKey = 'reinforcement' | 'buy' | 'exit' | 'wait' | 'standard'
+
+const DECISION_FAMILY_ORDER: DecisionFamilyKey[] = [
+  'reinforcement',
+  'buy',
+  'exit',
+  'wait',
+  'standard',
+]
+
+function decisionFamily(item: ActionItem): DecisionFamilyKey {
+  switch (item.strategicSectionHint) {
+    case 'strategic_reinforcement':
+      return 'reinforcement'
+    case 'strategic_buy':
+      return 'buy'
+    case 'exit':
+      return 'exit'
+    case 'wait':
+    case 'avoid_buy':
+      return 'wait'
+    case 'standard':
+    case 'silent':
+    default:
+      return 'standard'
+  }
+}
+
+function decisionFamilyLabel(key: DecisionFamilyKey): string | null {
+  switch (key) {
+    case 'reinforcement':
+      return 'Renforcement'
+    case 'buy':
+      return 'Achat'
+    case 'exit':
+      return 'Sortie surveillée'
+    case 'wait':
+      return 'À surveiller'
+    case 'standard':
+    default:
+      return null
+  }
+}
+
+function groupedDecisionItems(items: ActionItem[]): Array<{ key: DecisionFamilyKey; items: ActionItem[] }> {
+  return DECISION_FAMILY_ORDER.map((key) => ({
+    key,
+    items: items.filter((item) => decisionFamily(item) === key),
+  })).filter((group) => group.items.length > 0)
+}
+
+interface GroupedActionRowsProps {
+  items: ActionItem[]
+  treated: Map<string, ActionPhase>
+  onCta: (item: ActionItem) => void
+  onDismiss: (key: string) => void
+}
+
+function GroupedActionRows({ items, treated, onCta, onDismiss }: GroupedActionRowsProps) {
+  const groups = groupedDecisionItems(items)
+  let rendered = 0
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {groups.map((group) => {
+        const label = decisionFamilyLabel(group.key)
+        return (
+          <div key={group.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {label ? <span style={decisionFamilyHeading}>{label}</span> : null}
+            <ul style={listReset}>
+              {group.items.map((item) => {
+                rendered += 1
+                return (
+                  <ActionRow
+                    key={item.key}
+                    item={item}
+                    treatedPhase={treated.get(item.key)}
+                    onCta={onCta}
+                    onDismiss={onDismiss}
+                    isLast={rendered === items.length}
+                  />
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function ActionRow({ item, treatedPhase, onCta, onDismiss, isLast }: ActionRowProps) {
@@ -1582,7 +1678,7 @@ export function TodaySurface() {
       ...decisionsByBucket.nothing,
       ...activeNow.filter((i) => i.strategicFiltered),
       ...activePrepare.filter((i) => i.strategicFiltered),
-    ]
+    ].sort((a, b) => Number(b.strategicFiltered) - Number(a.strategicFiltered))
 
     const tracking = [...rawNow, ...rawPrepare]
       .filter((i) => isTreated(i) && !isDismissed(i))
@@ -1743,18 +1839,12 @@ export function TodaySurface() {
           ) : buckets.now.length === 0 ? (
             <p style={paragraph}>Tout est traité pour le moment.</p>
           ) : (
-            <ul style={listReset}>
-              {buckets.now.map((item, idx) => (
-                <ActionRow
-                  key={item.key}
-                  item={item}
-                  treatedPhase={treated.get(item.key)}
-                  onCta={handleCta}
-                  onDismiss={handleDismiss}
-                  isLast={idx === buckets.now.length - 1}
-                />
-              ))}
-            </ul>
+            <GroupedActionRows
+              items={buckets.now}
+              treated={treated}
+              onCta={handleCta}
+              onDismiss={handleDismiss}
+            />
           )}
         </TodaySection>
 
@@ -1774,18 +1864,12 @@ export function TodaySurface() {
               {buckets.prepare.length === 0 ? (
                 <p style={paragraph}>Aucune préparation en cours.</p>
               ) : (
-                <ul style={listReset}>
-                  {buckets.prepare.map((item, idx) => (
-                    <ActionRow
-                      key={item.key}
-                      item={item}
-                      treatedPhase={treated.get(item.key)}
-                      onCta={handleCta}
-                      onDismiss={handleDismiss}
-                      isLast={idx === buckets.prepare.length - 1}
-                    />
-                  ))}
-                </ul>
+                <GroupedActionRows
+                  items={buckets.prepare}
+                  treated={treated}
+                  onCta={handleCta}
+                  onDismiss={handleDismiss}
+                />
               )}
               <HygieneSubblock items={hygiene} />
             </>
@@ -1906,4 +1990,13 @@ const listReset: React.CSSProperties = {
   listStyle: 'none',
   margin: 0,
   padding: 0,
+}
+
+const decisionFamilyHeading: React.CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10,
+  fontWeight: 700,
+  color: 'var(--ink-tertiary)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
 }
