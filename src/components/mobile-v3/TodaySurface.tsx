@@ -25,6 +25,12 @@ import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
+import {
+  buildCapitalAllocationIntelligence,
+  type CapitalAllocationResult,
+  type CapitalConvictionLevel,
+  type CapitalOpportunityInput,
+} from '@/lib/capitalAllocationIntelligence'
 // Only ExitPlanModal is still wired through the legacy decisional
 // slot — the "Activer le plan d'achat" and "Définir ma stratégie"
 // flows are now handled by LocalPlanPanel / LocalStrategyPanel
@@ -186,6 +192,15 @@ interface ActionItem {
   asset_id: string
 }
 
+interface AssetThesis {
+  asset_id?: string | null
+  conviction_level?: CapitalConvictionLevel | null
+  thesis_md?: string | null
+  context_fr?: string | null
+}
+
+type ThesisByAsset = Record<string, AssetThesis>
+
 function dismissKey(item: { alert_id?: string; asset_id?: string; ticker: string }): string {
   return item.alert_id || item.asset_id || item.ticker
 }
@@ -241,6 +256,53 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
 // its CTA for a visual "Done" chip. State is not persisted: a
 // refresh, a data change or a new session restores the items.
 // ─────────────────────────────────────────────────────────
+function actionItemToCapitalInput(
+  item: ActionItem,
+  thesis: AssetThesis | undefined,
+): CapitalOpportunityInput {
+  return {
+    assetId: item.asset_id,
+    ticker: item.ticker,
+    assetName: item.asset_name_fr,
+    convictionLevel: thesis?.conviction_level ?? 'NEUTRAL',
+    isHeld: Boolean(thesis),
+    signalQuality:
+      item.verdict_color === 'red'
+        ? 'weak'
+        : item.verdict_color === 'yellow'
+          ? 'positive'
+          : item.verdict_color === 'green'
+            ? 'strong'
+            : 'neutral',
+    priceQuality:
+      item.verdict_color === 'green'
+        ? 'attractive'
+        : item.verdict_color === 'yellow'
+          ? 'acceptable'
+          : 'unknown',
+    sectorRoom: 'unknown',
+    accountRouting: 'possible',
+    weightState: 'unknown',
+  }
+}
+
+async function fetchThesisBulk(
+  assetIds: string[],
+  signal: AbortSignal,
+): Promise<ThesisByAsset> {
+  if (assetIds.length === 0) return {}
+  const res = await fetch('/api/mobile/user-asset-thesis-bulk', {
+    method: 'POST',
+    cache: 'no-store',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetIds }),
+  })
+  if (!res.ok) return {}
+  const json = (await res.json()) as { theses?: ThesisByAsset }
+  return json.theses ?? {}
+}
+
 type ActionPhase = 'plan_activated' | 'order_prepared' | 'strategy_defined'
 
 function treatedChipLabel(phase: ActionPhase): string {
@@ -449,6 +511,103 @@ function TodaySection({
 // ActionRow — used by À TRAITER + À PRÉPARER. Carries the
 // primary CTA + "Je passe" dismiss.
 // ─────────────────────────────────────────────────────────
+function CapitalAllocationBlock({ result }: { result: CapitalAllocationResult }) {
+  const visibleSections = result.sections.filter((section) => section.items.length > 0)
+  if (visibleSections.length === 0) return null
+
+  return (
+    <TodaySection
+      groupKey="today-capital-allocation"
+      title="Allocation du capital"
+      count={visibleSections.reduce((sum, section) => sum + section.items.length, 0)}
+      subtitle="Priorités relatives, sans achat automatique."
+      defaultOpen
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {visibleSections.map((section) => (
+          <div key={section.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'var(--ink-tertiary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              {section.title}
+            </span>
+            <ul style={listReset}>
+              {section.items.map((item, idx) => (
+                <li
+                  key={`${section.key}-${item.assetId || item.ticker}`}
+                  data-ticker={item.ticker}
+                  style={{
+                    padding: '8px 0',
+                    borderBottom:
+                      idx === section.items.length - 1
+                        ? 'none'
+                        : '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-editorial-sans)',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: 'var(--ink-primary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {item.assetName ?? item.ticker}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-editorial-mono)',
+                        fontSize: 10.5,
+                        color: 'var(--ink-tertiary)',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {item.ticker}
+                    </span>
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-editorial-sans)',
+                      fontSize: 12,
+                      color: 'var(--ink-secondary)',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {item.context}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </TodaySection>
+  )
+}
+
 interface ActionRowProps {
   item: ActionItem
   treatedPhase: ActionPhase | undefined
@@ -1258,6 +1417,7 @@ export function TodaySurface() {
   const [treated, setTreated] = useState<Map<string, ActionPhase>>(new Map())
   const [localPanel, setLocalPanel] = useState<LocalPanelState | null>(null)
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
+  const [thesisByAsset, setThesisByAsset] = useState<ThesisByAsset>({})
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -1282,6 +1442,32 @@ export function TodaySurface() {
       ctrl.abort()
     }
   }, [])
+
+  const thesisAssetIds = useMemo(() => {
+    const ids = [
+      ...(focus.data?.priorities ?? []).map((item) => item.asset_id),
+      ...(decisions.data?.top_decisions ?? []).map((item) => item.asset_id),
+    ].filter((id): id is string => typeof id === 'string' && id.length > 0)
+    return Array.from(new Set(ids)).sort()
+  }, [focus.data?.priorities, decisions.data?.top_decisions])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    let cancelled = false
+
+    fetchThesisBulk(thesisAssetIds, ctrl.signal)
+      .then((map) => {
+        if (!cancelled) setThesisByAsset(map)
+      })
+      .catch(() => {
+        if (!cancelled) setThesisByAsset({})
+      })
+
+    return () => {
+      cancelled = true
+      ctrl.abort()
+    }
+  }, [thesisAssetIds])
 
   const buckets = useMemo(() => {
     const focusItems = focus.data?.priorities ?? []
@@ -1342,6 +1528,13 @@ export function TodaySurface() {
       nothing: rawNothing.filter((i) => !isDismissed(i)),
     }
   }, [focus.data?.priorities, decisions.data?.top_decisions, dismissed, treated])
+
+  const capitalAllocation = useMemo<CapitalAllocationResult>(() => {
+    const items = [...buckets.now, ...buckets.prepare, ...buckets.nothing]
+    return buildCapitalAllocationIntelligence(
+      items.map((item) => actionItemToCapitalInput(item, thesisByAsset[item.asset_id])),
+    )
+  }, [buckets, thesisByAsset])
 
   const market = focus.data?.market_context
 
@@ -1452,6 +1645,8 @@ export function TodaySurface() {
           gap: 12,
         }}
       >
+        <CapitalAllocationBlock result={capitalAllocation} />
+
         <TodaySection
           groupKey="today-now"
           title="À traiter maintenant"
