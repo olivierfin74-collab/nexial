@@ -1139,7 +1139,7 @@ function SniperAlertRow({
 }
 
 // ─────────────────────────────────────────────────────────
-// SniperIntentPanel — bottom-sheet 3-step creation flow
+// SniperIntentPanel — mobile-safe 3-step creation flow
 // ─────────────────────────────────────────────────────────
 interface SniperIntentPanelProps {
   state: IntentPanelState
@@ -1160,6 +1160,26 @@ function SniperIntentPanel({
 }: SniperIntentPanelProps) {
   const search = useAssetSearch()
   const [resolvingExternal, setResolvingExternal] = useState(false)
+  const [visualViewportHeight, setVisualViewportHeight] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const viewport = window.visualViewport
+    const updateViewportHeight = () => {
+      setVisualViewportHeight(Math.floor(viewport?.height ?? window.innerHeight))
+    }
+
+    updateViewportHeight()
+    viewport?.addEventListener('resize', updateViewportHeight)
+    viewport?.addEventListener('scroll', updateViewportHeight)
+    window.addEventListener('resize', updateViewportHeight)
+
+    return () => {
+      viewport?.removeEventListener('resize', updateViewportHeight)
+      viewport?.removeEventListener('scroll', updateViewportHeight)
+      window.removeEventListener('resize', updateViewportHeight)
+    }
+  }, [])
 
   const handleSelectInternal = useCallback(
     (a: InternalAssetResult) => {
@@ -1214,6 +1234,9 @@ function SniperIntentPanel({
     state.targetPrice.trim().length > 0 &&
     Number.isFinite(Number(state.targetPrice.replace(',', '.'))) &&
     Number(state.targetPrice.replace(',', '.')) > 0
+  const panelMaxHeight = visualViewportHeight
+    ? Math.max(320, visualViewportHeight - 24)
+    : undefined
 
   return (
     <div
@@ -1229,15 +1252,16 @@ function SniperIntentPanel({
         zIndex: 100,
         background: 'rgba(15,15,15,0.42)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: '24px 16px',
+        padding: 'max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom))',
+        overflowY: 'auto',
       }}
     >
       <div
         style={{
           width: 'min(100%, 520px)',
-          maxWidth: 'calc(100vw - 32px)',
+          maxWidth: 'calc(100vw - 24px)',
           background: 'var(--surface)',
           borderRadius: 14,
           boxShadow: '0 -12px 30px rgba(0,0,0,0.18)',
@@ -1245,7 +1269,7 @@ function SniperIntentPanel({
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
-          maxHeight: 'min(720px, calc(100dvh - 48px))',
+          maxHeight: panelMaxHeight ? Math.min(720, panelMaxHeight) : 'calc(100dvh - 24px)',
           overflowY: 'auto',
           overscrollBehavior: 'contain',
         }}
