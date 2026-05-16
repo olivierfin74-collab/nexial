@@ -1906,9 +1906,9 @@ export function TodaySurface() {
 
         <TodaySection
           groupKey="today-nothing"
-          title="Rien à faire"
+          title="À surveiller"
           count={buckets.nothing.length || null}
-          subtitle="Surveillance seulement, aucune action immédiate."
+          subtitle="Patience, suivi ou attente d’un meilleur timing."
           defaultOpen={false}
         >
           {isLoading ? (
@@ -1916,7 +1916,7 @@ export function TodaySurface() {
           ) : fetchErrored ? (
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : buckets.nothing.length === 0 ? (
-            <p style={paragraph}>Pas d’item passif aujourd’hui.</p>
+            <p style={paragraph}>Aucun suivi secondaire aujourd’hui.</p>
           ) : (
             <ul style={listReset}>
               {buckets.nothing.map((item, idx) => (
