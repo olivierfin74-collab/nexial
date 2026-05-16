@@ -203,6 +203,7 @@ interface AssetThesis {
 }
 
 type ThesisByAsset = Record<string, AssetThesis>
+const MAX_THESIS_BULK_ASSETS = 200
 
 function dismissKey(item: { alert_id?: string; asset_id?: string; ticker: string }): string {
   return item.alert_id || item.asset_id || item.ticker
@@ -319,12 +320,13 @@ async function fetchThesisBulk(
   signal: AbortSignal,
 ): Promise<ThesisByAsset> {
   if (assetIds.length === 0) return {}
+  const safeAssetIds = assetIds.slice(0, MAX_THESIS_BULK_ASSETS)
   const res = await fetch('/api/mobile/user-asset-thesis-bulk', {
     method: 'POST',
     cache: 'no-store',
     signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assetIds }),
+    body: JSON.stringify({ assetIds: safeAssetIds }),
   })
   if (!res.ok) return {}
   const json = (await res.json()) as { theses?: ThesisByAsset }
