@@ -768,7 +768,7 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
     typeof item.context_compact?.delta_display === 'string'
       ? item.context_compact.delta_display
       : null
-  const ctaLabel = item.cta?.label_fr ?? 'Voir plan'
+  const ctaLabel = 'Voir dans Aujourd’hui'
 
   return (
     <li
