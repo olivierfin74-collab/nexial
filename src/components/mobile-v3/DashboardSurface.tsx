@@ -634,7 +634,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-          {sniperRibbon.length > 0 ? (
+          {!focusAssets.loading ? (
             <button
               type="button"
               onClick={() => router.push('/sniper')}
@@ -652,7 +652,7 @@ export function DashboardSurface() {
                 alignSelf: 'flex-start',
               }}
             >
-              Voir tous les snipers →
+              {sniperRibbon.length > 0 ? 'Voir tous les snipers →' : 'Voir le radar Sniper →'}
             </button>
           ) : null}
         </CollapsibleSection>
