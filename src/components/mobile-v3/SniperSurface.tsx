@@ -1229,15 +1229,15 @@ function SniperIntentPanel({
         zIndex: 100,
         background: 'rgba(15,15,15,0.42)',
         display: 'flex',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         justifyContent: 'center',
-        padding: 16,
+        padding: '24px 16px',
       }}
     >
       <div
         style={{
-          width: '100%',
-          maxWidth: 480,
+          width: 'min(100%, 520px)',
+          maxWidth: 'calc(100vw - 32px)',
           background: 'var(--surface)',
           borderRadius: 14,
           boxShadow: '0 -12px 30px rgba(0,0,0,0.18)',
@@ -1245,9 +1245,9 @@ function SniperIntentPanel({
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
-          marginBottom: 'env(safe-area-inset-bottom)',
-          maxHeight: 'calc(100vh - 64px)',
+          maxHeight: 'min(720px, calc(100dvh - 48px))',
           overflowY: 'auto',
+          overscrollBehavior: 'contain',
         }}
       >
         <header

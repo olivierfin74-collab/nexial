@@ -15,8 +15,9 @@
 //   fn_todo_list             → items (sous-bloc Hygiène)
 //
 // CTAs sont remappés côté front (cta.redirect_kind → label Olivier).
-// "Je passe" est local-only (state React, non persistant) — limite
-// documentée pour V2.
+// "Pas aujourd'hui" est un dismiss local, persistant pour la
+// journée afin d'éviter qu'un item ignoré revienne au changement
+// de page sans engager une vraie mutation backend.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
@@ -212,6 +213,47 @@ type AssetThesis = UserAssetThesis & {
 
 function dismissKey(item: { alert_id?: string; asset_id?: string; ticker: string }): string {
   return item.alert_id || item.asset_id || item.ticker
+}
+
+const TODAY_DISMISS_STORAGE_KEY = 'nexial.today.dismissed.v1'
+
+function todayDismissDateKey(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function readTodayDismissed(): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = window.localStorage.getItem(TODAY_DISMISS_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as { date?: unknown; keys?: unknown }
+    if (parsed.date !== todayDismissDateKey() || !Array.isArray(parsed.keys)) {
+      return new Set()
+    }
+    return new Set(
+      parsed.keys.filter(
+        (key): key is string => typeof key === 'string' && key.trim().length > 0,
+      ),
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+function writeTodayDismissed(keys: Set<string>): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      TODAY_DISMISS_STORAGE_KEY,
+      JSON.stringify({ date: todayDismissDateKey(), keys: Array.from(keys) }),
+    )
+  } catch {
+    // Local persistence is best-effort only; Today must never crash
+    // because storage is unavailable.
+  }
 }
 
 function normalizeFocus(item: FocusTodayItem): ActionItem {
@@ -584,7 +626,7 @@ function TodaySection({
 
 // ─────────────────────────────────────────────────────────
 // ActionRow — used by À TRAITER + À PRÉPARER. Carries the
-// primary CTA + "Je passe" dismiss.
+// primary CTA + "Pas aujourd'hui" dismiss.
 // ─────────────────────────────────────────────────────────
 function CapitalAllocationBlock({ result }: { result: CapitalAllocationResult }) {
   const visibleSections = result.sections.filter((section) => section.items.length > 0)
@@ -929,7 +971,7 @@ function ActionRow({ item, treatedPhase, onCta, onDismiss, isLast }: ActionRowPr
                 cursor: 'pointer',
               }}
             >
-              Je passe
+              Pas aujourd'hui
             </button>
           </>
         )}
@@ -1585,6 +1627,10 @@ export function TodaySurface() {
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
 
   useEffect(() => {
+    setDismissed(readTodayDismissed())
+  }, [])
+
+  useEffect(() => {
     const ctrl = new AbortController()
     let cancelled = false
 
@@ -1783,6 +1829,7 @@ export function TodaySurface() {
     setDismissed((prev) => {
       const next = new Set(prev)
       next.add(key)
+      writeTodayDismissed(next)
       return next
     })
   }, [])
