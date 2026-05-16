@@ -119,11 +119,21 @@ function isAccountVisible(a: PortfolioCashAccount): boolean {
 }
 
 type ChipKey = 'all' | 'pea' | 'ibkr' | 'winners' | 'watch'
+type PositionSortKey = 'value' | 'pnl_eur' | 'pnl_pct'
+type PnlDisplayMode = 'eur' | 'pct'
 
 interface ChipDef {
   key: ChipKey
   label: string
   count: number
+}
+
+function sortPositions(list: PortfolioPosition[], sortKey: PositionSortKey): PortfolioPosition[] {
+  return [...list].sort((a, b) => {
+    if (sortKey === 'pnl_eur') return (b.unrealized_pnl ?? 0) - (a.unrealized_pnl ?? 0)
+    if (sortKey === 'pnl_pct') return (b.unrealized_pnl_pct ?? 0) - (a.unrealized_pnl_pct ?? 0)
+    return (b.market_value ?? 0) - (a.market_value ?? 0)
+  })
 }
 
 // ─────────────────────────────────────────────────────────
@@ -499,7 +509,8 @@ export function PortfolioSurface() {
   const [chip, setChip] = useState<ChipKey>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
-  const [pnlPctVisible, setPnlPctVisible] = useState<Set<string>>(new Set())
+  const [pnlDisplayMode, setPnlDisplayMode] = useState<PnlDisplayMode>('eur')
+  const [positionSort, setPositionSort] = useState<PositionSortKey>('value')
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -570,8 +581,8 @@ export function PortfolioSurface() {
     const list = (portfolio.data?.positions ?? []).filter(
       (p) => p.account?.id && visibleAccountIds.has(p.account.id),
     )
-    return [...list].sort((a, b) => (b.market_value ?? 0) - (a.market_value ?? 0))
-  }, [portfolio.data?.positions, visibleAccountIds])
+    return sortPositions(list, positionSort)
+  }, [portfolio.data?.positions, visibleAccountIds, positionSort])
 
   const chips: ChipDef[] = useMemo(() => {
     const peaIds = new Set(
@@ -781,6 +792,47 @@ export function PortfolioSurface() {
           ))}
         </div>
 
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 6,
+            marginTop: -2,
+          }}
+        >
+          <label
+            htmlFor="portfolio-position-sort"
+            style={{
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 12,
+              color: 'var(--ink-tertiary)',
+            }}
+          >
+            Trier
+          </label>
+          <select
+            id="portfolio-position-sort"
+            value={positionSort}
+            onChange={(e) => setPositionSort(e.target.value as PositionSortKey)}
+            style={{
+              minHeight: 32,
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface)',
+              color: 'var(--ink-primary)',
+              fontFamily: 'var(--font-editorial-sans)',
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '4px 8px',
+            }}
+          >
+            <option value="value">Valeur</option>
+            <option value="pnl_eur">Perf €</option>
+            <option value="pnl_pct">Perf %</option>
+          </select>
+        </div>
+
         {isLoading && visiblePositions.length === 0 ? (
           <section
             aria-busy="true"
@@ -889,7 +941,7 @@ export function PortfolioSurface() {
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {group.positions.map((p, idx) => {
                     const key = positionKey(p)
-                    const showPct = pnlPctVisible.has(key)
+                    const showPct = pnlDisplayMode === 'pct'
                     const pnlPctColor =
                       (p.unrealized_pnl_pct ?? 0) >= 0
                         ? 'var(--forest-green)'
@@ -965,14 +1017,9 @@ export function PortfolioSurface() {
                           </span>
                           <button
                             type="button"
-                            onClick={() => {
-                              setPnlPctVisible((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(key)) next.delete(key)
-                                else next.add(key)
-                                return next
-                              })
-                            }}
+                            onClick={() =>
+                              setPnlDisplayMode((mode) => (mode === 'eur' ? 'pct' : 'eur'))
+                            }
                             style={{
                               border: `1px solid ${pnlPctColor}`,
                               background: 'transparent',
