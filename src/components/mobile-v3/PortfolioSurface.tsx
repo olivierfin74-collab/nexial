@@ -952,11 +952,13 @@ export function PortfolioSurface() {
                       <li
                         key={key}
                         style={{
-                          padding: '12px 14px',
-                          borderTop: idx === 0 ? 'none' : '1px solid var(--border-subtle)',
+                          padding: '13px 14px',
+                          borderTop:
+                            idx === 0 ? 'none' : '1px solid rgba(31, 49, 37, 0.14)',
+                          background: idx % 2 === 0 ? 'var(--surface)' : 'rgba(0, 0, 0, 0.014)',
                           display: 'flex',
                           flexDirection: 'column',
-                          gap: 5,
+                          gap: 6,
                         }}
                       >
                         <div
