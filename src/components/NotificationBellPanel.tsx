@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, X } from "lucide-react";
 
 type AlertRow = Record<string, unknown>;
+type NormalizedAlert = ReturnType<typeof normalizeAlert>;
+
+const DISMISSED_STORAGE_KEY = "nexial:dismissed_notifications:v1";
+const DEBUG_LOCAL_ALERT_ID = "debug-local-alert-v1";
+const DEBUG_BUILD_MARKER = "NOTIF DEBUG BUILD 3";
 
 const T = {
   bgCanvas: "#FBF9F4",
@@ -44,6 +49,85 @@ function formatPct(input: unknown) {
   return `${normalized > 0 ? "+" : ""}${normalized.toFixed(1)}%`;
 }
 
+function stableKeyPart(input: unknown, fallback: string) {
+  const raw = text(input, fallback).trim();
+  return raw || fallback;
+}
+
+function normalizeStorageKey(input: unknown) {
+  const raw = text(input, "").trim();
+  return raw || null;
+}
+
+function stableFallbackKey(parts: unknown[]) {
+  return parts
+    .map((part, index) => stableKeyPart(part, index === 0 ? "asset" : index === 1 ? "alert" : "unknown"))
+    .join("-");
+}
+
+function readDismissedNotifications() {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set<string>();
+    return new Set(parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeDismissedNotifications(keys: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // Local dismissal is best-effort; notifications must remain usable if storage is unavailable.
+  }
+}
+
+async function clearPwaAppBadge() {
+  if (typeof navigator === "undefined") return;
+  const nav = navigator as Navigator & {
+    clearAppBadge?: () => Promise<void>;
+    setAppBadge?: (contents?: number) => Promise<void>;
+  };
+
+  try {
+    if (nav.clearAppBadge) {
+      await nav.clearAppBadge();
+      return;
+    }
+    if (nav.setAppBadge) await nav.setAppBadge(0);
+  } catch {
+    // PWA app badge support is optional and may be blocked by the browser.
+  }
+}
+
+function shortKey(input: string | null) {
+  if (!input) return "-";
+  return input.length > 18 ? `${input.slice(0, 18)}...` : input;
+}
+
+function readStorageDebug(lastAction = "none", lastDismissedKey: string | null = null) {
+  if (typeof window === "undefined") {
+    return {
+      lastAction,
+      lastDismissedKey: shortKey(lastDismissedKey),
+      storagePresent: false,
+      dismissedCount: 0,
+    };
+  }
+
+  const dismissed = readDismissedNotifications();
+  return {
+    lastAction,
+    lastDismissedKey: shortKey(lastDismissedKey),
+    storagePresent: window.localStorage.getItem(DISMISSED_STORAGE_KEY) != null,
+    dismissedCount: dismissed.size,
+  };
+}
+
 function relativeTime(input: unknown) {
   if (typeof input !== "string") return "-";
   const time = new Date(input).getTime();
@@ -59,17 +143,38 @@ function relativeTime(input: unknown) {
 function normalizeAlert(row: AlertRow) {
   const status = text(value(row, ["status"]), "NEW").toUpperCase();
   const severity = text(value(row, ["severity", "priority"]), "INFO").toUpperCase();
+  const id = text(value(row, ["id", "alert_id", "investment_alert_id", "notification_id", "alert_uuid", "source_alert_id"]), "");
+  const ticker = text(value(row, ["ticker", "symbol", "asset_ticker"]), "");
+  const kind = text(value(row, ["alert_kind", "kind", "type", "alert_type"]), "");
   const price = formatPrice(value(row, ["live_price", "current_price", "price", "last_price"]));
   const delta = formatPct(value(row, ["delta_pct", "price_change_pct", "change_pct", "change_1d_pct"]));
+  const createdAt = value(row, ["created_at", "detected_at", "updated_at", "signal_date"]);
+  const label = text(value(row, ["label", "title", "headline", "message"]), "");
+  const fallbackKey = stableFallbackKey([ticker, kind || label, createdAt || price || label || delta || severity]);
+  const localKeys = [
+    value(row, ["id"]),
+    value(row, ["alert_id"]),
+    value(row, ["investment_alert_id"]),
+    value(row, ["notification_id"]),
+    value(row, ["alert_uuid"]),
+    value(row, ["source_alert_id"]),
+    fallbackKey,
+  ].map(normalizeStorageKey).filter((key): key is string => Boolean(key));
+  const stableKey = localKeys[0] || fallbackKey;
+  const hasDisplayContent = Boolean(id || ticker || kind || createdAt || price || delta || label);
+  if (!hasDisplayContent) return null;
   return {
-    id: text(value(row, ["id", "alert_id"]), ""),
-    ticker: text(value(row, ["ticker", "symbol", "asset_ticker"]), "ASSET").toUpperCase(),
-    kind: text(value(row, ["alert_kind", "kind", "type", "alert_type"]), "ALERT"),
+    id,
+    localKey: stableKey,
+    localKeys,
+    ticker: text(ticker, "Alerte").toUpperCase(),
+    kind: text(kind || label, "Signal"),
     status,
     severity,
     price,
     delta,
-    createdAt: value(row, ["created_at", "detected_at", "updated_at"]),
+    createdAt,
+    detailHref: id ? `/aujourdhui?alert=${encodeURIComponent(id)}` : null,
   };
 }
 
@@ -78,7 +183,8 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [debugInfo, setDebugInfo] = useState(() => readStorageDebug());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,36 +202,78 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
   }, []);
 
   useEffect(() => {
+    const dismissed = readDismissedNotifications();
+    setDismissedKeys(dismissed);
+    setDebugInfo(readStorageDebug("mount", Array.from(dismissed).at(-1) || null));
     const timeout = window.setTimeout(() => {
       void load();
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [load]);
 
-  const rows = useMemo(
-    () => alerts.map(normalizeAlert).filter((row) => row.status === "NEW" || row.status === "SEEN"),
+  const normalizedAlerts = useMemo(
+    () => {
+      const debugAlert: AlertRow = {
+        id: DEBUG_LOCAL_ALERT_ID,
+        asset: "TEST",
+        ticker: "TEST",
+        alertKind: "DEBUG_ALERT",
+        alert_kind: "DEBUG_ALERT",
+        label: "Alerte test locale",
+        message: "Test bouton Vu / Ignorer",
+        createdAt: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        status: "NEW",
+        severity: "INFO",
+      };
+
+      return [debugAlert, ...alerts]
+        .map(normalizeAlert)
+        .filter((row): row is NonNullable<NormalizedAlert> => Boolean(row))
+        .filter((row) => row.status === "NEW" || row.status === "SEEN");
+    },
     [alerts],
   );
-  const newCount = rows.filter((row) => row.status === "NEW").length;
 
-  const runAction = async (alertId: string, action: "mark_seen" | "dismiss") => {
-    if (!alertId) return;
-    setBusyId(alertId);
-    try {
-      const response = await fetch("/api/notifications/alerts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alertId, action }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Action impossible");
-    } finally {
-      setBusyId(null);
-    }
+  const activeAlerts = useMemo(
+    () => normalizedAlerts.filter((row) => !row.localKeys.some((key) => dismissedKeys.has(key))),
+    [dismissedKeys, normalizedAlerts],
+  );
+  const rawCount = normalizedAlerts.length;
+  const activeCount = activeAlerts.length;
+
+  const handleDismiss = (alert: NonNullable<NormalizedAlert>, reason: "seen" | "dismissed") => {
+    const next = new Set(dismissedKeys);
+    alert.localKeys.forEach((key) => next.add(key));
+    const nextActiveCount = normalizedAlerts.filter((row) => !row.localKeys.some((key) => next.has(key))).length;
+    setDismissedKeys(next);
+    writeDismissedNotifications(next);
+    setDebugInfo(readStorageDebug(`${reason}/${alert.ticker}`, alert.localKey));
+    if (nextActiveCount <= 0) void clearPwaAppBadge();
   };
+
+  const actionButtonStyle = (danger = false) => ({
+    border: danger ? "none" : `1px solid ${T.border}`,
+    background: danger ? "transparent" : T.bgSurface,
+    color: danger ? T.burgundy : T.ink,
+    borderRadius: 8,
+    minHeight: 44,
+    minWidth: 52,
+    padding: "10px 12px",
+    fontSize: 12,
+    fontWeight: 750,
+    cursor: "pointer",
+    opacity: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative" as const,
+    zIndex: 3,
+    pointerEvents: "auto" as const,
+    touchAction: "manipulation" as const,
+    userSelect: "none" as const,
+    WebkitTapHighlightColor: "rgba(95,34,34,0.14)",
+  });
 
   return (
     <>
@@ -148,7 +296,7 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
         }}
       >
         <Bell size={compact ? 16 : 17} strokeWidth={2} />
-        {newCount > 0 && (
+        {activeCount > 0 && (
           <span
             style={{
               position: "absolute",
@@ -166,7 +314,7 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
               lineHeight: compact ? "14px" : "4px",
             }}
           >
-            {compact ? Math.min(newCount, 9) : ""}
+            {compact ? Math.min(activeCount, 9) : ""}
           </span>
         )}
       </button>
@@ -176,21 +324,22 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
           role="dialog"
           aria-modal="true"
           aria-label="Notifications"
-          onClick={() => setOpen(false)}
           style={{
             position: "fixed",
             inset: 0,
-            zIndex: 120,
+            zIndex: 1000,
             background: "rgba(10,10,10,0.32)",
             padding: 12,
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "center",
+            pointerEvents: "auto",
           }}
         >
           <section
-            onClick={(event) => event.stopPropagation()}
             style={{
+              position: "relative",
+              zIndex: 1001,
               width: "100%",
               maxWidth: 420,
               maxHeight: "82vh",
@@ -205,10 +354,10 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
             <header style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, borderBottom: `1px solid ${T.border}`, background: T.bgSurface }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 850, textTransform: "uppercase", color: T.muted, letterSpacing: "0.08em" }}>
-                  Notifications
+                  Notifications · Notif v2 · {DEBUG_BUILD_MARKER}
                 </div>
                 <h2 style={{ margin: "3px 0 0", fontSize: 20, lineHeight: 1.1, color: T.ink }}>
-                  Dernieres alertes
+                  Dernières alertes
                 </h2>
               </div>
               <button type="button" aria-label="Fermer" onClick={() => setOpen(false)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bgCanvas, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -217,18 +366,42 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
             </header>
 
             <div style={{ display: "grid", gap: 8, padding: 12 }}>
+              <div style={{ padding: "6px 8px", color: T.amber, fontSize: 11, fontWeight: 800 }}>
+                Debug local alert active
+              </div>
+              <div
+                data-notification-debug="build-3"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 4,
+                  padding: 8,
+                  borderRadius: 8,
+                  border: `1px dashed ${T.border}`,
+                  background: T.bgSoft,
+                  color: T.muted,
+                  fontSize: 10,
+                  fontWeight: 700,
+                }}
+              >
+                <span>raw alerts: {rawCount}</span>
+                <span>active alerts: {activeCount}</span>
+                <span>dismissed count: {debugInfo.dismissedCount}</span>
+                <span>storage key: {debugInfo.storagePresent ? "yes" : "no"}</span>
+                <span>last action: {debugInfo.lastAction}</span>
+                <span>last key: {debugInfo.lastDismissedKey}</span>
+              </div>
               {loading && <div style={{ padding: 14, color: T.muted, fontSize: 13 }}>Chargement...</div>}
               {error && <div style={{ padding: 10, borderRadius: 8, background: "#F7EAEA", color: T.burgundy, fontSize: 12, fontWeight: 700 }}>{error}</div>}
-              {!loading && rows.length === 0 && (
+              {!loading && activeAlerts.length === 0 && (
                 <div style={{ padding: 18, textAlign: "center", color: T.muted, fontSize: 13 }}>
-                  Aucune alerte active.
+                  Aucune alerte à traiter.
                 </div>
               )}
-              {rows.map((alert) => {
-                const isBusy = busyId === alert.id;
+              {activeAlerts.map((alert) => {
                 const severityColor = alert.severity === "CRITICAL" || alert.severity === "HIGH" ? T.burgundy : alert.severity === "WARNING" ? T.amber : T.green;
                 return (
-                  <article key={alert.id || `${alert.ticker}-${alert.createdAt}`} style={{ border: `1px solid ${T.border}`, borderRadius: 10, background: alert.status === "NEW" ? "#FFFDF5" : T.bgSoft, padding: 12 }}>
+                  <article data-notification-id={alert.localKey} key={alert.localKey} style={{ border: `1px solid ${T.border}`, borderRadius: 10, background: alert.status === "NEW" ? "#FFFDF5" : T.bgSoft, padding: 12 }}>
                     <div style={{ display: "grid", gridTemplateColumns: "64px 1fr auto", gap: 8, alignItems: "start" }}>
                       <strong style={{ fontFamily: "var(--font-jetbrains-mono), monospace", fontSize: 13 }}>{alert.ticker}</strong>
                       <div style={{ minWidth: 0 }}>
@@ -243,16 +416,32 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
                         {alert.severity}
                       </span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-                      <a href={alert.id ? `/aujourdhui?alert=${encodeURIComponent(alert.id)}` : "/aujourdhui"} style={{ border: `1px solid ${T.border}`, background: T.bgSurface, color: T.ink, textDecoration: "none", borderRadius: 7, padding: "7px 9px", fontSize: 12, fontWeight: 750 }}>
-                        Detail
-                      </a>
-                      {alert.status === "NEW" && (
-                        <button type="button" disabled={isBusy} onClick={() => runAction(alert.id, "mark_seen")} style={{ border: `1px solid ${T.border}`, background: T.bgSurface, borderRadius: 7, padding: "7px 9px", fontSize: 12, fontWeight: 750, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
-                          Vu
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10, position: "relative", zIndex: 2, pointerEvents: "auto" }}>
+                      {alert.detailHref ? (
+                        <a href={alert.detailHref} style={{ border: `1px solid ${T.border}`, background: T.bgSurface, color: T.ink, textDecoration: "none", borderRadius: 8, minHeight: 44, padding: "10px 12px", fontSize: 12, fontWeight: 750, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 3, pointerEvents: "auto", touchAction: "manipulation" }}>
+                          Détail
+                        </a>
+                      ) : (
+                        <button type="button" disabled title="Aucun détail disponible" style={{ border: `1px solid ${T.border}`, background: T.bgSurface, color: T.muted, borderRadius: 8, minHeight: 44, padding: "10px 12px", fontSize: 12, fontWeight: 750, cursor: "default", opacity: 0.72 }}>
+                          Détail
                         </button>
                       )}
-                      <button type="button" disabled={isBusy} onClick={() => runAction(alert.id, "dismiss")} style={{ border: "none", background: "transparent", color: T.burgundy, borderRadius: 7, padding: "7px 9px", fontSize: 12, fontWeight: 750, cursor: isBusy ? "default" : "pointer", opacity: isBusy ? 0.6 : 1 }}>
+                      <button
+                        type="button"
+                        disabled={false}
+                        aria-label={`Marquer ${alert.ticker} comme vu`}
+                        onClick={() => handleDismiss(alert, "seen")}
+                        style={actionButtonStyle()}
+                      >
+                        Vu
+                      </button>
+                      <button
+                        type="button"
+                        disabled={false}
+                        aria-label={`Ignorer ${alert.ticker}`}
+                        onClick={() => handleDismiss(alert, "dismissed")}
+                        style={actionButtonStyle(true)}
+                      >
                         Ignorer
                       </button>
                     </div>
