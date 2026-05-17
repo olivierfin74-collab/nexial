@@ -7,8 +7,6 @@ type AlertRow = Record<string, unknown>;
 type NormalizedAlert = ReturnType<typeof normalizeAlert>;
 
 const DISMISSED_STORAGE_KEY = "nexial:dismissed_notifications:v1";
-const DEBUG_LOCAL_ALERT_ID = "debug-local-alert-v1";
-const DEBUG_BUILD_MARKER = "NOTIF DEBUG BUILD 3";
 
 const T = {
   bgCanvas: "#FBF9F4",
@@ -104,30 +102,6 @@ async function clearPwaAppBadge() {
   }
 }
 
-function shortKey(input: string | null) {
-  if (!input) return "-";
-  return input.length > 18 ? `${input.slice(0, 18)}...` : input;
-}
-
-function readStorageDebug(lastAction = "none", lastDismissedKey: string | null = null) {
-  if (typeof window === "undefined") {
-    return {
-      lastAction,
-      lastDismissedKey: shortKey(lastDismissedKey),
-      storagePresent: false,
-      dismissedCount: 0,
-    };
-  }
-
-  const dismissed = readDismissedNotifications();
-  return {
-    lastAction,
-    lastDismissedKey: shortKey(lastDismissedKey),
-    storagePresent: window.localStorage.getItem(DISMISSED_STORAGE_KEY) != null,
-    dismissedCount: dismissed.size,
-  };
-}
-
 function relativeTime(input: unknown) {
   if (typeof input !== "string") return "-";
   const time = new Date(input).getTime();
@@ -184,7 +158,6 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
-  const [debugInfo, setDebugInfo] = useState(() => readStorageDebug());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,7 +177,6 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
   useEffect(() => {
     const dismissed = readDismissedNotifications();
     setDismissedKeys(dismissed);
-    setDebugInfo(readStorageDebug("mount", Array.from(dismissed).at(-1) || null));
     const timeout = window.setTimeout(() => {
       void load();
     }, 0);
@@ -212,26 +184,11 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
   }, [load]);
 
   const normalizedAlerts = useMemo(
-    () => {
-      const debugAlert: AlertRow = {
-        id: DEBUG_LOCAL_ALERT_ID,
-        asset: "TEST",
-        ticker: "TEST",
-        alertKind: "DEBUG_ALERT",
-        alert_kind: "DEBUG_ALERT",
-        label: "Alerte test locale",
-        message: "Test bouton Vu / Ignorer",
-        createdAt: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        status: "NEW",
-        severity: "INFO",
-      };
-
-      return [debugAlert, ...alerts]
+    () =>
+      alerts
         .map(normalizeAlert)
         .filter((row): row is NonNullable<NormalizedAlert> => Boolean(row))
-        .filter((row) => row.status === "NEW" || row.status === "SEEN");
-    },
+        .filter((row) => row.status === "NEW" || row.status === "SEEN"),
     [alerts],
   );
 
@@ -239,7 +196,6 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
     () => normalizedAlerts.filter((row) => !row.localKeys.some((key) => dismissedKeys.has(key))),
     [dismissedKeys, normalizedAlerts],
   );
-  const rawCount = normalizedAlerts.length;
   const activeCount = activeAlerts.length;
 
   const handleDismiss = (alert: NonNullable<NormalizedAlert>, reason: "seen" | "dismissed") => {
@@ -248,7 +204,6 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
     const nextActiveCount = normalizedAlerts.filter((row) => !row.localKeys.some((key) => next.has(key))).length;
     setDismissedKeys(next);
     writeDismissedNotifications(next);
-    setDebugInfo(readStorageDebug(`${reason}/${alert.ticker}`, alert.localKey));
     if (nextActiveCount <= 0) void clearPwaAppBadge();
   };
 
@@ -354,7 +309,7 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
             <header style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, borderBottom: `1px solid ${T.border}`, background: T.bgSurface }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 850, textTransform: "uppercase", color: T.muted, letterSpacing: "0.08em" }}>
-                  Notifications · Notif v2 · {DEBUG_BUILD_MARKER}
+                  Notifications
                 </div>
                 <h2 style={{ margin: "3px 0 0", fontSize: 20, lineHeight: 1.1, color: T.ink }}>
                   Dernières alertes
@@ -366,31 +321,6 @@ export default function NotificationBellPanel({ compact = false }: { compact?: b
             </header>
 
             <div style={{ display: "grid", gap: 8, padding: 12 }}>
-              <div style={{ padding: "6px 8px", color: T.amber, fontSize: 11, fontWeight: 800 }}>
-                Debug local alert active
-              </div>
-              <div
-                data-notification-debug="build-3"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 4,
-                  padding: 8,
-                  borderRadius: 8,
-                  border: `1px dashed ${T.border}`,
-                  background: T.bgSoft,
-                  color: T.muted,
-                  fontSize: 10,
-                  fontWeight: 700,
-                }}
-              >
-                <span>raw alerts: {rawCount}</span>
-                <span>active alerts: {activeCount}</span>
-                <span>dismissed count: {debugInfo.dismissedCount}</span>
-                <span>storage key: {debugInfo.storagePresent ? "yes" : "no"}</span>
-                <span>last action: {debugInfo.lastAction}</span>
-                <span>last key: {debugInfo.lastDismissedKey}</span>
-              </div>
               {loading && <div style={{ padding: 14, color: T.muted, fontSize: 13 }}>Chargement...</div>}
               {error && <div style={{ padding: 10, borderRadius: 8, background: "#F7EAEA", color: T.burgundy, fontSize: 12, fontWeight: 700 }}>{error}</div>}
               {!loading && activeAlerts.length === 0 && (
