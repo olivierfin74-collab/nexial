@@ -19,9 +19,9 @@
 // journée afin d'éviter qu'un item ignoré revienne au changement
 // de page sans engager une vraie mutation backend.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { AppShell } from '@/components/shell/AppShell'
 import { MarketStatusBadge } from '@/components/shell/MarketStatusBadge'
@@ -53,6 +53,7 @@ import type {
   FetchEnvelope,
   FocusTodayItem,
   FocusTodayPayload,
+  WatchingItem,
   ModalContext,
   RedirectKind,
   TodoItem,
@@ -207,6 +208,16 @@ interface ActionItem {
   strategicSectionHint: AdjustedSectionHint
 }
 
+interface PreparationWatchItem {
+  key: string
+  ticker: string
+  asset_id: string
+  asset_name_fr: string
+  context_fr: string
+  detail_fr: string | null
+  posture_fr: string
+}
+
 type AssetThesis = UserAssetThesis & {
   conviction_level?: CapitalConvictionLevel | null
 }
@@ -308,6 +319,85 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
     strategicFiltered: false,
     strategicSectionHint: 'standard',
   }
+}
+
+function normalizeWatching(item: WatchingItem): PreparationWatchItem {
+  const details = item.details_compact ?? {}
+  const limitPrice = typeof details.limit_price === 'string' ? details.limit_price.trim() : ''
+  const quantity = typeof details.quantity === 'number' && Number.isFinite(details.quantity)
+    ? details.quantity
+    : null
+  const detailParts = [
+    limitPrice ? `Zone ${limitPrice}` : null,
+    quantity != null && quantity > 0 ? `${quantity} titres possibles` : null,
+  ].filter((part): part is string => Boolean(part))
+
+  return {
+    key: `watching-${item.asset_id || item.ticker}`,
+    ticker: item.ticker,
+    asset_id: item.asset_id,
+    asset_name_fr: item.asset_name_fr,
+    context_fr: item.context_fr,
+    detail_fr: detailParts.length > 0 ? detailParts.join(' · ') : null,
+    posture_fr: limitPrice ? 'Capital à préserver' : 'Surveillance active',
+  }
+}
+
+function preparationBadge(item: ActionItem): string {
+  if (item.redirect_kind === 'open_ladder_modal') return 'Proche zone'
+  if (item.strategicSectionHint === 'wait' || item.strategicSectionHint === 'avoid_buy') {
+    return 'Attente disciplinée'
+  }
+  if (item.sourceTier === 'SURVEILLANCE') return 'Surveillance active'
+  if (item.delta_display) return 'Proche zone'
+  return 'Priorité faible'
+}
+
+function preparationIntro(
+  prepareCount: number,
+  watchCount: number,
+  hygieneCount: number,
+): string {
+  if (prepareCount > 0) {
+    return 'Capital préservé, plans cadrés, aucun achat automatique.'
+  }
+  if (watchCount > 0) {
+    return `Aucun plan activable. Surveillance active sur ${watchCount} actif${watchCount > 1 ? 's' : ''}.`
+  }
+  if (hygieneCount > 0) {
+    return 'Aucun plan activable. Préparation patrimoniale à compléter.'
+  }
+  return 'Rien à préparer maintenant. Capital conservé en attente d’un meilleur timing.'
+}
+
+function newestGeneratedAt(...values: Array<string | undefined>): Date | null {
+  const times = values
+    .map((value) => {
+      if (!value) return null
+      const time = new Date(value).getTime()
+      return Number.isFinite(time) ? time : null
+    })
+    .filter((time): time is number => time != null)
+
+  if (times.length === 0) return null
+  return new Date(Math.max(...times))
+}
+
+function formatUpdatedAt(date: Date | null): string {
+  if (!date) return 'Mis à jour récemment'
+  try {
+    return `Mis à jour ${new Intl.DateTimeFormat('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date)}`
+  } catch {
+    return 'Mis à jour récemment'
+  }
+}
+
+function isStale(date: Date | null, now = Date.now()): boolean {
+  if (!date) return false
+  return now - date.getTime() > 30 * 60 * 1000
 }
 
 function parseExplicitDrawdownFromPeak(value: string | null): number | null {
@@ -731,6 +821,7 @@ interface ActionRowProps {
   onCta: (item: ActionItem) => void
   onDismiss: (key: string) => void
   isLast: boolean
+  showPreparationBadge?: boolean
 }
 
 type DecisionFamilyKey = 'reinforcement' | 'buy' | 'exit' | 'wait' | 'standard'
@@ -789,9 +880,16 @@ interface GroupedActionRowsProps {
   treated: Map<string, ActionPhase>
   onCta: (item: ActionItem) => void
   onDismiss: (key: string) => void
+  showPreparationBadges?: boolean
 }
 
-function GroupedActionRows({ items, treated, onCta, onDismiss }: GroupedActionRowsProps) {
+function GroupedActionRows({
+  items,
+  treated,
+  onCta,
+  onDismiss,
+  showPreparationBadges = false,
+}: GroupedActionRowsProps) {
   const groups = groupedDecisionItems(items)
   let rendered = 0
 
@@ -813,6 +911,7 @@ function GroupedActionRows({ items, treated, onCta, onDismiss }: GroupedActionRo
                     onCta={onCta}
                     onDismiss={onDismiss}
                     isLast={rendered === items.length}
+                    showPreparationBadge={showPreparationBadges}
                   />
                 )
               })}
@@ -824,7 +923,14 @@ function GroupedActionRows({ items, treated, onCta, onDismiss }: GroupedActionRo
   )
 }
 
-function ActionRow({ item, treatedPhase, onCta, onDismiss, isLast }: ActionRowProps) {
+function ActionRow({
+  item,
+  treatedPhase,
+  onCta,
+  onDismiss,
+  isLast,
+  showPreparationBadge = false,
+}: ActionRowProps) {
   const accent = verdictTone(item.verdict_color)
   return (
     <li
@@ -914,6 +1020,9 @@ function ActionRow({ item, treatedPhase, onCta, onDismiss, isLast }: ActionRowPr
           marginTop: 2,
         }}
       >
+        {showPreparationBadge ? (
+          <span style={cognitiveChip}>{preparationBadge(item)}</span>
+        ) : null}
         {treatedPhase ? (
           <span
             data-status="treated"
@@ -1091,6 +1200,106 @@ function PassiveRow({ item, onCta, isLast }: PassiveRowProps) {
 // ("Voir le plan" / "Voir l'ordre" / "Voir le suivi" depending
 // on the action phase).
 // ─────────────────────────────────────────────────────────
+function PreparationDisciplineNote({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 10,
+        padding: '10px 12px',
+        background: 'rgba(31,74,46,0.04)',
+      }}
+    >
+      <p
+        style={{
+          ...paragraph,
+          color: 'var(--ink-secondary)',
+          fontWeight: 500,
+        }}
+      >
+        {children}
+      </p>
+    </div>
+  )
+}
+
+function PreparationWatchRows({ items }: { items: PreparationWatchItem[] }) {
+  if (items.length === 0) return null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={decisionFamilyHeading}>Surveillance active</span>
+      <ul style={listReset}>
+        {items.map((item, idx) => (
+          <li
+            key={item.key}
+            data-ticker={item.ticker}
+            style={{
+              borderBottom: idx === items.length - 1 ? 'none' : '1px solid var(--border-subtle)',
+              padding: '10px 0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 5,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-editorial-sans)',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--ink-primary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {item.asset_name_fr}
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-editorial-mono)',
+                    fontSize: 11,
+                    color: 'var(--ink-tertiary)',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    flexShrink: 0,
+                  }}
+                >
+                  {item.ticker}
+                </span>
+              </span>
+              <span style={cognitiveChip}>{item.posture_fr}</span>
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: 'var(--font-editorial-sans)',
+                fontSize: 12.5,
+                color: 'var(--ink-secondary)',
+                lineHeight: 1.4,
+              }}
+            >
+              {item.detail_fr ? (
+                <span style={{ fontWeight: 600, color: '#8B6914' }}>{item.detail_fr} · </span>
+              ) : null}
+              {item.context_fr}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 interface TrackingRowProps {
   item: ActionItem
   phase: ActionPhase
@@ -1616,6 +1825,73 @@ function HygieneSubblock({ items }: HygieneSubblockProps) {
 // ─────────────────────────────────────────────────────────
 // Surface
 // ─────────────────────────────────────────────────────────
+interface TodayFreshnessStripProps {
+  updatedAt: Date | null
+  refreshing: boolean
+  stale: boolean
+  onRefresh: () => void
+}
+
+function TodayFreshnessStrip({
+  updatedAt,
+  refreshing,
+  stale,
+  onRefresh,
+}: TodayFreshnessStripProps) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        minHeight: 32,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 11.5,
+          color: stale ? '#8B6914' : 'var(--ink-tertiary)',
+          lineHeight: 1.3,
+        }}
+      >
+        {formatUpdatedAt(updatedAt)}
+        {stale ? ' · à rafraîchir' : ' · données du jour'}
+      </span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        aria-label="Mettre à jour la vision du jour"
+        disabled={refreshing}
+        style={{
+          minWidth: 52,
+          height: 32,
+          padding: '0 9px',
+          borderRadius: 8,
+          border: '1px solid var(--border-subtle)',
+          background: 'var(--surface)',
+          color: 'var(--ink-secondary)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 5,
+          cursor: refreshing ? 'default' : 'pointer',
+          opacity: refreshing ? 0.58 : 1,
+          flexShrink: 0,
+          fontFamily: 'var(--font-editorial-mono)',
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+        }}
+      >
+        <RefreshCw size={14} strokeWidth={2.2} aria-hidden />
+        MAJ
+      </button>
+    </div>
+  )
+}
+
 export function TodaySurface() {
   const router = useRouter()
   const [focus, setFocus] = useState<SurfaceState<FocusTodayPayload>>(initial)
@@ -1625,34 +1901,54 @@ export function TodaySurface() {
   const [treated, setTreated] = useState<Map<string, ActionPhase>>(new Map())
   const [localPanel, setLocalPanel] = useState<LocalPanelState | null>(null)
   const [modal, setModal] = useState<PreviewModalState>(closedModal)
+  const [refreshing, setRefreshing] = useState(false)
+  const [clientNow, setClientNow] = useState(() => Date.now())
+  const lastRefreshMs = useRef(0)
 
   useEffect(() => {
     setDismissed(readTodayDismissed())
   }, [])
 
-  useEffect(() => {
-    const ctrl = new AbortController()
-    let cancelled = false
-
-    Promise.all([
-      fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', ctrl.signal),
+  const loadToday = useCallback(async (signal?: AbortSignal) => {
+    setRefreshing(true)
+    const [f, d, t] = await Promise.all([
+      fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', signal),
       fetchEnvelope<DecisionsToHandlePayload>(
         '/api/mobile/decisions-to-handle',
-        ctrl.signal,
+        signal,
       ),
-      fetchEnvelope<TodoListPayload>('/api/mobile/todo-list', ctrl.signal),
-    ]).then(([f, d, t]) => {
-      if (cancelled) return
-      setFocus(f)
-      setDecisions(d)
-      setTodos(t)
-    })
+      fetchEnvelope<TodoListPayload>('/api/mobile/todo-list', signal),
+    ])
+    if (signal?.aborted) return
+    setFocus(f)
+    setDecisions(d)
+    setTodos(t)
+    const now = Date.now()
+    lastRefreshMs.current = now
+    setClientNow(now)
+    setRefreshing(false)
+  }, [])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    void loadToday(ctrl.signal)
 
     return () => {
-      cancelled = true
       ctrl.abort()
     }
-  }, [])
+  }, [loadToday])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastRefreshMs.current < 60 * 1000) return
+      const ctrl = new AbortController()
+      void loadToday(ctrl.signal)
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [loadToday])
 
   const thesisAssetIds = useMemo(() => {
     const ids = [
@@ -1760,6 +2056,28 @@ export function TodaySurface() {
     )
   }, [buckets, thesesByAssetId])
 
+  const preparationWatching = useMemo(() => {
+    const activeAssetIds = new Set(
+      [...buckets.now, ...buckets.prepare, ...buckets.tracking]
+        .map((item) => item.asset_id)
+        .filter((id): id is string => Boolean(id)),
+    )
+    return (focus.data?.watching ?? [])
+      .filter((item) => !activeAssetIds.has(item.asset_id))
+      .map(normalizeWatching)
+      .slice(0, 3)
+  }, [buckets.now, buckets.prepare, buckets.tracking, focus.data?.watching])
+
+  const generatedAt = useMemo(
+    () =>
+      newestGeneratedAt(
+        focus.data?.generated_at,
+        decisions.data?.generated_at,
+        todos.data?.generated_at,
+      ),
+    [focus.data?.generated_at, decisions.data?.generated_at, todos.data?.generated_at],
+  )
+  const freshnessIsStale = isStale(generatedAt, clientNow)
   const market = focus.data?.market_context
 
   const handleCta = useCallback(
@@ -1849,6 +2167,11 @@ export function TodaySurface() {
   const hygiene = todos.data?.items ?? []
   const isLoading = focus.loading || decisions.loading
   const fetchErrored = !!(focus.error && decisions.error)
+  const prepareIntro = preparationIntro(
+    buckets.prepare.length,
+    preparationWatching.length,
+    hygiene.length,
+  )
 
   return (
     <AppShell>
@@ -1870,6 +2193,13 @@ export function TodaySurface() {
           gap: 12,
         }}
       >
+        <TodayFreshnessStrip
+          updatedAt={generatedAt}
+          refreshing={refreshing}
+          stale={freshnessIsStale}
+          onRefresh={() => void loadToday()}
+        />
+
         <CapitalAllocationBlock result={capitalAllocation} />
 
         <TodaySection
@@ -1898,8 +2228,8 @@ export function TodaySurface() {
         <TodaySection
           groupKey="today-prepare"
           title="À préparer"
-          count={buckets.prepare.length || null}
-          subtitle="Approche de zone, stratégie ou hygiène à compléter."
+          count={buckets.prepare.length + preparationWatching.length + hygiene.length || null}
+          subtitle="Capital, zones et discipline d’attente."
           defaultOpen
         >
           {isLoading ? (
@@ -1908,16 +2238,17 @@ export function TodaySurface() {
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : (
             <>
-              {buckets.prepare.length === 0 ? (
-                <p style={paragraph}>Aucune préparation en cours.</p>
-              ) : (
+              <PreparationDisciplineNote>{prepareIntro}</PreparationDisciplineNote>
+              {buckets.prepare.length > 0 ? (
                 <GroupedActionRows
                   items={buckets.prepare}
                   treated={treated}
                   onCta={handleCta}
                   onDismiss={handleDismiss}
+                  showPreparationBadges
                 />
-              )}
+              ) : null}
+              <PreparationWatchRows items={preparationWatching} />
               <HygieneSubblock items={hygiene} />
             </>
           )}
@@ -2037,6 +2368,21 @@ const listReset: React.CSSProperties = {
   listStyle: 'none',
   margin: 0,
   padding: 0,
+}
+
+const cognitiveChip: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 24,
+  padding: '3px 8px',
+  borderRadius: 999,
+  border: '1px solid var(--border-subtle)',
+  background: 'rgba(244,241,232,0.55)',
+  color: 'var(--ink-secondary)',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 11,
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
 }
 
 const decisionFamilyHeading: React.CSSProperties = {
