@@ -1,6 +1,7 @@
 {
   "name": "Nexial",
   "short_name": "Nexial",
+  "id": "/",
   "description": "Nexial investment cockpit",
   "start_url": "/",
   "scope": "/",

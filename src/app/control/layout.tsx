@@ -10,7 +10,12 @@ import type { Metadata, Viewport } from 'next'
 export const metadata: Metadata = {
   title: 'Nexial Control',
   description: 'Tour de contrôle CIO — supervision Nexial',
-  manifest: '/control-manifest.json',
+  manifest: '/control-manifest.json?v=control-v2',
+  appleWebApp: {
+    capable: true,
+    title: 'Nexial Control',
+    statusBarStyle: 'default',
+  },
 }
 
 export const viewport: Viewport = {

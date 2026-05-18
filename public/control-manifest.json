@@ -1,6 +1,7 @@
 {
   "name": "Nexial Control",
   "short_name": "Nx Control",
+  "id": "/control",
   "description": "Nexial Control Center — supervision CIO",
   "start_url": "/control",
   "scope": "/control",
