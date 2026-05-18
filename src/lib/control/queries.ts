@@ -1,9 +1,8 @@
-// Lectures Supabase pour /control. Server Components only.
-// Aucune mutation autorisée (G4 + G11). Toutes les vues sont en schéma `nx`,
-// exposé via PostgREST (cf. utilisation existante dans
-// src/app/api/settings/route.ts pour `vw_olivier_daily_review`).
+// Read-only Supabase queries for /control. Server Components only.
+// All control objects live in the nx schema; no mutation is allowed here.
 
-import { createClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import type {
   AlertQualityKpis,
   ArchitectureDecisionRow,
@@ -15,8 +14,34 @@ import type {
   MarketFreshness,
 } from './types'
 
+async function createControlClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      db: { schema: 'nx' },
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options)
+            })
+          } catch {
+            // Server Components cannot always set cookies directly.
+          }
+        },
+      },
+    },
+  )
+}
+
 export async function getControlCenterSummary(): Promise<ControlCenterSummary | null> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('vw_control_center_summary')
     .select('*')
@@ -26,7 +51,7 @@ export async function getControlCenterSummary(): Promise<ControlCenterSummary | 
 }
 
 export async function getEngineHealth(): Promise<EngineHealthCalibrated | null> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('vw_engine_health_calibrated_v1')
     .select('*')
@@ -39,7 +64,7 @@ export async function getDataFreshness(): Promise<{
   freshness: DataFreshnessAlert[]
   market: MarketFreshness[]
 }> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const [freshness, market] = await Promise.all([
     supabase.from('vw_data_freshness_alerts').select('*'),
     supabase.from('vw_market_freshness').select('*'),
@@ -53,7 +78,7 @@ export async function getDataFreshness(): Promise<{
 }
 
 export async function getCronsRecentRuns(limit = 50): Promise<CronRunLogRow[]> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('cron_run_log')
     .select('*')
@@ -64,7 +89,7 @@ export async function getCronsRecentRuns(limit = 50): Promise<CronRunLogRow[]> {
 }
 
 export async function getDivergenceKpis(): Promise<DivergenceTrackingKpis | null> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('vw_divergence_tracking_kpis')
     .select('*')
@@ -74,7 +99,7 @@ export async function getDivergenceKpis(): Promise<DivergenceTrackingKpis | null
 }
 
 export async function getAlertQualityKpis(): Promise<AlertQualityKpis | null> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('vw_alert_quality_kpis')
     .select('*')
@@ -84,7 +109,7 @@ export async function getAlertQualityKpis(): Promise<AlertQualityKpis | null> {
 }
 
 export async function getRecentAdrs(limit = 10): Promise<ArchitectureDecisionRow[]> {
-  const supabase = await createClient()
+  const supabase = await createControlClient()
   const { data, error } = await supabase
     .from('architecture_decisions')
     .select('decision_number, title, status, decided_at, metadata')
