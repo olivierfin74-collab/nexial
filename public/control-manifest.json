@@ -1,0 +1,24 @@
+{
+  "name": "Nexial Control",
+  "short_name": "Nx Control",
+  "description": "Nexial Control Center — supervision CIO",
+  "start_url": "/control",
+  "scope": "/control",
+  "display": "standalone",
+  "background_color": "#FBF9F4",
+  "theme_color": "#A0843D",
+  "icons": [
+    {
+      "src": "/control-icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/control-badge-72.svg",
+      "sizes": "72x72",
+      "type": "image/svg+xml",
+      "purpose": "monochrome"
+    }
+  ]
+}
