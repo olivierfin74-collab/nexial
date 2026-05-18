@@ -228,6 +228,29 @@ function dismissKey(item: { alert_id?: string; asset_id?: string; ticker: string
 
 const TODAY_DISMISS_STORAGE_KEY = 'nexial.today.dismissed.v1'
 
+function formatBackendNumber(raw: string): string {
+  if (!/^-?\d+(?:[.,]\d+)?$/.test(raw)) return raw
+  if (raw.includes('.') && raw.includes(',')) return raw
+
+  const decimalSeparator = raw.includes(',') ? ',' : '.'
+  const numeric = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(numeric)) return raw
+
+  const rounded = Math.round((numeric + Number.EPSILON) * 100) / 100
+  const formatted = rounded.toFixed(2).replace(/\.?0+$/, '')
+  return decimalSeparator === ',' ? formatted.replace('.', ',') : formatted
+}
+
+function formatBackendDisplay(raw: string | null | undefined): string | null {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value) return null
+
+  return value.replace(
+    /(^|[^\w])(-?\d+(?:[.,]\d+)?)(?=$|[^\w])/g,
+    (_match, prefix: string, numberToken: string) => `${prefix}${formatBackendNumber(numberToken)}`,
+  )
+}
+
 function todayDismissDateKey(date = new Date()): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -273,17 +296,11 @@ function normalizeFocus(item: FocusTodayItem): ActionItem {
     key: dismissKey(item),
     ticker: item.ticker,
     asset_name_fr: item.asset_name_fr,
-    headline_fr: item.headline_fr,
-    verdict_label_fr: item.verdict?.label_fr ?? '',
+    headline_fr: formatBackendDisplay(item.headline_fr) ?? item.headline_fr,
+    verdict_label_fr: formatBackendDisplay(item.verdict?.label_fr) ?? '',
     verdict_color: item.verdict?.color ?? 'neutral',
-    price_display:
-      typeof item.context_compact?.price_display === 'string'
-        ? item.context_compact.price_display
-        : null,
-    delta_display:
-      typeof item.context_compact?.delta_display === 'string'
-        ? item.context_compact.delta_display
-        : null,
+    price_display: formatBackendDisplay(item.context_compact?.price_display),
+    delta_display: formatBackendDisplay(item.context_compact?.delta_display),
     cta_label: mapCtaLabel(kind, item.cta?.label_fr),
     redirect_kind: kind,
     modal_context: item.cta?.modal_context ?? null,
@@ -303,8 +320,8 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
     key: dismissKey(item),
     ticker: item.ticker,
     asset_name_fr: item.asset_name_fr,
-    headline_fr: item.headline_fr,
-    verdict_label_fr: item.verdict_label_fr,
+    headline_fr: formatBackendDisplay(item.headline_fr) ?? item.headline_fr,
+    verdict_label_fr: formatBackendDisplay(item.verdict_label_fr) ?? item.verdict_label_fr,
     verdict_color: decisionColorFromTier(item.tier),
     price_display: null,
     delta_display: null,
@@ -323,7 +340,7 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
 
 function normalizeWatching(item: WatchingItem): PreparationWatchItem {
   const details = item.details_compact ?? {}
-  const limitPrice = typeof details.limit_price === 'string' ? details.limit_price.trim() : ''
+  const limitPrice = formatBackendDisplay(details.limit_price) ?? ''
   const quantity = typeof details.quantity === 'number' && Number.isFinite(details.quantity)
     ? details.quantity
     : null
@@ -337,7 +354,7 @@ function normalizeWatching(item: WatchingItem): PreparationWatchItem {
     ticker: item.ticker,
     asset_id: item.asset_id,
     asset_name_fr: item.asset_name_fr,
-    context_fr: item.context_fr,
+    context_fr: formatBackendDisplay(item.context_fr) ?? item.context_fr,
     detail_fr: detailParts.length > 0 ? detailParts.join(' · ') : null,
     posture_fr: limitPrice ? 'Capital à préserver' : 'Surveillance active',
   }
