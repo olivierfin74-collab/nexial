@@ -251,6 +251,31 @@ function formatBackendDisplay(raw: string | null | undefined): string | null {
   )
 }
 
+// Variante stricte pour les zones d'entrée affichées en haut du Today
+// (« Zone 405.00 USD »). Force toujours 2 décimales, jamais plus, jamais moins.
+// Réservée à limit_price — les autres champs (headline, verdict, deltas,
+// contextes) continuent d'utiliser formatBackendDisplay et son arrondi
+// adaptatif. Calculs inchangés, affichage uniquement.
+function forceTwoDecimals(raw: string): string {
+  if (!/^-?\d+(?:[.,]\d+)?$/.test(raw)) return raw
+  if (raw.includes('.') && raw.includes(',')) return raw
+  const decimalSeparator = raw.includes(',') ? ',' : '.'
+  const numeric = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(numeric)) return raw
+  const rounded = Math.round((numeric + Number.EPSILON) * 100) / 100
+  const formatted = rounded.toFixed(2)
+  return decimalSeparator === ',' ? formatted.replace('.', ',') : formatted
+}
+
+function formatEntryZoneDisplay(raw: string | null | undefined): string | null {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value) return null
+  return value.replace(
+    /(^|[^\w])(-?\d+(?:[.,]\d+)?)(?=$|[^\w])/g,
+    (_match, prefix: string, numberToken: string) => `${prefix}${forceTwoDecimals(numberToken)}`,
+  )
+}
+
 function todayDismissDateKey(date = new Date()): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -340,7 +365,7 @@ function normalizeDecision(item: DecisionToHandleItem): ActionItem {
 
 function normalizeWatching(item: WatchingItem): PreparationWatchItem {
   const details = item.details_compact ?? {}
-  const limitPrice = formatBackendDisplay(details.limit_price) ?? ''
+  const limitPrice = formatEntryZoneDisplay(details.limit_price) ?? ''
   const quantity = typeof details.quantity === 'number' && Number.isFinite(details.quantity)
     ? details.quantity
     : null
@@ -1761,6 +1786,16 @@ interface HygieneSubblockProps {
   items: TodoItem[]
 }
 
+function hygieneOptimizationTitle(item: TodoItem): string {
+  const count = typeof item.count === 'number' && Number.isFinite(item.count)
+    ? item.count
+    : null
+
+  if (count === 1) return '1 position peut être mieux pilotée'
+  if (count && count > 1) return `${count} positions peuvent être mieux pilotées`
+  return 'Positions à mieux piloter'
+}
+
 function HygieneSubblock({ items }: HygieneSubblockProps) {
   if (items.length === 0) return null
   return (
@@ -1817,20 +1852,19 @@ function HygieneSubblock({ items }: HygieneSubblockProps) {
                   color: 'var(--ink-primary)',
                 }}
               >
-                {it.title_fr}
+                {hygieneOptimizationTitle(it)}
               </span>
-              {it.subtitle_fr ? (
-                <span
-                  style={{
-                    fontFamily: 'var(--font-editorial-sans)',
-                    fontSize: 11,
-                    color: 'var(--ink-tertiary)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {it.subtitle_fr}
-                </span>
-              ) : null}
+              <span
+                style={{
+                  fontFamily: 'var(--font-editorial-sans)',
+                  fontSize: 11,
+                  color: 'var(--ink-tertiary)',
+                  lineHeight: 1.4,
+                }}
+              >
+                Ajoutez des règles spécifiques :<br />
+                renfort, horizon, conviction ou gestion patrimoniale.
+              </span>
             </div>
           </li>
         ))}
