@@ -9,8 +9,13 @@ import type { Metadata, Viewport } from 'next'
 // pour les routes sous /control. La PWA principale reste intacte.
 export const metadata: Metadata = {
   title: 'Nexial Control',
+  applicationName: 'Nexial Control',
   description: 'Tour de contrôle CIO — supervision Nexial',
-  manifest: '/control-manifest.json?v=control-v2',
+  manifest: '/control-manifest.json?v=control-v3',
+  icons: {
+    apple: '/control-icon-192.svg',
+    icon: '/control-icon-192.svg',
+  },
   appleWebApp: {
     capable: true,
     title: 'Nexial Control',
