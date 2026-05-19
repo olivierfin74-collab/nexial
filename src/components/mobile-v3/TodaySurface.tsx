@@ -53,6 +53,7 @@ import type {
   FetchEnvelope,
   FocusTodayItem,
   FocusTodayPayload,
+  PatrimonialItem,
   WatchingItem,
   ModalContext,
   RedirectKind,
@@ -1943,6 +1944,126 @@ function TodayFreshnessStrip({
   )
 }
 
+interface PatrimonialWatchRowProps {
+  item: PatrimonialItem
+  isLast: boolean
+}
+
+function PatrimonialWatchRow({ item, isLast }: PatrimonialWatchRowProps) {
+  const isFocus = item.watch_level === 'FOCUS'
+  const pnlPct = item.position.pnl_pct ?? 0
+  const pnlPositive = pnlPct >= 0
+
+  return (
+    <li
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '12px 0',
+        borderBottom: isLast ? 'none' : '1px solid var(--ink-divider, rgba(0,0,0,0.06))',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 14,
+            fontWeight: 500,
+            color: 'var(--ink-primary)',
+            marginBottom: 2,
+          }}
+        >
+          {isFocus && (
+            <span
+              aria-hidden="true"
+              style={{
+                color: 'var(--gold-matte, #B8924A)',
+                fontSize: 12,
+                lineHeight: 1,
+              }}
+            >
+              ★
+            </span>
+          )}
+          <span>{item.ticker}</span>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 400,
+              color: 'var(--ink-tertiary)',
+            }}
+          >
+            · {item.asset_name_fr}
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--ink-secondary)',
+            fontStyle: 'italic',
+          }}
+        >
+          {item.status_fr}
+        </div>
+      </div>
+
+      <div
+        style={{
+          textAlign: 'right',
+          flexShrink: 0,
+          fontSize: 12,
+        }}
+      >
+        <div
+          style={{
+            color: 'var(--ink-secondary)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {item.market_data.price_display ?? '—'}
+        </div>
+        {item.position.pnl_display && (
+          <div
+            style={{
+              color: pnlPositive
+                ? 'var(--forest-green, #2D6B1F)'
+                : 'var(--clay-red, #A8302C)',
+              fontVariantNumeric: 'tabular-nums',
+              opacity: 0.75,
+              fontSize: 11,
+              marginTop: 2,
+            }}
+          >
+            {item.position.pnl_display}
+          </div>
+        )}
+      </div>
+    </li>
+  )
+}
+
+interface PatrimonialWatchRowsProps {
+  items: PatrimonialItem[]
+}
+
+function PatrimonialWatchRows({ items }: PatrimonialWatchRowsProps) {
+  return (
+    <ul style={listReset}>
+      {items.map((item, idx) => (
+        <PatrimonialWatchRow
+          key={item.asset_id}
+          item={item}
+          isLast={idx === items.length - 1}
+        />
+      ))}
+    </ul>
+  )
+}
+
 export function TodaySurface() {
   const router = useRouter()
   const [focus, setFocus] = useState<SurfaceState<FocusTodayPayload>>(initial)
@@ -2304,6 +2425,22 @@ export function TodaySurface() {
             </>
           )}
         </TodaySection>
+
+        {focus.data?.patrimonial_watch && focus.data.patrimonial_watch.count > 0 && (
+          <TodaySection
+            groupKey="today-patrimonial"
+            title={focus.data.patrimonial_watch.title_fr}
+            count={focus.data.patrimonial_watch.count}
+            subtitle={focus.data.patrimonial_watch.subtitle_fr}
+            defaultOpen={false}
+          >
+            {isLoading ? (
+              <p style={paragraph}>Chargement…</p>
+            ) : (
+              <PatrimonialWatchRows items={focus.data.patrimonial_watch.items} />
+            )}
+          </TodaySection>
+        )}
 
         <TodaySection
           groupKey="today-tracking"

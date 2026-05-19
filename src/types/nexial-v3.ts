@@ -109,6 +109,43 @@ export interface WatchingItem {
   details_compact?: WatchingDetailsCompact;
 }
 
+export interface PatrimonialPosition {
+  quantity: number;
+  market_value_native: number;
+  currency: 'EUR' | 'USD';
+  market_value_display: string;
+  pnl_pct: number | null;
+  pnl_display: string | null;
+  avg_cost: number | null;
+}
+
+export interface PatrimonialMarketData {
+  last_price: number | null;
+  price_display: string | null;
+  currency: 'EUR' | 'USD';
+}
+
+export interface PatrimonialItem {
+  rank: number;
+  asset_id: string;
+  ticker: string;
+  asset_name_fr: string;
+  market_zone: 'EU' | 'US';
+  status_fr: string;
+  conviction_level: 'STRONG_BUY' | 'CORE_HOLD' | 'BUY_DIPS';
+  watch_level: 'FOCUS' | 'WATCH' | 'NORMAL' | 'DORMANT';
+  position: PatrimonialPosition;
+  market_data: PatrimonialMarketData;
+}
+
+export interface PatrimonialWatch {
+  schema_version: 'patrimonial_v1';
+  title_fr: string;
+  subtitle_fr: string;
+  count: number;
+  items: PatrimonialItem[];
+}
+
 export interface FocusTodayPayload {
   schema_version: 'v2';
   title_fr: string;
@@ -116,6 +153,7 @@ export interface FocusTodayPayload {
   generated_at: string;
   market_context: MarketContext;
   sections: FocusTodaySections;
+  patrimonial_watch?: PatrimonialWatch;
   priorities: FocusTodayItem[];
   watching: WatchingItem[];
   empty_state?: unknown;
