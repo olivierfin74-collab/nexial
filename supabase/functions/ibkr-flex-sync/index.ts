@@ -59,6 +59,20 @@ Deno.serve(async () => {
     const cashReport = attrs("CashReportCurrency", xml).map((a) => ({
       currency: a.currency, endingCash: a.endingCash,
     }));
+    const openPositions = attrs("OpenPosition", xml).map((a) => ({
+      assetCategory: a.assetCategory,
+      isin: a.isin,
+      underlyingSymbol: a.underlyingSymbol,
+      symbol: a.symbol,
+      conid: a.conid,
+      currency: a.currency,
+      position: a.position,
+      costBasisPrice: a.costBasisPrice,
+      markPrice: a.markPrice,
+      positionValue: a.positionValue,
+      fifoPnlUnrealized: a.fifoPnlUnrealized,
+      reportDate: a.reportDate,
+    }));
 
     // 4) Envoyer à la fonction d'ingestion SQL
     const supabase = createClient(
@@ -68,7 +82,7 @@ Deno.serve(async () => {
     const { data, error } = await supabase.rpc("fn_ingest_ibkr_flex", {
       p_user_id: USER_ID,
       p_account_id: ACCOUNT_ID_CTO,
-      p_payload: { trades, cashReport },
+      p_payload: { trades, cashReport, openPositions },
     }, { schema: "nx" });
 
     if (error) {
