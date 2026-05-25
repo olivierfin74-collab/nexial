@@ -7,19 +7,11 @@ const USER_ID_DEV = "4c1610db-25cd-4eca-b16a-b5bb4898f4ff";
 
 type LifecycleOrder = {
   status?: string | null;
-  lifecycle_state?: string | null;
-  status_bucket?: string | null;
-  status_group?: string | null;
-  state_group?: string | null;
+  status_fr?: string | null;
 };
 
-function canonicalBucket(order: LifecycleOrder) {
-  const raw =
-    order.lifecycle_state ||
-    order.status_bucket ||
-    order.status_group ||
-    order.state_group ||
-    "";
+function orderBucket(order: LifecycleOrder) {
+  const raw = order.status || order.status_fr || "";
   const normalized = String(raw)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -27,29 +19,17 @@ function canonicalBucket(order: LifecycleOrder) {
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
 
-  if (["proposed", "proposes", "draft"].includes(normalized)) return "proposed";
-  if (
-    [
-      "running",
-      "en_cours",
-      "submitted",
-      "broker_submitted",
-      "partially_filled",
-    ].includes(normalized)
-  ) {
-    return "running";
-  }
-  if (["filled", "executes", "executed"].includes(normalized)) return "filled";
-  if (["cancelled", "canceled", "annules", "expired", "rejected"].includes(normalized)) {
-    return "cancelled";
-  }
+  if (["draft", "propose"].includes(normalized)) return "proposed";
+  if (["submitted", "partially_filled", "en_cours"].includes(normalized)) return "running";
+  if (["filled", "execute"].includes(normalized)) return "filled";
+  if (["cancelled", "expired", "rejected", "annule"].includes(normalized)) return "cancelled";
   return "other";
 }
 
 function buildSummary(orders: LifecycleOrder[]) {
   return orders.reduce(
     (acc, order) => {
-      switch (canonicalBucket(order)) {
+      switch (orderBucket(order)) {
         case "proposed":
           acc.pending += 1;
           break;

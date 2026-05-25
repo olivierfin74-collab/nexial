@@ -26,44 +26,19 @@ function canonicalBucket(value: string): OrderBucket {
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
 
-  if (['proposed', 'proposes', 'draft'].includes(normalized)) return 'proposed'
-  if (['running', 'en_cours', 'submitted', 'broker_submitted', 'partially_filled'].includes(normalized)) {
-    return 'running'
-  }
-  if (['filled', 'executes', 'executed'].includes(normalized)) return 'filled'
-  if (['cancelled', 'canceled', 'annules', 'expired', 'rejected'].includes(normalized)) {
-    return 'cancelled'
-  }
+  if (['draft', 'propose'].includes(normalized)) return 'proposed'
+  if (['submitted', 'partially_filled', 'en_cours'].includes(normalized)) return 'running'
+  if (['filled', 'execute'].includes(normalized)) return 'filled'
+  if (['cancelled', 'expired', 'rejected', 'annule'].includes(normalized)) return 'cancelled'
   return 'other'
 }
 
-function normalStatus(status: string | undefined): string {
-  return String(status ?? '').trim().toLowerCase()
-}
-
 function bucketFor(order: ActiveOrder): OrderBucket {
-  const lifecycle = pickString(
-    order.lifecycle_state,
-    order.status_bucket,
-    order.status_group,
-    order.state_group,
-  )
-  return canonicalBucket(lifecycle)
+  return canonicalBucket(order.status || order.status_fr)
 }
 
 function statusLabel(order: ActiveOrder): string {
-  switch (bucketFor(order)) {
-    case 'proposed':
-      return 'Propose'
-    case 'running':
-      return normalStatus(order.status) === 'partially_filled' ? 'Partiel' : 'En cours'
-    case 'filled':
-      return 'Execute'
-    case 'cancelled':
-      return normalStatus(order.status) === 'expired' ? 'Expire' : 'Annule'
-    default:
-      return order.status || 'Statut inconnu'
-  }
+  return order.status_fr || order.status || 'Statut inconnu'
 }
 
 function statusStyle(order: ActiveOrder): CSSProperties {
@@ -101,32 +76,17 @@ function statusStyle(order: ActiveOrder): CSSProperties {
   }
 }
 
-function pickNumber(...values: unknown[]): number | null {
-  for (const value of values) {
-    const n = Number(value)
-    if (Number.isFinite(n)) return n
-  }
-  return null
-}
-
-function pickString(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim()
-  }
-  return ''
-}
-
 function formatMoney(value: number | null, currency: string): string {
   if (value == null || !Number.isFinite(value)) return '-'
   try {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
-      currency: currency || 'EUR',
+      currency,
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     }).format(value)
   } catch {
-    return `${value.toFixed(2)} ${currency || 'EUR'}`
+    return `${value.toFixed(2)} ${currency}`
   }
 }
 
@@ -151,57 +111,6 @@ function sideLabel(side: string | undefined): string {
   return String(side ?? '').toLowerCase() === 'sell' ? 'SELL' : 'BUY'
 }
 
-function sourceLabel(order: ActiveOrder): string {
-  const source = pickString(order.source, order.order_source, order.origin)
-  if (!source) return 'Nexial'
-  const normalized = source.toLowerCase()
-  if (normalized.includes('ibkr')) return 'IBKR'
-  if (normalized.includes('manual') || normalized.includes('manuel')) return 'manuel'
-  return 'Nexial'
-}
-
-function accountLabel(order: ActiveOrder): string {
-  const raw = pickString(order.account_kind, order.account_name, order.account_scope)
-  const lower = raw.toLowerCase()
-  if (lower.includes('pea')) return 'PEA'
-  if (lower.includes('cto') || lower.includes('ibkr')) return 'CTO'
-  return raw || '-'
-}
-
-function assetName(order: ActiveOrder): string {
-  return pickString(order.asset_name, order.asset_name_fr, order.name, order.ticker)
-}
-
-function orderPrice(order: ActiveOrder): number | null {
-  return pickNumber(order.limit_price, order.effective_price, order.price)
-}
-
-function orderQuantity(order: ActiveOrder): number | null {
-  return pickNumber(order.quantity, order.effective_quantity)
-}
-
-function filledQuantity(order: ActiveOrder): number | null {
-  return pickNumber(order.filled_quantity, order.filled_qty)
-}
-
-function remainingQuantity(order: ActiveOrder): number | null {
-  const explicit = pickNumber(order.remaining_quantity, order.remaining_qty)
-  if (explicit != null) return explicit
-  const qty = orderQuantity(order)
-  const filled = filledQuantity(order)
-  if (qty == null || filled == null) return null
-  return Math.max(qty - filled, 0)
-}
-
-function estimatedAmount(order: ActiveOrder): number | null {
-  const explicit = pickNumber(order.amount_estimated, order.estimated_amount, order.effective_amount)
-  if (explicit != null) return explicit
-  const qty = orderQuantity(order)
-  const price = orderPrice(order)
-  if (qty == null || price == null) return null
-  return qty * price
-}
-
 interface OrderCardProps {
   order: ActiveOrder
   markingId: string | null
@@ -210,12 +119,8 @@ interface OrderCardProps {
 }
 
 function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: OrderCardProps) {
-  const currency = pickString(order.currency) || 'EUR'
-  const price = orderPrice(order)
-  const qty = orderQuantity(order)
-  const filled = filledQuantity(order)
-  const remaining = remainingQuantity(order)
-  const amount = estimatedAmount(order)
+  const currency = order.currency
+  const amount = order.estimated_value_native
   const isProposed = bucketFor(order) === 'proposed'
   const canCancel = ['proposed', 'running'].includes(bucketFor(order))
   const disabled = markingId === order.id
@@ -228,25 +133,25 @@ function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: Order
             <span style={tickerStyle}>{order.ticker || '-'}</span>
             <span style={sidePill}>{sideLabel(order.side)}</span>
           </div>
-          <p style={assetStyle}>{assetName(order)}</p>
+          <p style={assetStyle}>{order.asset_name}</p>
         </div>
         <span style={{ ...statusPill, ...statusStyle(order) }}>{statusLabel(order)}</span>
       </div>
 
       <div style={gridStyle}>
-        <Metric label="Quantite" value={formatQty(qty)} />
-        <Metric label="Prix limite" value={formatMoney(price, currency)} />
+        <Metric label="Quantite" value={formatQty(order.quantity)} />
+        <Metric label="Prix limite" value={formatMoney(order.limit_price, currency)} />
         <Metric label="Devise" value={currency} />
         <Metric label="Montant" value={formatMoney(amount, currency)} />
-        <Metric label="Compte" value={accountLabel(order)} />
-        <Metric label="Source" value={sourceLabel(order)} />
+        <Metric label="Compte" value={order.account_type} />
+        <Metric label="Source" value={order.source} />
       </div>
 
       <div style={metaLine}>
-        <span>{formatDate(order.submitted_at || order.filled_at || order.created_at || order.signal_at_creation)}</span>
-        {filled != null || remaining != null ? (
+        <span>{formatDate(order.submitted_at || order.filled_at || order.created_at)}</span>
+        {order.filled_quantity != null || order.remaining_quantity != null ? (
           <span>
-            rempli {formatQty(filled)} / restant {formatQty(remaining)}
+            rempli {formatQty(order.filled_quantity)} / restant {formatQty(order.remaining_quantity)}
           </span>
         ) : null}
       </div>
