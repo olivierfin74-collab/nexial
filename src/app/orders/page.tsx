@@ -1,10 +1,7 @@
 import { OrdersSurface } from '@/components/mobile-v3/OrdersSurface'
 
-// Real Orders surface restored from the legacy OrdersPage / OrderRow
-// pattern (nexial-app-complete.jsx) into the unified v3 AppShell.
-// Read-only restoration: filter chips + grouping by ticker + status
-// rows. Manual order creation and execution dispatch stay legacy for
-// now — phase 1 is "lecture excellente".
+// Mobile Orders V1: filterable execution follow-up for manual IBKR
+// placement. Nexial never sends, cancels, or modifies broker orders.
 export default function OrdersPage() {
   return <OrdersSurface />
 }

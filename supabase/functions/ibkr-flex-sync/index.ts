@@ -1,5 +1,5 @@
 // Supabase Edge Function : ibkr-flex-sync
-// Récupère le Flex Query IBKR, parse le XML, envoie à nx.fn_ingest_ibkr_flex
+// Récupère le Flex Query IBKR, parse le XML, envoie à nx.fn_ibkr_sync_full
 // Secrets requis : IBKR_FLEX_TOKEN, IBKR_QUERY_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -73,16 +73,24 @@ Deno.serve(async () => {
       fifoPnlUnrealized: a.fifoPnlUnrealized,
       reportDate: a.reportDate,
     }));
+    const fxTransactions = attrs("FxTransaction", xml).map((a) => ({
+      activityDescription: a.activityDescription,
+      fxCurrency: a.fxCurrency,
+      quantity: a.quantity,
+      proceeds: a.proceeds,
+      transactionID: a.transactionID,
+      dateTime: a.dateTime,
+    }));
 
     // 4) Envoyer à la fonction d'ingestion SQL
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const { data, error } = await supabase.rpc("fn_ingest_ibkr_flex", {
+    const { data, error } = await supabase.rpc("fn_ibkr_sync_full", {
       p_user_id: USER_ID,
       p_account_id: ACCOUNT_ID_CTO,
-      p_payload: { trades, cashReport, openPositions },
+      p_payload: { trades, cashReport, openPositions, fxTransactions },
     }, { schema: "nx" });
 
     if (error) {

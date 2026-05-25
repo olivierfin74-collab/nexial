@@ -19,7 +19,7 @@ interface NavTab {
 const TABS: NavTab[] = [
   { path: '/dashboard', label: 'Dashboard', Icon: LayoutGrid },
   { path: '/aujourdhui', label: 'Aujourd’hui', Icon: Home },
-  { path: '/orders', label: 'Orders', Icon: ListChecks },
+  { path: '/orders', label: 'Ordres', Icon: ListChecks },
   { path: '/portefeuille', label: 'Portefeuille', Icon: Briefcase },
   { path: '/watchlist', label: 'Watchlist', Icon: Eye },
 ]

@@ -1,70 +1,128 @@
 'use client'
 
-// Orders surface (V1 execution readability).
-//
-// Doctrine cible Orders : "Comment exécuter cette décision proprement ?"
-// pas "Liste brute d'ordres". V1 read-only — pas de mutation, pas de
-// cross-surface state, pas de calcul métier inventé (PRU impact, frais,
-// probabilité chiffrée). On surface tout ce que fn_get_active_orders_for_user
-// ship déjà et qu'on cachait : rationale (filtré jargon), montant total,
-// limit_likely_hit en wording doux, distance_to_placed_pct, account_name.
-//
-// Sections (conditionnelles à non-vide) :
-//   À poser manuellement   status ∈ {PENDING, PROPOSED, DRAFT}
-//   En attente d'exécution status ∈ {PLACED, OPEN, WORKING, ACCEPTED}
-//   Ordres actifs          fallback pour statuts non reconnus
-//   Historique récent      FILLED/EXECUTED/DONE/EXPIRED/CANCELLED/CANCELED
-//                          (5 items max côté front, pas de "Voir plus")
-//
-// Gap documenté V2 : asset_name_fr non disponible côté
-// fn_get_active_orders_for_user ; enrichissement backend recommandé
-// pour appliquer "nom action > ticker" comme sur les autres surfaces.
-
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { CheckCircle2, Plus, XCircle } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
-import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import { useActiveOrders, type ActiveOrder } from '@/lib/hooks/useActiveOrders'
 
-// ─────────────────────────────────────────────────────────
-// Status bucketing
-// ─────────────────────────────────────────────────────────
-type OrderBucket = 'to_place' | 'placed' | 'active_unknown' | 'history'
+type OrderFilter = 'all' | 'proposed' | 'running' | 'filled' | 'cancelled'
+type OrderBucket = Exclude<OrderFilter, 'all'> | 'other'
 
-const STATUS_TO_PLACE = new Set(['PENDING', 'PROPOSED', 'DRAFT'])
-const STATUS_PLACED = new Set(['PLACED', 'OPEN', 'WORKING', 'ACCEPTED'])
-const STATUS_FILLED = new Set(['FILLED', 'EXECUTED', 'DONE'])
-const STATUS_EXPIRED = new Set(['EXPIRED'])
-const STATUS_CANCELLED = new Set(['CANCELLED', 'CANCELED'])
+const FILTERS: Array<{ key: OrderFilter; label: string }> = [
+  { key: 'all', label: 'Tous' },
+  { key: 'proposed', label: 'Proposes' },
+  { key: 'running', label: 'En cours' },
+  { key: 'filled', label: 'Executes' },
+  { key: 'cancelled', label: 'Annules' },
+]
 
-function orderBucket(status: string | undefined): OrderBucket {
-  const v = String(status ?? '').toUpperCase()
-  if (STATUS_TO_PLACE.has(v)) return 'to_place'
-  if (STATUS_PLACED.has(v)) return 'placed'
-  if (STATUS_FILLED.has(v) || STATUS_EXPIRED.has(v) || STATUS_CANCELLED.has(v)) {
-    return 'history'
+function canonicalBucket(value: string): OrderBucket {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
+  if (['proposed', 'proposes', 'draft'].includes(normalized)) return 'proposed'
+  if (['running', 'en_cours', 'submitted', 'broker_submitted', 'partially_filled'].includes(normalized)) {
+    return 'running'
   }
-  return 'active_unknown'
+  if (['filled', 'executes', 'executed'].includes(normalized)) return 'filled'
+  if (['cancelled', 'canceled', 'annules', 'expired', 'rejected'].includes(normalized)) {
+    return 'cancelled'
+  }
+  return 'other'
 }
 
-function historyStatusLabel(status: string | undefined): string {
-  const v = String(status ?? '').toUpperCase()
-  if (STATUS_FILLED.has(v)) return 'Exécuté'
-  if (STATUS_EXPIRED.has(v)) return 'Expiré'
-  if (STATUS_CANCELLED.has(v)) return 'Annulé'
-  return '—'
+function normalStatus(status: string | undefined): string {
+  return String(status ?? '').trim().toLowerCase()
 }
 
-// ─────────────────────────────────────────────────────────
-// Formatting helpers — fr-FR locale-aware.
-// ─────────────────────────────────────────────────────────
-function formatMoney(value: number, currency: string): string {
-  if (!Number.isFinite(value)) return '—'
+function bucketFor(order: ActiveOrder): OrderBucket {
+  const lifecycle = pickString(
+    order.lifecycle_state,
+    order.status_bucket,
+    order.status_group,
+    order.state_group,
+  )
+  return canonicalBucket(lifecycle)
+}
+
+function statusLabel(order: ActiveOrder): string {
+  switch (bucketFor(order)) {
+    case 'proposed':
+      return 'Propose'
+    case 'running':
+      return normalStatus(order.status) === 'partially_filled' ? 'Partiel' : 'En cours'
+    case 'filled':
+      return 'Execute'
+    case 'cancelled':
+      return normalStatus(order.status) === 'expired' ? 'Expire' : 'Annule'
+    default:
+      return order.status || 'Statut inconnu'
+  }
+}
+
+function statusStyle(order: ActiveOrder): CSSProperties {
+  switch (bucketFor(order)) {
+    case 'proposed':
+      return {
+        color: '#7A4F12',
+        background: 'rgba(184,146,74,0.12)',
+        borderColor: 'rgba(184,146,74,0.35)',
+      }
+    case 'running':
+      return {
+        color: '#174D7A',
+        background: 'rgba(50,112,160,0.10)',
+        borderColor: 'rgba(50,112,160,0.28)',
+      }
+    case 'filled':
+      return {
+        color: 'var(--forest-green)',
+        background: 'rgba(45,107,31,0.10)',
+        borderColor: 'rgba(45,107,31,0.28)',
+      }
+    case 'cancelled':
+      return {
+        color: '#8B2C28',
+        background: 'rgba(168,48,44,0.09)',
+        borderColor: 'rgba(168,48,44,0.25)',
+      }
+    default:
+      return {
+        color: 'var(--ink-tertiary)',
+        background: 'rgba(0,0,0,0.03)',
+        borderColor: 'var(--border-subtle)',
+      }
+  }
+}
+
+function pickNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return null
+}
+
+function pickString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function formatMoney(value: number | null, currency: string): string {
+  if (value == null || !Number.isFinite(value)) return '-'
   try {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: currency || 'EUR',
-      minimumFractionDigits: 2,
+      minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     }).format(value)
   } catch {
@@ -72,561 +130,527 @@ function formatMoney(value: number, currency: string): string {
   }
 }
 
-function formatPct(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  const abs = Math.abs(value).toFixed(2).replace('.', ',')
-  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${sign}${abs} %`
-}
-
-function formatExpire(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(date)
-}
-
-function formatQty(value: number): string {
-  if (!Number.isFinite(value)) return '—'
+function formatQty(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '-'
   return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 }).format(value)
 }
 
-// ─────────────────────────────────────────────────────────
-// Rationale cleanup — hide the line entirely when the backend
-// rationale leaks engine jargon (signal codes, RSI/MACD, Z1/Z2,
-// SIGNAL_*, etc.). When clean, render verbatim with a 2-line
-// ellipsis clamp.
-// ─────────────────────────────────────────────────────────
-const ENGINE_JARGON = new RegExp(
-  '\\b(' +
-    'BUY_ZONE|SELL_ZONE|STRONG_BUY|STRONG_SELL|' +
-    'MACD|RSI|EMA|SMA|' +
-    'SIGNAL_[A-Z_]+|' +
-    'Z[12]_PRICE|Z[12]|' +
-    'HOT_PULLBACK|WATCH_PULLBACK|WATCH_BORDERLINE|OVERBOUGHT_HOLD|TOO_EXPENSIVE|DOWNTREND_DANGER|' +
-    'OPPORTUNITY_LIGHT|OPPORTUNITY_STRONG|NEUTRAL_HOLD|' +
-    'BUY_SCORE|TRIGGER_[A-Z_]+|' +
-    'score_now|technical_score' +
-    ')\\b',
-  'i',
-)
-
-function cleanRationale(raw: string | undefined): string | null {
-  if (!raw) return null
-  const trimmed = raw.trim()
-  if (trimmed.length < 2) return null
-  if (ENGINE_JARGON.test(trimmed)) return null
-  return trimmed
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
-// ─────────────────────────────────────────────────────────
-// limit_likely_hit — soft wording, never "probable" without
-// backend confirmation. Hide when undefined / null.
-// ─────────────────────────────────────────────────────────
-type LimitHint = { label: string; color: string; bg: string } | null
-
-function limitHint(value: boolean | undefined): LimitHint {
-  if (value === true) {
-    return {
-      label: 'Proche du prix',
-      color: 'var(--forest-green)',
-      bg: 'rgba(45,107,31,0.08)',
-    }
-  }
-  if (value === false) {
-    return {
-      label: 'Encore à distance',
-      color: 'var(--ink-tertiary)',
-      bg: 'rgba(0,0,0,0.03)',
-    }
-  }
-  return null
+function sideLabel(side: string | undefined): string {
+  return String(side ?? '').toLowerCase() === 'sell' ? 'SELL' : 'BUY'
 }
 
-// ─────────────────────────────────────────────────────────
-// Row components (inline — no new exported component).
-// ─────────────────────────────────────────────────────────
-interface ActiveRowProps {
+function sourceLabel(order: ActiveOrder): string {
+  const source = pickString(order.source, order.order_source, order.origin)
+  if (!source) return 'Nexial'
+  const normalized = source.toLowerCase()
+  if (normalized.includes('ibkr')) return 'IBKR'
+  if (normalized.includes('manual') || normalized.includes('manuel')) return 'manuel'
+  return 'Nexial'
+}
+
+function accountLabel(order: ActiveOrder): string {
+  const raw = pickString(order.account_kind, order.account_name, order.account_scope)
+  const lower = raw.toLowerCase()
+  if (lower.includes('pea')) return 'PEA'
+  if (lower.includes('cto') || lower.includes('ibkr')) return 'CTO'
+  return raw || '-'
+}
+
+function assetName(order: ActiveOrder): string {
+  return pickString(order.asset_name, order.asset_name_fr, order.name, order.ticker)
+}
+
+function orderPrice(order: ActiveOrder): number | null {
+  return pickNumber(order.limit_price, order.effective_price, order.price)
+}
+
+function orderQuantity(order: ActiveOrder): number | null {
+  return pickNumber(order.quantity, order.effective_quantity)
+}
+
+function filledQuantity(order: ActiveOrder): number | null {
+  return pickNumber(order.filled_quantity, order.filled_qty)
+}
+
+function remainingQuantity(order: ActiveOrder): number | null {
+  const explicit = pickNumber(order.remaining_quantity, order.remaining_qty)
+  if (explicit != null) return explicit
+  const qty = orderQuantity(order)
+  const filled = filledQuantity(order)
+  if (qty == null || filled == null) return null
+  return Math.max(qty - filled, 0)
+}
+
+function estimatedAmount(order: ActiveOrder): number | null {
+  const explicit = pickNumber(order.amount_estimated, order.estimated_amount, order.effective_amount)
+  if (explicit != null) return explicit
+  const qty = orderQuantity(order)
+  const price = orderPrice(order)
+  if (qty == null || price == null) return null
+  return qty * price
+}
+
+interface OrderCardProps {
   order: ActiveOrder
-  isLast: boolean
+  markingId: string | null
+  onMarkSubmitted: (order: ActiveOrder) => Promise<void>
+  onMarkCancelled: (order: ActiveOrder) => Promise<void>
 }
 
-function ActiveOrderRow({ order, isLast }: ActiveRowProps) {
-  const currency = order.currency || 'EUR'
-  const price = Number(order.effective_price ?? 0)
-  const qty = Number(order.effective_quantity ?? 0)
-  const totalRaw = Number(order.effective_amount ?? NaN)
-  const total = Number.isFinite(totalRaw) ? totalRaw : price * qty
-
-  const sideLabel = order.side === 'sell' ? 'Vente' : 'Achat'
-  const typeLabel = (order.order_type || 'LIMIT').toUpperCase()
-  const accountLabel = order.account_name || ''
-  const expireLabel = order.expires_at ? `expire le ${formatExpire(order.expires_at)}` : ''
-  const marketPriceNow = Number(order.market_price_now ?? NaN)
-  const priceChange = Number(order.price_change_since_proposal_pct ?? NaN)
-  const limit = limitHint(order.limit_likely_hit)
-  const distance = Number(order.distance_to_placed_pct ?? NaN)
-  const distanceLabel = Number.isFinite(distance)
-    ? `À ${Math.abs(distance).toFixed(2).replace('.', ',')} % du palier`
-    : null
-  const rationale = cleanRationale(order.rationale)
-
-  const metaParts = [
-    `${sideLabel} ${typeLabel}`,
-    accountLabel,
-    expireLabel,
-  ].filter(Boolean)
+function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: OrderCardProps) {
+  const currency = pickString(order.currency) || 'EUR'
+  const price = orderPrice(order)
+  const qty = orderQuantity(order)
+  const filled = filledQuantity(order)
+  const remaining = remainingQuantity(order)
+  const amount = estimatedAmount(order)
+  const isProposed = bucketFor(order) === 'proposed'
+  const canCancel = ['proposed', 'running'].includes(bucketFor(order))
+  const disabled = markingId === order.id
 
   return (
-    <li
-      data-order-id={order.id}
-      data-status={order.status}
-      style={{
-        padding: '12px 0',
-        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 10,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 14,
-            fontWeight: 700,
-            color: 'var(--ink-primary)',
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
-          }}
-        >
-          {order.ticker}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 13,
-            fontWeight: 600,
-            color: 'var(--ink-primary)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {formatMoney(total, currency)}
-        </span>
+    <article data-order-id={order.id} data-status={order.status} style={cardStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={tickerStyle}>{order.ticker || '-'}</span>
+            <span style={sidePill}>{sideLabel(order.side)}</span>
+          </div>
+          <p style={assetStyle}>{assetName(order)}</p>
+        </div>
+        <span style={{ ...statusPill, ...statusStyle(order) }}>{statusLabel(order)}</span>
       </div>
 
-      <p
-        style={{
-          margin: 0,
-          fontFamily: 'var(--font-editorial-sans)',
-          fontSize: 12,
-          color: 'var(--ink-secondary)',
-          lineHeight: 1.4,
-        }}
-      >
-        {metaParts.join(' · ')}
-      </p>
+      <div style={gridStyle}>
+        <Metric label="Quantite" value={formatQty(qty)} />
+        <Metric label="Prix limite" value={formatMoney(price, currency)} />
+        <Metric label="Devise" value={currency} />
+        <Metric label="Montant" value={formatMoney(amount, currency)} />
+        <Metric label="Compte" value={accountLabel(order)} />
+        <Metric label="Source" value={sourceLabel(order)} />
+      </div>
 
-      <p
-        style={{
-          margin: 0,
-          fontFamily: 'var(--font-editorial-mono)',
-          fontSize: 11.5,
-          color: 'var(--ink-tertiary)',
-          lineHeight: 1.4,
-          letterSpacing: '0.02em',
-        }}
-      >
-        {`${formatQty(qty)} × ${formatMoney(price, currency)}`}
-        {Number.isFinite(marketPriceNow) && marketPriceNow > 0
-          ? `  ·  Cours ${formatMoney(marketPriceNow, currency)}`
-          : ''}
-        {Number.isFinite(priceChange)
-          ? `  (${formatPct(priceChange)})`
-          : ''}
-      </p>
+      <div style={metaLine}>
+        <span>{formatDate(order.submitted_at || order.filled_at || order.created_at || order.signal_at_creation)}</span>
+        {filled != null || remaining != null ? (
+          <span>
+            rempli {formatQty(filled)} / restant {formatQty(remaining)}
+          </span>
+        ) : null}
+      </div>
 
-      {limit || distanceLabel ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            flexWrap: 'wrap',
-            marginTop: 2,
-          }}
-        >
-          {limit ? (
-            <span
-              data-hint="limit"
+      {isProposed || canCancel ? (
+        <div style={{ display: 'grid', gridTemplateColumns: isProposed ? '1fr 1fr' : '1fr', gap: 8 }}>
+          {isProposed ? (
+            <button
+              type="button"
+              onClick={() => onMarkSubmitted(order)}
+              disabled={disabled}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '3px 9px',
-                borderRadius: 999,
-                background: limit.bg,
-                border: `1px solid ${limit.color}`,
-                color: limit.color,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.01em',
+                ...actionButton,
+                opacity: disabled ? 0.65 : 1,
+                cursor: disabled ? 'wait' : 'pointer',
               }}
             >
-              {limit.label}
-            </span>
+              <CheckCircle2 size={16} aria-hidden />
+              {disabled ? 'Mise a jour...' : "J'ai place l'ordre"}
+            </button>
           ) : null}
-          {distanceLabel ? (
-            <span
-              data-hint="distance"
+          {canCancel ? (
+            <button
+              type="button"
+              onClick={() => onMarkCancelled(order)}
+              disabled={disabled}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '3px 9px',
-                borderRadius: 999,
-                background: 'rgba(0,0,0,0.02)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--ink-secondary)',
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.02em',
+                ...secondaryButton,
+                opacity: disabled ? 0.65 : 1,
+                cursor: disabled ? 'wait' : 'pointer',
               }}
             >
-              {distanceLabel}
-            </span>
+              <XCircle size={16} aria-hidden />
+              Ordre annule
+            </button>
           ) : null}
         </div>
       ) : null}
-
-      {rationale ? (
-        <p
-          style={{
-            margin: 0,
-            fontFamily: 'var(--font-editorial-sans)',
-            fontSize: 12,
-            color: 'var(--ink-secondary)',
-            lineHeight: 1.45,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            marginTop: 2,
-          } as React.CSSProperties}
-        >
-          {rationale}
-        </p>
-      ) : null}
-    </li>
+    </article>
   )
 }
 
-interface HistoryRowProps {
-  order: ActiveOrder
-  isLast: boolean
-}
-
-function HistoryOrderRow({ order, isLast }: HistoryRowProps) {
-  const currency = order.currency || 'EUR'
-  const price = Number(order.effective_price ?? 0)
-  const qty = Number(order.effective_quantity ?? 0)
-  const totalRaw = Number(order.effective_amount ?? NaN)
-  const total = Number.isFinite(totalRaw) ? totalRaw : price * qty
-  const sideLabel = order.side === 'sell' ? 'Vente' : 'Achat'
-  const statusLabel = historyStatusLabel(order.status)
-  const expireLabel = order.expires_at ? formatExpire(order.expires_at) : ''
-
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <li
-      data-order-id={order.id}
-      data-status={order.status}
-      style={{
-        padding: '10px 0',
-        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
-        display: 'flex',
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
-        gap: 10,
-      }}
-    >
-      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 13,
-              fontWeight: 700,
-              color: 'var(--ink-primary)',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            {order.ticker}
-          </span>
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 11,
-              fontWeight: 700,
-              color: 'var(--ink-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-            }}
-          >
-            {statusLabel}
-            {expireLabel ? ` · ${expireLabel}` : ''}
-          </span>
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial-mono)',
-            fontSize: 11,
-            color: 'var(--ink-tertiary)',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {sideLabel} {formatQty(qty)} × {formatMoney(price, currency)}
-        </span>
-      </span>
-      <span
-        style={{
-          fontFamily: 'var(--font-editorial-mono)',
-          fontSize: 12.5,
-          color: 'var(--ink-secondary)',
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-        }}
-      >
-        {formatMoney(total, currency)}
-      </span>
-    </li>
+    <div style={{ minWidth: 0 }}>
+      <div style={metricLabel}>{label}</div>
+      <div style={metricValue}>{value}</div>
+    </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────
-// Surface
-// ─────────────────────────────────────────────────────────
 export function OrdersSurface() {
-  const { orders, loading, error } = useActiveOrders()
+  const { orders, loading, error, refetch } = useActiveOrders({ pollMs: 30000 })
+  const [filter, setFilter] = useState<OrderFilter>('all')
+  const [markingId, setMarkingId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  const sections = useMemo(() => {
-    const items = orders ?? []
-    const to_place: ActiveOrder[] = []
-    const placed: ActiveOrder[] = []
-    const active_unknown: ActiveOrder[] = []
-    const history: ActiveOrder[] = []
-    for (const o of items) {
-      switch (orderBucket(o.status)) {
-        case 'to_place':
-          to_place.push(o)
-          break
-        case 'placed':
-          placed.push(o)
-          break
-        case 'history':
-          history.push(o)
-          break
-        default:
-          active_unknown.push(o)
-      }
+  const counts = useMemo(() => {
+    const base: Record<OrderFilter, number> = {
+      all: orders.length,
+      proposed: 0,
+      running: 0,
+      filled: 0,
+      cancelled: 0,
     }
-    return {
-      to_place,
-      placed,
-      active_unknown,
-      history: history.slice(0, 5),
+    for (const order of orders) {
+      const bucket = bucketFor(order)
+      if (bucket !== 'other') base[bucket] += 1
     }
+    return base
   }, [orders])
 
-  const totalActive =
-    sections.to_place.length + sections.placed.length + sections.active_unknown.length
-  const contextLine =
-    loading && !orders.length
-      ? 'Chargement…'
-      : totalActive > 0
-        ? `Plan d’exécution · ${totalActive} ordre${totalActive > 1 ? 's' : ''} actif${totalActive > 1 ? 's' : ''}`
-        : 'Plan d’exécution'
+  const visibleOrders = useMemo(() => {
+    if (filter === 'all') return orders
+    return orders.filter((order) => bucketFor(order) === filter)
+  }, [filter, orders])
 
-  const hasAnyContent =
-    sections.to_place.length > 0 ||
-    sections.placed.length > 0 ||
-    sections.active_unknown.length > 0 ||
-    sections.history.length > 0
+  const contextLine = loading && !orders.length
+    ? 'Chargement...'
+    : `${counts.proposed} proposes - ${counts.running} en cours - ${counts.filled} executes`
+
+  async function markSubmitted(order: ActiveOrder) {
+    setMarkingId(order.id)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/orders/active', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'placed', orderId: order.id, brokerRef: null }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      await refetch()
+      setFilter('running')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Mise a jour impossible')
+    } finally {
+      setMarkingId(null)
+    }
+  }
+
+  async function markCancelled(order: ActiveOrder) {
+    const reason = window.prompt("Raison d'annulation (optionnel)") || null
+    setMarkingId(order.id)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/orders/active', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancelled', orderId: order.id, reason }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      await refetch()
+      setFilter('cancelled')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Mise a jour impossible')
+    } finally {
+      setMarkingId(null)
+    }
+  }
+
+  async function createManualOrder() {
+    const raw = window.prompt('Arguments JSON pour fn_create_manual_order')
+    if (!raw) return
+    setActionError(null)
+    try {
+      const payload = JSON.parse(raw) as Record<string, unknown>
+      const res = await fetch('/api/orders/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      await refetch()
+      setFilter('all')
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Creation impossible')
+    }
+  }
 
   return (
     <AppShell>
-      <MobileTopHeader
-        eyebrow="Exécution"
-        title="Orders"
-        contextLine={contextLine}
-        compact
-      />
+      <MobileTopHeader eyebrow="Execution" title="Ordres" contextLine={contextLine} compact />
 
-      <div
-        style={{
-          maxWidth: 560,
-          margin: '0 auto',
-          padding: '0 16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        {error ? (
-          <section
-            role="status"
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 12,
-              padding: 14,
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 13,
-                color: 'var(--ink-secondary)',
-              }}
-            >
-              Certaines données n’ont pas pu être mises à jour.
-            </p>
-          </section>
-        ) : loading && !hasAnyContent ? (
-          <section
-            aria-busy="true"
-            style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
-          >
-            {[0, 1].map((i) => (
-              <div
-                key={i}
+      <main style={surfaceStyle}>
+        <button type="button" onClick={createManualOrder} style={manualButton}>
+          <Plus size={16} aria-hidden />
+          Nouvel ordre manuel
+        </button>
+
+        <div role="tablist" aria-label="Filtrer les ordres" style={filtersStyle}>
+          {FILTERS.map((item) => {
+            const active = item.key === filter
+            return (
+              <button
+                key={item.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilter(item.key)}
                 style={{
-                  height: 110,
-                  borderRadius: 12,
-                  background: 'rgba(0,0,0,0.04)',
-                  border: '1px solid var(--border-subtle)',
+                  ...filterChip,
+                  ...(active ? filterChipActive : null),
                 }}
+              >
+                <span>{item.label}</span>
+                <span style={countStyle}>{counts[item.key]}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {error || actionError ? (
+          <section role="status" style={noticeStyle}>
+            {actionError || "Certaines donnees n'ont pas pu etre mises a jour."}
+          </section>
+        ) : null}
+
+        {loading && !orders.length ? (
+          <section aria-busy="true" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={skeletonStyle} />
+            ))}
+          </section>
+        ) : visibleOrders.length ? (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {visibleOrders.map((order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                markingId={markingId}
+                onMarkSubmitted={markSubmitted}
+                onMarkCancelled={markCancelled}
               />
             ))}
           </section>
-        ) : !hasAnyContent ? (
-          <section
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 12,
-              padding: 14,
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 13,
-                color: 'var(--ink-tertiary)',
-              }}
-            >
-              Aucun ordre pour le moment.
-            </p>
-          </section>
         ) : (
-          <>
-            {sections.to_place.length > 0 ? (
-              <CollapsibleSection
-                groupKey="orders-to-place"
-                title="À poser manuellement"
-                count={sections.to_place.length}
-                subtitle="Ordres acceptés à placer chez le broker."
-                defaultOpen
-              >
-                <ul style={listReset}>
-                  {sections.to_place.map((o, idx) => (
-                    <ActiveOrderRow
-                      key={o.id}
-                      order={o}
-                      isLast={idx === sections.to_place.length - 1}
-                    />
-                  ))}
-                </ul>
-              </CollapsibleSection>
-            ) : null}
-
-            {sections.placed.length > 0 ? (
-              <CollapsibleSection
-                groupKey="orders-placed"
-                title="En attente d’exécution"
-                count={sections.placed.length}
-                subtitle="Ordres posés au broker, en attente d’exécution."
-                defaultOpen
-              >
-                <ul style={listReset}>
-                  {sections.placed.map((o, idx) => (
-                    <ActiveOrderRow
-                      key={o.id}
-                      order={o}
-                      isLast={idx === sections.placed.length - 1}
-                    />
-                  ))}
-                </ul>
-              </CollapsibleSection>
-            ) : null}
-
-            {sections.active_unknown.length > 0 ? (
-              <CollapsibleSection
-                groupKey="orders-active"
-                title="Ordres actifs"
-                count={sections.active_unknown.length}
-                subtitle="Ordres en cours."
-                defaultOpen
-              >
-                <ul style={listReset}>
-                  {sections.active_unknown.map((o, idx) => (
-                    <ActiveOrderRow
-                      key={o.id}
-                      order={o}
-                      isLast={idx === sections.active_unknown.length - 1}
-                    />
-                  ))}
-                </ul>
-              </CollapsibleSection>
-            ) : null}
-
-            {sections.history.length > 0 ? (
-              <CollapsibleSection
-                groupKey="orders-history"
-                title="Historique récent"
-                count={sections.history.length}
-                subtitle="Exécutés, expirés, annulés."
-                defaultOpen={false}
-              >
-                <ul style={listReset}>
-                  {sections.history.map((o, idx) => (
-                    <HistoryOrderRow
-                      key={o.id}
-                      order={o}
-                      isLast={idx === sections.history.length - 1}
-                    />
-                  ))}
-                </ul>
-              </CollapsibleSection>
-            ) : null}
-          </>
+          <section style={emptyStyle}>Aucun ordre dans ce filtre.</section>
         )}
-      </div>
+      </main>
     </AppShell>
   )
 }
 
-const listReset: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
+const surfaceStyle: CSSProperties = {
+  maxWidth: 560,
+  margin: '0 auto',
+  padding: '0 16px 20px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
+
+const filtersStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  overflowX: 'auto',
+  padding: '2px 0 4px',
+  scrollbarWidth: 'none',
+}
+
+const filterChip: CSSProperties = {
+  flex: '0 0 auto',
+  minHeight: 34,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 7,
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 999,
+  background: 'var(--surface)',
+  color: 'var(--ink-secondary)',
+  padding: '7px 11px',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  fontWeight: 650,
+}
+
+const filterChipActive: CSSProperties = {
+  background: 'var(--forest-deep)',
+  borderColor: 'var(--forest-deep)',
+  color: '#FFFFFF',
+}
+
+const countStyle: CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  opacity: 0.76,
+}
+
+const cardStyle: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  padding: 14,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
+
+const tickerStyle: CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 16,
+  fontWeight: 750,
+  letterSpacing: '0.04em',
+  color: 'var(--ink-primary)',
+  textTransform: 'uppercase',
+}
+
+const assetStyle: CSSProperties = {
+  margin: '3px 0 0',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  color: 'var(--ink-secondary)',
+  lineHeight: 1.3,
+}
+
+const sidePill: CSSProperties = {
+  border: '1px solid rgba(45,107,31,0.25)',
+  borderRadius: 999,
+  padding: '2px 7px',
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10,
+  fontWeight: 700,
+  color: 'var(--forest-green)',
+}
+
+const statusPill: CSSProperties = {
+  alignSelf: 'flex-start',
+  border: '1px solid',
+  borderRadius: 999,
+  padding: '4px 8px',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 11,
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
+}
+
+const gridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: '10px 12px',
+}
+
+const metricLabel: CSSProperties = {
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 9,
+  fontWeight: 700,
+  color: 'var(--ink-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  marginBottom: 3,
+}
+
+const metricValue: CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 12,
+  color: 'var(--ink-primary)',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+}
+
+const metaLine: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
+  borderTop: '1px solid var(--border-subtle)',
+  paddingTop: 10,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  color: 'var(--ink-tertiary)',
+}
+
+const actionButton: CSSProperties = {
+  minHeight: 38,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  border: '1px solid var(--forest-deep)',
+  borderRadius: 8,
+  background: 'var(--forest-deep)',
+  color: '#FFFFFF',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const secondaryButton: CSSProperties = {
+  minHeight: 38,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  border: '1px solid rgba(168,48,44,0.28)',
+  borderRadius: 8,
+  background: 'rgba(168,48,44,0.07)',
+  color: '#8B2C28',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const manualButton: CSSProperties = {
+  minHeight: 38,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  background: 'var(--surface)',
+  color: 'var(--ink-primary)',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const noticeStyle: CSSProperties = {
+  border: '1px solid rgba(168,48,44,0.25)',
+  borderRadius: 8,
+  background: 'rgba(168,48,44,0.07)',
+  padding: 12,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  color: '#8B2C28',
+}
+
+const emptyStyle: CSSProperties = {
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  background: 'var(--surface)',
+  padding: 14,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  color: 'var(--ink-tertiary)',
+}
+
+const skeletonStyle: CSSProperties = {
+  height: 148,
+  borderRadius: 8,
+  background: 'rgba(0,0,0,0.04)',
+  border: '1px solid var(--border-subtle)',
 }
