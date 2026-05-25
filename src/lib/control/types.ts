@@ -3,6 +3,44 @@
 
 export type ControlStatus = 'HEALTHY' | 'DEGRADED' | 'CRITICAL' | 'BOOTSTRAPPING' | 'NEUTRAL'
 
+export type OfficialControlState =
+  | 'HEALTHY'
+  | 'ACTION'
+  | 'NEEDS_OLIVIER'
+  | 'WATCH'
+  | 'IN_PROGRESS'
+  | 'INFO'
+  | 'AUTO_HANDLED'
+  | (string & {})
+
+export interface ControlVerdictRow {
+  all_clear: boolean | null
+  control_state: OfficialControlState | null
+  headline: string | null
+  headline_fr?: string | null
+  detail: string | null
+  detail_fr?: string | null
+  generated_at: string | null
+  computed_at?: string | null
+  [key: string]: unknown
+}
+
+export interface ControlFeedRow {
+  id?: string | number | null
+  control_state: OfficialControlState | null
+  sort_priority: number | null
+  title: string | null
+  title_fr?: string | null
+  headline?: string | null
+  headline_fr?: string | null
+  detail: string | null
+  detail_fr?: string | null
+  source?: string | null
+  generated_at?: string | null
+  computed_at?: string | null
+  [key: string]: unknown
+}
+
 export interface RecentAdr {
   number: number
   title: string
