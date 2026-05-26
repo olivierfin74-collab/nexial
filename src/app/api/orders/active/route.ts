@@ -10,6 +10,32 @@ type LifecycleOrder = {
   status_fr?: string | null;
 };
 
+type SupabaseErrorDetails = {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+  status?: number;
+};
+
+function errorPayload(err: unknown) {
+  const supabaseError = err as SupabaseErrorDetails;
+  const message =
+    typeof supabaseError.message === "string" && supabaseError.message
+      ? supabaseError.message
+      : err instanceof Error
+        ? err.message
+        : "Internal error";
+
+  return {
+    error: message,
+    code: typeof supabaseError.code === "string" ? supabaseError.code : null,
+    details: typeof supabaseError.details === "string" ? supabaseError.details : null,
+    hint: typeof supabaseError.hint === "string" ? supabaseError.hint : null,
+    status: typeof supabaseError.status === "number" ? supabaseError.status : null,
+  };
+}
+
 function nullableString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -104,7 +130,7 @@ export async function GET(req: NextRequest) {
     console.error("[/api/orders/active] error:", err);
     return NextResponse.json(
       {
-        error: err instanceof Error ? err.message : "Internal error",
+        ...errorPayload(err),
         orders: [],
         summary: null,
       },
@@ -165,20 +191,27 @@ export async function PATCH(req: NextRequest) {
       });
     } else {
       rpc = supabase.rpc("fn_mark_order_placed", {
-        order_id: orderId,
-        broker_ref: brokerRef,
+        p_order_id: orderId,
+        p_broker_order_ref: brokerRef,
       });
     }
 
     const { data, error } = await rpc;
 
-    if (error) throw error;
+    if (error) {
+      console.error("[/api/orders/active PATCH] supabase rpc error", {
+        action,
+        orderId,
+        error,
+      });
+      throw error;
+    }
 
     return NextResponse.json({ order: data ?? { id: orderId } });
   } catch (err: unknown) {
     console.error("[/api/orders/active PATCH] error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal error" },
+      errorPayload(err),
       { status: 500 }
     );
   }
@@ -208,13 +241,19 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabase.rpc("fn_create_manual_order", rpcArgs);
 
-    if (error) throw error;
+    if (error) {
+      console.error("[/api/orders/active POST] supabase rpc error", {
+        rpc: "fn_create_manual_order",
+        error,
+      });
+      throw error;
+    }
 
     return NextResponse.json({ order: data });
   } catch (err: unknown) {
     console.error("[/api/orders/active POST] error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal error" },
+      errorPayload(err),
       { status: 500 }
     );
   }
