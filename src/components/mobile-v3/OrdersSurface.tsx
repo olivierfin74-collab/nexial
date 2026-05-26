@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { CheckCircle2, Plus, XCircle } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
@@ -9,13 +9,38 @@ import { useActiveOrders, type ActiveOrder } from '@/lib/hooks/useActiveOrders'
 
 type OrderFilter = 'all' | 'proposed' | 'running' | 'filled' | 'cancelled'
 type OrderBucket = Exclude<OrderFilter, 'all'> | 'other'
+type AccountKey = 'PEA' | 'CTO'
+type OrderSide = 'buy' | 'sell'
+type InitialOrderStatus = 'proposed' | 'placed'
+
+const ACCOUNTS: Record<AccountKey, { id: string; label: string }> = {
+  PEA: { id: '019df844-2150-713b-8e57-ef62fc768767', label: 'PEA' },
+  CTO: { id: '019df844-2163-7315-be76-1cb886c8e7bd', label: 'CTO' },
+}
+
+const EMPTY_CREATE_FORM = {
+  ticker: '',
+  account: 'PEA' as AccountKey,
+  side: 'buy' as OrderSide,
+  quantity: '',
+  limitPrice: '',
+  orderType: 'limit',
+  currency: '',
+  initialStatus: 'placed' as InitialOrderStatus,
+}
+
+const EMPTY_FILL_FORM = {
+  fillPrice: '',
+  fillQuantity: '',
+  fees: '0',
+}
 
 const FILTERS: Array<{ key: OrderFilter; label: string }> = [
   { key: 'all', label: 'Tous' },
-  { key: 'proposed', label: 'Proposes' },
+  { key: 'proposed', label: 'Proposés' },
   { key: 'running', label: 'En cours' },
-  { key: 'filled', label: 'Executes' },
-  { key: 'cancelled', label: 'Annules' },
+  { key: 'filled', label: 'Exécutés' },
+  { key: 'cancelled', label: 'Annulés' },
 ]
 
 function canonicalBucket(value: string): OrderBucket {
@@ -108,22 +133,81 @@ function formatDate(value: string | null | undefined): string {
 }
 
 function sideLabel(side: string | undefined): string {
-  return String(side ?? '').toLowerCase() === 'sell' ? 'SELL' : 'BUY'
+  return String(side ?? '').toLowerCase() === 'sell' ? 'Vendre' : 'Acheter'
+}
+
+function parseNumberInput(value: string): number | null {
+  const normalized = value.trim().replace(',', '.')
+  if (!normalized) return null
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function successMessage(payload: unknown, fallback: string): string {
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    const message = record.message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
+}
+
+function filledErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== 'object') return fallback
+  const record = payload as Record<string, unknown>
+  const message = typeof record.message === 'string' ? record.message : null
+  const status = typeof record.status === 'string' ? record.status : null
+
+  if (status === 'oversell_blocked') {
+    const held = record.held_quantity
+    const suffix = typeof held === 'number' || typeof held === 'string' ? ` (${held})` : ''
+    return message || `Vente supérieure à la quantité détenue${suffix}`
+  }
+
+  if (status === 'invalid_state') {
+    const current = record.current_status
+    const suffix = typeof current === 'string' && current ? ` : ${current}` : ''
+    return message || `Ordre déjà dans un état non marquable${suffix}`
+  }
+
+  if (status === 'order_not_found') return message || 'Ordre introuvable'
+  return message || fallback
 }
 
 interface OrderCardProps {
   order: ActiveOrder
   markingId: string | null
+  fillOrderId: string | null
+  fillForm: typeof EMPTY_FILL_FORM
+  fillError: string | null
+  onFillFormChange: (form: typeof EMPTY_FILL_FORM) => void
+  onOpenFillForm: (order: ActiveOrder) => void
+  onCancelFillForm: () => void
+  onConfirmFilled: (order: ActiveOrder) => Promise<void>
   onMarkSubmitted: (order: ActiveOrder) => Promise<void>
   onMarkCancelled: (order: ActiveOrder) => Promise<void>
 }
 
-function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: OrderCardProps) {
+function OrderCard({
+  order,
+  markingId,
+  fillOrderId,
+  fillForm,
+  fillError,
+  onFillFormChange,
+  onOpenFillForm,
+  onCancelFillForm,
+  onConfirmFilled,
+  onMarkSubmitted,
+  onMarkCancelled,
+}: OrderCardProps) {
   const currency = order.currency
   const amount = order.estimated_value_native
   const isProposed = bucketFor(order) === 'proposed'
+  const isRunning = bucketFor(order) === 'running'
   const canCancel = ['proposed', 'running'].includes(bucketFor(order))
   const disabled = markingId === order.id
+  const fillOpen = fillOrderId === order.id
 
   return (
     <article data-order-id={order.id} data-status={order.status} style={cardStyle}>
@@ -156,7 +240,7 @@ function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: Order
         ) : null}
       </div>
 
-      {isProposed || canCancel ? (
+      {isProposed || isRunning || canCancel ? (
         <div style={{ display: 'grid', gridTemplateColumns: isProposed ? '1fr 1fr' : '1fr', gap: 8 }}>
           {isProposed ? (
             <button
@@ -170,7 +254,22 @@ function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: Order
               }}
             >
               <CheckCircle2 size={16} aria-hidden />
-              {disabled ? 'Mise a jour...' : "J'ai place l'ordre"}
+              {disabled ? 'Mise à jour...' : "J'ai placé l'ordre"}
+            </button>
+          ) : null}
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={() => onOpenFillForm(order)}
+              disabled={disabled}
+              style={{
+                ...actionButton,
+                opacity: disabled ? 0.65 : 1,
+                cursor: disabled ? 'wait' : 'pointer',
+              }}
+            >
+              <CheckCircle2 size={16} aria-hidden />
+              Marquer exécuté
             </button>
           ) : null}
           {canCancel ? (
@@ -185,10 +284,21 @@ function OrderCard({ order, markingId, onMarkSubmitted, onMarkCancelled }: Order
               }}
             >
               <XCircle size={16} aria-hidden />
-              Ordre annule
+              Ordre annulé sur broker lié
             </button>
           ) : null}
         </div>
+      ) : null}
+
+      {fillOpen ? (
+        <FillOrderForm
+          disabled={disabled}
+          error={fillError}
+          form={fillForm}
+          onCancel={onCancelFillForm}
+          onChange={onFillFormChange}
+          onSubmit={() => onConfirmFilled(order)}
+        />
       ) : null}
     </article>
   )
@@ -203,11 +313,222 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <label style={fieldLabel}>{children}</label>
+}
+
+function CreateOrderForm({
+  disabled,
+  form,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  disabled: boolean
+  form: typeof EMPTY_CREATE_FORM
+  onCancel: () => void
+  onChange: (form: typeof EMPTY_CREATE_FORM) => void
+  onSubmit: () => void
+}) {
+  return (
+    <form
+      style={formPanel}
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <div style={formHeader}>
+        <h2 style={formTitle}>Nouvel ordre manuel</h2>
+        <button type="button" onClick={onCancel} disabled={disabled} style={ghostButton}>
+          Annuler
+        </button>
+      </div>
+
+      <div style={formGrid}>
+        <FieldLabel>
+          Ticker
+          <input
+            required
+            value={form.ticker}
+            onChange={(event) => onChange({ ...form, ticker: event.target.value.toUpperCase() })}
+            placeholder="TTE"
+            style={inputStyle}
+          />
+        </FieldLabel>
+
+        <FieldLabel>
+          Compte
+          <select
+            value={form.account}
+            onChange={(event) => onChange({ ...form, account: event.target.value as AccountKey })}
+            style={inputStyle}
+          >
+            <option value="PEA">PEA</option>
+            <option value="CTO">CTO</option>
+          </select>
+        </FieldLabel>
+
+        <FieldLabel>
+          Sens
+          <select
+            value={form.side}
+            onChange={(event) => onChange({ ...form, side: event.target.value as OrderSide })}
+            style={inputStyle}
+          >
+            <option value="buy">Acheter</option>
+            <option value="sell">Vendre</option>
+          </select>
+        </FieldLabel>
+
+        <FieldLabel>
+          Quantité
+          <input
+            required
+            inputMode="decimal"
+            value={form.quantity}
+            onChange={(event) => onChange({ ...form, quantity: event.target.value })}
+            style={inputStyle}
+          />
+        </FieldLabel>
+
+        <FieldLabel>
+          Prix limite
+          <input
+            inputMode="decimal"
+            value={form.limitPrice}
+            onChange={(event) => onChange({ ...form, limitPrice: event.target.value })}
+            style={inputStyle}
+          />
+        </FieldLabel>
+
+        <FieldLabel>
+          Type
+          <select
+            value={form.orderType}
+            onChange={(event) => onChange({ ...form, orderType: event.target.value })}
+            style={inputStyle}
+          >
+            <option value="limit">Limit</option>
+            <option value="market">Market</option>
+          </select>
+        </FieldLabel>
+
+        <FieldLabel>
+          Devise
+          <input
+            value={form.currency}
+            onChange={(event) => onChange({ ...form, currency: event.target.value.toUpperCase() })}
+            placeholder="auto"
+            style={inputStyle}
+          />
+        </FieldLabel>
+
+        <FieldLabel>
+          Statut initial
+          <select
+            value={form.initialStatus}
+            onChange={(event) => onChange({ ...form, initialStatus: event.target.value as InitialOrderStatus })}
+            style={inputStyle}
+          >
+            <option value="proposed">Proposé</option>
+            <option value="placed">Déjà placé chez le broker</option>
+          </select>
+        </FieldLabel>
+      </div>
+
+      <div style={formActions}>
+        <button type="button" onClick={onCancel} disabled={disabled} style={cancelButton}>
+          Annuler
+        </button>
+        <button type="submit" disabled={disabled} style={{ ...actionButton, opacity: disabled ? 0.65 : 1 }}>
+          {disabled ? 'Création...' : "Créer l'ordre"}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function FillOrderForm({
+  disabled,
+  error,
+  form,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  disabled: boolean
+  error: string | null
+  form: typeof EMPTY_FILL_FORM
+  onCancel: () => void
+  onChange: (form: typeof EMPTY_FILL_FORM) => void
+  onSubmit: () => void
+}) {
+  return (
+    <form
+      style={inlineFormPanel}
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <div style={formGrid}>
+        <FieldLabel>
+          Prix exécuté
+          <input
+            required
+            inputMode="decimal"
+            value={form.fillPrice}
+            onChange={(event) => onChange({ ...form, fillPrice: event.target.value })}
+            style={inputStyle}
+          />
+        </FieldLabel>
+        <FieldLabel>
+          Quantité exécutée
+          <input
+            required
+            inputMode="decimal"
+            value={form.fillQuantity}
+            onChange={(event) => onChange({ ...form, fillQuantity: event.target.value })}
+            style={inputStyle}
+          />
+        </FieldLabel>
+        <FieldLabel>
+          Frais
+          <input
+            inputMode="decimal"
+            value={form.fees}
+            onChange={(event) => onChange({ ...form, fees: event.target.value })}
+            style={inputStyle}
+          />
+        </FieldLabel>
+      </div>
+
+      {error ? <div style={inlineError}>{error}</div> : null}
+
+      <div style={formActions}>
+        <button type="button" onClick={onCancel} disabled={disabled} style={cancelButton}>
+          Annuler
+        </button>
+        <button type="submit" disabled={disabled} style={{ ...actionButton, opacity: disabled ? 0.65 : 1 }}>
+          {disabled ? 'Confirmation...' : 'Confirmer'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 export function OrdersSurface() {
   const { orders, loading, error, refetch } = useActiveOrders({ pollMs: 30000 })
   const [filter, setFilter] = useState<OrderFilter>('all')
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
+  const [fillOrderId, setFillOrderId] = useState<string | null>(null)
+  const [fillForm, setFillForm] = useState(EMPTY_FILL_FORM)
+  const [fillError, setFillError] = useState<string | null>(null)
 
   const counts = useMemo(() => {
     const base: Record<OrderFilter, number> = {
@@ -231,11 +552,23 @@ export function OrdersSurface() {
 
   const contextLine = loading && !orders.length
     ? 'Chargement...'
-    : `${counts.proposed} proposes - ${counts.running} en cours - ${counts.filled} executes`
+    : `${counts.proposed} proposés - ${counts.running} en cours - ${counts.filled} exécutés`
+
+  function resetCreateForm() {
+    setCreateOpen(false)
+    setCreateForm(EMPTY_CREATE_FORM)
+  }
+
+  function resetFillForm() {
+    setFillOrderId(null)
+    setFillForm(EMPTY_FILL_FORM)
+    setFillError(null)
+  }
 
   async function markSubmitted(order: ActiveOrder) {
     setMarkingId(order.id)
     setActionError(null)
+    setActionMessage(null)
     try {
       const res = await fetch('/api/orders/active', {
         method: 'PATCH',
@@ -247,50 +580,117 @@ export function OrdersSurface() {
       await refetch()
       setFilter('running')
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Mise a jour impossible')
+      setActionError(err instanceof Error ? err.message : 'Mise à jour impossible')
     } finally {
       setMarkingId(null)
     }
   }
 
   async function markCancelled(order: ActiveOrder) {
-    const reason = window.prompt("Raison d'annulation (optionnel)") || null
     setMarkingId(order.id)
     setActionError(null)
+    setActionMessage(null)
     try {
       const res = await fetch('/api/orders/active', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancelled', orderId: order.id, reason }),
+        body: JSON.stringify({ action: 'cancelled', orderId: order.id, reason: null }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
       await refetch()
       setFilter('cancelled')
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Mise a jour impossible')
+      setActionError(err instanceof Error ? err.message : 'Mise à jour impossible')
     } finally {
       setMarkingId(null)
     }
   }
 
   async function createManualOrder() {
-    const raw = window.prompt('Arguments JSON pour fn_create_manual_order')
-    if (!raw) return
+    const quantity = parseNumberInput(createForm.quantity)
+    const limitPrice = parseNumberInput(createForm.limitPrice)
+    if (!createForm.ticker.trim() || quantity == null) {
+      setActionError('Ticker et quantité sont obligatoires.')
+      return
+    }
+
     setActionError(null)
+    setActionMessage(null)
+    setMarkingId('create')
     try {
-      const payload = JSON.parse(raw) as Record<string, unknown>
       const res = await fetch('/api/orders/active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          accountId: ACCOUNTS[createForm.account].id,
+          ticker: createForm.ticker.trim().toUpperCase(),
+          side: createForm.side,
+          quantity,
+          limitPrice,
+          orderType: createForm.orderType,
+          currency: createForm.currency.trim() || null,
+          alreadyPlaced: createForm.initialStatus === 'placed',
+        }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
       await refetch()
-      setFilter('all')
+      setActionMessage(successMessage(json.order, 'Ordre créé.'))
+      setFilter(createForm.initialStatus === 'placed' ? 'running' : 'proposed')
+      resetCreateForm()
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Creation impossible')
+      setActionError(err instanceof Error ? err.message : 'Création impossible')
+    } finally {
+      setMarkingId(null)
+    }
+  }
+
+  async function confirmFilled(order: ActiveOrder) {
+    const fillPrice = parseNumberInput(fillForm.fillPrice)
+    const fillQuantity = parseNumberInput(fillForm.fillQuantity)
+    const fees = parseNumberInput(fillForm.fees) ?? 0
+
+    if (fillPrice == null || fillQuantity == null) {
+      setFillError('Prix exécuté et quantité exécutée sont obligatoires.')
+      return
+    }
+
+    setMarkingId(order.id)
+    setActionError(null)
+    setActionMessage(null)
+    setFillError(null)
+    try {
+      const res = await fetch('/api/orders/active', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'filled',
+          orderId: order.id,
+          fillPrice,
+          fillQuantity,
+          fees,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      const payload = json.order ?? json
+      if (payload && typeof payload === 'object') {
+        const status = (payload as Record<string, unknown>).status
+        if (status && status !== 'ok') {
+          throw new Error(filledErrorMessage(payload, 'Exécution refusée.'))
+        }
+      }
+      await refetch()
+      setActionMessage(successMessage(payload, 'Ordre marqué exécuté.'))
+      setFilter('filled')
+      resetFillForm()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Exécution impossible'
+      setFillError(message)
+      setActionError(message)
+    } finally {
+      setMarkingId(null)
     }
   }
 
@@ -299,10 +699,28 @@ export function OrdersSurface() {
       <MobileTopHeader eyebrow="Execution" title="Ordres" contextLine={contextLine} compact />
 
       <main style={surfaceStyle}>
-        <button type="button" onClick={createManualOrder} style={manualButton}>
+        <button
+          type="button"
+          onClick={() => {
+            setCreateOpen(true)
+            setActionError(null)
+            setActionMessage(null)
+          }}
+          style={manualButton}
+        >
           <Plus size={16} aria-hidden />
           Nouvel ordre manuel
         </button>
+
+        {createOpen ? (
+          <CreateOrderForm
+            disabled={markingId === 'create'}
+            form={createForm}
+            onCancel={resetCreateForm}
+            onChange={setCreateForm}
+            onSubmit={createManualOrder}
+          />
+        ) : null}
 
         <div role="tablist" aria-label="Filtrer les ordres" style={filtersStyle}>
           {FILTERS.map((item) => {
@@ -326,9 +744,15 @@ export function OrdersSurface() {
           })}
         </div>
 
+        {actionMessage ? (
+          <section role="status" style={successNoticeStyle}>
+            {actionMessage}
+          </section>
+        ) : null}
+
         {error || actionError ? (
           <section role="status" style={noticeStyle}>
-            {actionError || "Certaines donnees n'ont pas pu etre mises a jour."}
+            {actionError || "Certaines données n'ont pas pu être mises à jour."}
           </section>
         ) : null}
 
@@ -345,6 +769,25 @@ export function OrdersSurface() {
                 key={order.id}
                 order={order}
                 markingId={markingId}
+                fillOrderId={fillOrderId}
+                fillForm={fillForm}
+                fillError={fillOrderId === order.id ? fillError : null}
+                onFillFormChange={setFillForm}
+                onOpenFillForm={(currentOrder) => {
+                  setFillOrderId(currentOrder.id)
+                  setFillForm({
+                    fillPrice: currentOrder.limit_price == null ? '' : String(currentOrder.limit_price),
+                    fillQuantity: currentOrder.remaining_quantity == null
+                      ? String(currentOrder.quantity ?? '')
+                      : String(currentOrder.remaining_quantity),
+                    fees: '0',
+                  })
+                  setFillError(null)
+                  setActionError(null)
+                  setActionMessage(null)
+                }}
+                onCancelFillForm={resetFillForm}
+                onConfirmFilled={confirmFilled}
                 onMarkSubmitted={markSubmitted}
                 onMarkCancelled={markCancelled}
               />
@@ -543,6 +986,16 @@ const noticeStyle: CSSProperties = {
   color: '#8B2C28',
 }
 
+const successNoticeStyle: CSSProperties = {
+  border: '1px solid rgba(45,107,31,0.25)',
+  borderRadius: 8,
+  background: 'rgba(45,107,31,0.08)',
+  padding: 12,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  color: 'var(--forest-green)',
+}
+
 const emptyStyle: CSSProperties = {
   border: '1px solid var(--border-subtle)',
   borderRadius: 8,
@@ -558,4 +1011,111 @@ const skeletonStyle: CSSProperties = {
   borderRadius: 8,
   background: 'rgba(0,0,0,0.04)',
   border: '1px solid var(--border-subtle)',
+}
+
+const formPanel: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  padding: 14,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
+
+const inlineFormPanel: CSSProperties = {
+  background: 'rgba(0,0,0,0.025)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  padding: 12,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+}
+
+const formHeader: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+}
+
+const formTitle: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 15,
+  fontWeight: 750,
+  color: 'var(--ink-primary)',
+}
+
+const formGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+}
+
+const fieldLabel: CSSProperties = {
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--ink-secondary)',
+}
+
+const inputStyle: CSSProperties = {
+  width: '100%',
+  minHeight: 38,
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  background: 'var(--canvas)',
+  color: 'var(--ink-primary)',
+  padding: '8px 10px',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  outline: 'none',
+}
+
+const formActions: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+}
+
+const ghostButton: CSSProperties = {
+  minHeight: 32,
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--ink-secondary)',
+  padding: '6px 10px',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const cancelButton: CSSProperties = {
+  minHeight: 38,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 8,
+  background: 'var(--surface)',
+  color: 'var(--ink-secondary)',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const inlineError: CSSProperties = {
+  border: '1px solid rgba(168,48,44,0.25)',
+  borderRadius: 8,
+  background: 'rgba(168,48,44,0.07)',
+  padding: 9,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 12,
+  color: '#8B2C28',
 }

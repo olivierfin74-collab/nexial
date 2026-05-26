@@ -10,6 +10,29 @@ type LifecycleOrder = {
   status_fr?: string | null;
 };
 
+function nullableString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function requiredString(value: unknown, field: string) {
+  const result = nullableString(value);
+  if (!result) throw new Error(`Missing ${field}`);
+  return result;
+}
+
+function nullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid numeric value");
+  return parsed;
+}
+
+function requiredNumber(value: unknown, field: string) {
+  const parsed = nullableNumber(value);
+  if (parsed == null) throw new Error(`Missing ${field}`);
+  return parsed;
+}
+
 function orderBucket(order: LifecycleOrder) {
   const raw = order.status || order.status_fr || "";
   const normalized = String(raw)
@@ -103,6 +126,10 @@ export async function PATCH(req: NextRequest) {
       typeof body.reason === "string" && body.reason.trim()
         ? body.reason.trim()
         : null;
+    const fillPrice = nullableNumber(body.fillPrice);
+    const fillQuantity = nullableNumber(body.fillQuantity);
+    const fees = nullableNumber(body.fees) ?? 0;
+    const filledAt = nullableString(body.filledAt);
 
     if (!orderId) {
       return NextResponse.json({ error: "Missing orderId" }, { status: 400 });
@@ -113,16 +140,35 @@ export async function PATCH(req: NextRequest) {
       auth: { persistSession: false },
     });
 
-    const rpc =
-      action === "cancelled"
-        ? supabase.rpc("fn_mark_order_cancelled", {
-            order_id: orderId,
-            reason,
-          })
-        : supabase.rpc("fn_mark_order_placed", {
-            order_id: orderId,
-            broker_ref: brokerRef,
-          });
+    let rpc;
+
+    if (action === "cancelled") {
+      rpc = supabase.rpc("fn_mark_order_cancelled", {
+        p_order_id: orderId,
+        p_reason: reason,
+      });
+    } else if (action === "filled") {
+      if (fillPrice == null || fillQuantity == null) {
+        return NextResponse.json({ error: "Missing fill fields" }, { status: 400 });
+      }
+
+      const filledArgs: Record<string, string | number | null> = {
+        p_order_id: orderId,
+        p_fill_price: fillPrice,
+        p_fill_quantity: fillQuantity,
+        p_fees: fees,
+      };
+      if (filledAt) filledArgs.p_filled_at = filledAt;
+
+      rpc = supabase.rpc("fn_mark_order_filled_manual", {
+        ...filledArgs,
+      });
+    } else {
+      rpc = supabase.rpc("fn_mark_order_placed", {
+        order_id: orderId,
+        broker_ref: brokerRef,
+      });
+    }
 
     const { data, error } = await rpc;
 
@@ -141,14 +187,26 @@ export async function PATCH(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const args = body && typeof body === "object" ? body : {};
+    const args = body && typeof body === "object" ? body as Record<string, unknown> : {};
+
+    const rpcArgs = {
+      p_user_id: nullableString(args.userId) ?? USER_ID_DEV,
+      p_account_id: requiredString(args.accountId, "accountId"),
+      p_ticker: requiredString(args.ticker, "ticker").toUpperCase(),
+      p_side: requiredString(args.side, "side"),
+      p_quantity: requiredNumber(args.quantity, "quantity"),
+      p_limit_price: nullableNumber(args.limitPrice),
+      p_order_type: nullableString(args.orderType) ?? "limit",
+      p_currency: nullableString(args.currency),
+      p_already_placed: Boolean(args.alreadyPlaced),
+    };
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       db: { schema: "public" },
       auth: { persistSession: false },
     });
 
-    const { data, error } = await supabase.rpc("fn_create_manual_order", args);
+    const { data, error } = await supabase.rpc("fn_create_manual_order", rpcArgs);
 
     if (error) throw error;
 
