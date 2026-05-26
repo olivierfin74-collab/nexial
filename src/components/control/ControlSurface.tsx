@@ -1,18 +1,25 @@
 import type { CSSProperties } from 'react'
 import { ControlHeader } from './ControlHeader'
-import type { ControlFeedRow, ControlVerdictRow, OfficialControlState } from '@/lib/control/types'
+import type {
+  ControlDataFreshnessRow,
+  ControlFeedRow,
+  ControlVerdictRow,
+  DataFreshnessFeu,
+  OfficialControlState,
+} from '@/lib/control/types'
 import { relativeTime } from '@/lib/control/relativeTime'
 
 interface ControlSurfaceProps {
   verdict: ControlVerdictRow | null
   feed: ControlFeedRow[]
+  dataFreshness: ControlDataFreshnessRow[]
   error: string | null
   now: Date
 }
 
 type Tone = 'green' | 'red' | 'amber' | 'gray'
 
-export function ControlSurface({ verdict, feed, error, now }: ControlSurfaceProps) {
+export function ControlSurface({ verdict, feed, dataFreshness, error, now }: ControlSurfaceProps) {
   const allClear = verdict?.all_clear === true
   const headline = readLabel(verdict, ['headline_fr', 'headline']) ??
     (allClear ? 'Tout est clair' : 'Control indisponible')
@@ -59,8 +66,81 @@ export function ControlSurface({ verdict, feed, error, now }: ControlSurfaceProp
             </div>
           </section>
         ) : null}
+
+        <DataFreshnessPanel rows={dataFreshness} />
       </main>
     </div>
+  )
+}
+
+function DataFreshnessPanel({ rows }: { rows: ControlDataFreshnessRow[] }) {
+  const groups = groupFreshnessByCategory(rows)
+  const globalFeu = strongestFeu(rows.map((row) => row.feu))
+  const globalTone = toneForFeu(globalFeu)
+
+  return (
+    <section style={{ ...freshnessSection, borderColor: borderForTone(globalTone), background: bgForTone(globalTone) }}>
+      <details>
+        <summary style={freshnessSummary}>
+          <span style={freshnessTitleLine}>
+            <span style={{ ...dot, background: colorForTone(globalTone) }} aria-hidden />
+            <span style={freshnessTitle}>Fraîcheur des données</span>
+          </span>
+          <span style={{ ...statePill, color: colorForTone(globalTone), background: 'var(--surface)' }}>
+            {globalFeu}
+          </span>
+        </summary>
+
+        <div style={categoryStack}>
+          {groups.map((group) => {
+            const categoryFeu = strongestFeu(group.rows.map((row) => row.feu))
+            const categoryTone = toneForFeu(categoryFeu)
+
+            return (
+              <details key={group.category} style={{ ...categoryDetails, borderColor: borderForTone(categoryTone) }}>
+                <summary style={categorySummary}>
+                  <span style={categoryName}>{group.category}</span>
+                  <span style={{ ...statePill, color: colorForTone(categoryTone), background: bgForTone(categoryTone) }}>
+                    {categoryFeu}
+                  </span>
+                </summary>
+
+                <div style={freshnessRows}>
+                  {group.rows.map((row, index) => (
+                    <FreshnessDetail key={freshnessKey(row, index)} row={row} />
+                  ))}
+                </div>
+              </details>
+            )
+          })}
+        </div>
+      </details>
+    </section>
+  )
+}
+
+function FreshnessDetail({ row }: { row: ControlDataFreshnessRow }) {
+  const tone = toneForFeu(row.feu)
+
+  return (
+    <article style={freshnessDetail}>
+      <div style={feedItemHead}>
+        <span style={cronName}>{row.cron_name ?? 'Cron non renseigne'}</span>
+        <span style={{ ...statePill, color: colorForTone(tone), background: bgForTone(tone) }}>
+          {row.feu ?? 'GREEN'}
+        </span>
+      </div>
+      <dl style={freshnessGrid}>
+        <div style={metricItem}>
+          <dt style={metricLabel}>Dernière màj</dt>
+          <dd style={metricValue}>{formatParisTimestamp(row.last_data_at)}</dd>
+        </div>
+        <div style={metricItem}>
+          <dt style={metricLabel}>Prochaine</dt>
+          <dd style={metricValue}>{formatParisTimestamp(row.next_run_at) ?? 'récurrent'}</dd>
+        </div>
+      </dl>
+    </article>
   )
 }
 
@@ -105,6 +185,66 @@ function toneForState(state: OfficialControlState | null | undefined): Tone {
     default:
       return 'gray'
   }
+}
+
+function toneForFeu(feu: DataFreshnessFeu | null | undefined): Tone {
+  switch ((feu ?? '').toUpperCase()) {
+    case 'RED':
+      return 'red'
+    case 'ORANGE':
+      return 'amber'
+    case 'GREEN':
+      return 'green'
+    default:
+      return 'gray'
+  }
+}
+
+function strongestFeu(values: Array<DataFreshnessFeu | null | undefined>): 'GREEN' | 'ORANGE' | 'RED' {
+  const normalized = values.map((value) => (value ?? '').toUpperCase())
+  if (normalized.includes('RED')) return 'RED'
+  if (normalized.includes('ORANGE')) return 'ORANGE'
+  return 'GREEN'
+}
+
+function groupFreshnessByCategory(rows: ControlDataFreshnessRow[]) {
+  const groups = new Map<string, ControlDataFreshnessRow[]>()
+
+  for (const row of rows) {
+    const category = row.categorie?.trim() || 'Sans categorie'
+    const existing = groups.get(category)
+    if (existing) {
+      existing.push(row)
+    } else {
+      groups.set(category, [row])
+    }
+  }
+
+  return Array.from(groups, ([category, groupRows]) => ({ category, rows: groupRows }))
+}
+
+function formatParisTimestamp(value: string | null): string | null {
+  if (!value) return null
+  const date = new Date(asUtcTimestamp(value))
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
+function asUtcTimestamp(value: string): string {
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) return value
+  return `${value}Z`
+}
+
+function freshnessKey(row: ControlDataFreshnessRow, index: number): string {
+  return `${row.categorie ?? 'categorie'}-${row.cron_name ?? 'cron'}-${index}`
 }
 
 function readLabel(row: Record<string, unknown> | null | undefined, keys: string[]): string | null {
@@ -292,4 +432,118 @@ const errorStyle: CSSProperties = {
   lineHeight: 1.4,
   color: 'var(--burgundy)',
   wordBreak: 'break-word',
+}
+
+const freshnessSection: CSSProperties = {
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 12,
+  padding: '12px 14px',
+}
+
+const freshnessSummary: CSSProperties = {
+  minHeight: 38,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  cursor: 'pointer',
+}
+
+const freshnessTitleLine: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 10,
+  minWidth: 0,
+}
+
+const freshnessTitle: CSSProperties = {
+  fontFamily: 'var(--font-editorial-serif)',
+  fontSize: 19,
+  fontWeight: 500,
+  lineHeight: 1.18,
+  color: 'var(--ink-primary)',
+}
+
+const categoryStack: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginTop: 10,
+}
+
+const categoryDetails: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 10,
+  padding: '9px 10px',
+}
+
+const categorySummary: CSSProperties = {
+  minHeight: 32,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  cursor: 'pointer',
+}
+
+const categoryName: CSSProperties = {
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 14,
+  fontWeight: 700,
+  lineHeight: 1.3,
+  color: 'var(--ink-primary)',
+  minWidth: 0,
+}
+
+const freshnessRows: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginTop: 8,
+}
+
+const freshnessDetail: CSSProperties = {
+  borderTop: '1px solid var(--border-subtle)',
+  paddingTop: 9,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const cronName: CSSProperties = {
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  color: 'var(--ink-secondary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const freshnessGrid: CSSProperties = {
+  margin: 0,
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 8,
+}
+
+const metricItem: CSSProperties = {
+  minWidth: 0,
+}
+
+const metricLabel: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 9.5,
+  color: 'var(--ink-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const metricValue: CSSProperties = {
+  margin: '3px 0 0',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  fontWeight: 700,
+  color: 'var(--ink-primary)',
 }

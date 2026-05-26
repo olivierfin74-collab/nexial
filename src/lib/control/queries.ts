@@ -2,10 +2,11 @@
 // Official control sources only:
 // - nx.vw_control_verdict
 // - nx.vw_control_feed
+// - nx.vw_control_data_freshness
 
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import type { ControlFeedRow, ControlVerdictRow } from './types'
+import type { ControlDataFreshnessRow, ControlFeedRow, ControlVerdictRow } from './types'
 
 async function createControlClient() {
   const cookieStore = await cookies()
@@ -54,4 +55,14 @@ export async function getControlFeed(): Promise<ControlFeedRow[]> {
 
   if (error) throw new Error(`vw_control_feed: ${error.message}`)
   return (data as ControlFeedRow[] | null) ?? []
+}
+
+export async function getControlDataFreshness(): Promise<ControlDataFreshnessRow[]> {
+  const supabase = await createControlClient()
+  const { data, error } = await supabase
+    .from('vw_control_data_freshness')
+    .select('*')
+
+  if (error) throw new Error(`vw_control_data_freshness: ${error.message}`)
+  return (data as ControlDataFreshnessRow[] | null) ?? []
 }

@@ -41,6 +41,18 @@ export interface ControlFeedRow {
   [key: string]: unknown
 }
 
+export type DataFreshnessFeu = 'GREEN' | 'ORANGE' | 'RED' | (string & {})
+
+export interface ControlDataFreshnessRow {
+  categorie: string | null
+  cron_name: string | null
+  schedule: string | null
+  last_data_at: string | null
+  next_run_at: string | null
+  hours_since: string | number | null
+  feu: DataFreshnessFeu | null
+}
+
 export interface RecentAdr {
   number: number
   title: string
