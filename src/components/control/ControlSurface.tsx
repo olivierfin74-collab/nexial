@@ -86,9 +86,7 @@ function DataFreshnessPanel({ rows }: { rows: ControlDataFreshnessRow[] }) {
             <span style={{ ...dot, background: colorForTone(globalTone) }} aria-hidden />
             <span style={freshnessTitle}>Fraîcheur des données</span>
           </span>
-          <span style={{ ...statePill, color: colorForTone(globalTone), background: 'var(--surface)' }}>
-            {globalFeu}
-          </span>
+          <FeuDot feu={globalFeu} />
         </summary>
 
         <div style={categoryStack}>
@@ -100,9 +98,7 @@ function DataFreshnessPanel({ rows }: { rows: ControlDataFreshnessRow[] }) {
               <details key={group.category} style={{ ...categoryDetails, borderColor: borderForTone(categoryTone) }}>
                 <summary style={categorySummary}>
                   <span style={categoryName}>{group.category}</span>
-                  <span style={{ ...statePill, color: colorForTone(categoryTone), background: bgForTone(categoryTone) }}>
-                    {categoryFeu}
-                  </span>
+                  <FeuDot feu={categoryFeu} />
                 </summary>
 
                 <div style={freshnessRows}>
@@ -120,15 +116,11 @@ function DataFreshnessPanel({ rows }: { rows: ControlDataFreshnessRow[] }) {
 }
 
 function FreshnessDetail({ row }: { row: ControlDataFreshnessRow }) {
-  const tone = toneForFeu(row.feu)
-
   return (
     <article style={freshnessDetail}>
       <div style={feedItemHead}>
         <span style={cronName}>{row.cron_name ?? 'Cron non renseigne'}</span>
-        <span style={{ ...statePill, color: colorForTone(tone), background: bgForTone(tone) }}>
-          {row.feu ?? 'GREEN'}
-        </span>
+        <FeuDot feu={row.feu} />
       </div>
       <dl style={freshnessGrid}>
         <div style={metricItem}>
@@ -141,6 +133,19 @@ function FreshnessDetail({ row }: { row: ControlDataFreshnessRow }) {
         </div>
       </dl>
     </article>
+  )
+}
+
+function FeuDot({ feu }: { feu: DataFreshnessFeu | null | undefined }) {
+  const label = labelForFeu(feu)
+
+  return (
+    <span
+      aria-label={label}
+      role="img"
+      style={{ ...feuDot, background: colorForFeu(feu) }}
+      title={label}
+    />
   )
 }
 
@@ -197,6 +202,32 @@ function toneForFeu(feu: DataFreshnessFeu | null | undefined): Tone {
       return 'green'
     default:
       return 'gray'
+  }
+}
+
+function colorForFeu(feu: DataFreshnessFeu | null | undefined): string {
+  switch ((feu ?? '').toUpperCase()) {
+    case 'RED':
+      return '#ef4444'
+    case 'ORANGE':
+      return '#f59e0b'
+    case 'GREEN':
+      return '#22c55e'
+    default:
+      return 'var(--ink-tertiary)'
+  }
+}
+
+function labelForFeu(feu: DataFreshnessFeu | null | undefined): string {
+  switch ((feu ?? '').toUpperCase()) {
+    case 'RED':
+      return 'problème'
+    case 'ORANGE':
+      return 'retard léger'
+    case 'GREEN':
+      return 'à jour'
+    default:
+      return 'état inconnu'
   }
 }
 
@@ -401,6 +432,15 @@ const statePill: CSSProperties = {
   fontSize: 9.5,
   fontWeight: 800,
   letterSpacing: '0.05em',
+}
+
+const feuDot: CSSProperties = {
+  width: 12,
+  height: 12,
+  borderRadius: 999,
+  display: 'inline-flex',
+  flex: '0 0 auto',
+  boxShadow: '0 0 0 2px var(--surface), 0 0 0 3px rgba(0, 0, 0, 0.05)',
 }
 
 const sourceStyle: CSSProperties = {
