@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react'
-import Link from 'next/link'
 import { AppShell } from '@/components/shell/AppShell'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
-import type { OpportunityRecord } from '@/lib/opportunityOfTheDay'
+import { OrderDraftSheet } from '@/components/mobile-v3/OrderDraftSheet'
+import type { FxRates, OpportunityRecord } from '@/lib/opportunityOfTheDay'
 
 // ---------------------------------------------------------------------------
 // ADR-44 payload contract for nx.fn_opportunity_of_the_day(p_user_id).
@@ -82,6 +82,7 @@ const BREAKDOWN_META: Array<{
 interface OpportunityOfTheDaySurfaceProps {
   payload: OpportunityRecord | null
   error?: string | null
+  fxRates?: FxRates
 }
 
 // --- Wording doctrine (ADR-38) -------------------------------------------
@@ -209,6 +210,7 @@ function pluralCount(count: number, singular: string, plural: string): string {
 export function OpportunityOfTheDaySurface({
   payload,
   error = null,
+  fxRates = { EUR: 1 },
 }: OpportunityOfTheDaySurfaceProps) {
   const data = (payload as OpportunityPayload | null) ?? null
   const dominant = isRecord(data?.dominant) ? data!.dominant! : null
@@ -235,7 +237,7 @@ export function OpportunityOfTheDaySurface({
           <NoOpportunityCard data={data} />
         ) : dominant ? (
           <>
-            <DominantCard candidate={dominant} />
+            <DominantCard candidate={dominant} fxRates={fxRates} />
             {secondary.length > 0 ? <SecondarySection candidates={secondary} /> : null}
           </>
         ) : null}
@@ -248,7 +250,13 @@ export function OpportunityOfTheDaySurface({
 
 // --- Dominant card -------------------------------------------------------
 
-function DominantCard({ candidate }: { candidate: OpportunityCandidate }) {
+function DominantCard({
+  candidate,
+  fxRates,
+}: {
+  candidate: OpportunityCandidate
+  fxRates: FxRates
+}) {
   const currency = candidate.currency ?? 'EUR'
   const profileLabel = labelFor(PROFILE_LABELS, candidate.strategic_profile)
   const convictionLabel = labelFor(CONVICTION_LABELS, candidate.conviction)
@@ -336,9 +344,20 @@ function DominantCard({ candidate }: { candidate: OpportunityCandidate }) {
         </>
       ) : null}
 
-      <Link href="/sniper" style={primaryCta}>
-        Voir le plan d&apos;entrée
-      </Link>
+      <OrderDraftSheet
+        candidate={{
+          ticker: candidate.ticker,
+          name: candidate.name,
+          asset_id: candidate.asset_id,
+          currency,
+          price: candidate.price,
+          suggested_amount_eur: candidate.suggested_amount_eur,
+          suggested_account_id: candidate.suggested_account_id,
+          suggested_account_label: candidate.suggested_account_label,
+          composite_score: candidate.composite_score,
+        }}
+        fxRate={fxRates[currency] ?? 1}
+      />
     </article>
   )
 }
@@ -784,23 +803,6 @@ const reasonsList: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 4,
-}
-
-const primaryCta: CSSProperties = {
-  minHeight: 44,
-  marginTop: 4,
-  borderRadius: 8,
-  background: 'var(--forest-deep)',
-  color: '#fff',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '0 16px',
-  textDecoration: 'none',
-  fontFamily: 'var(--font-editorial-sans)',
-  fontSize: 14,
-  fontWeight: 700,
-  alignSelf: 'flex-start',
 }
 
 const secondarySection: CSSProperties = {
