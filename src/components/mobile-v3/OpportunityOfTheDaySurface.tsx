@@ -11,9 +11,17 @@ import type { OpportunityRecord } from '@/lib/opportunityOfTheDay'
 // in-code guards over exhaustive tests), but the names are the contract.
 // ---------------------------------------------------------------------------
 
+interface DecisionBreakdown {
+  timing?: number
+  drift?: number
+  quality?: number
+  regime?: number
+}
+
 interface OpportunityCandidate {
   ticker?: string
   name?: string
+  asset_id?: string
   currency?: string
   price?: number
   target?: number
@@ -23,7 +31,12 @@ interface OpportunityCandidate {
   entry_quality_score?: number
   entry_verdict?: string
   composite_score?: number
+  decision_breakdown?: DecisionBreakdown
+  weight_current_pct?: number
+  weight_target_pct?: number
   suggested_amount_eur?: number
+  suggested_account_id?: string
+  suggested_account_label?: string
   reasons?: string[]
   routing_hint?: string | null
   constraint_reason?: string | null
@@ -33,6 +46,7 @@ interface OpportunityCandidate {
 interface OpportunityPayload {
   case?: string
   date?: string
+  engine?: string
   regime?: string
   cash_available_net_eur?: number
   total_candidates?: number
@@ -44,6 +58,26 @@ interface OpportunityPayload {
   message?: string
   candidates_evaluated?: number
 }
+
+// Decision Engine composite = sum of weighted contributions.
+// Max contribution per dimension (sums to 100):
+const BREAKDOWN_MAX: Record<keyof DecisionBreakdown, number> = {
+  timing: 40,
+  drift: 30,
+  quality: 20,
+  regime: 10,
+}
+
+const BREAKDOWN_META: Array<{
+  key: keyof DecisionBreakdown
+  label: string
+  color: string
+}> = [
+  { key: 'timing', label: 'Timing', color: '#1F4530' },
+  { key: 'drift', label: 'Dérive', color: '#A0843D' },
+  { key: 'quality', label: 'Qualité', color: '#B8860B' },
+  { key: 'regime', label: 'Régime', color: '#8B8B8B' },
+]
 
 interface OpportunityOfTheDaySurfaceProps {
   payload: OpportunityRecord | null
@@ -102,6 +136,7 @@ function formatPrice(value?: number, currency = 'EUR'): string | null {
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
     currency,
+    currencyDisplay: 'narrowSymbol',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
@@ -112,8 +147,28 @@ function formatWhole(value?: number, currency = 'EUR'): string | null {
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
     currency,
+    currencyDisplay: 'narrowSymbol',
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function formatPct(value?: number, digits = 1): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return `${value.toFixed(digits).replace('.', ',')} %`
+}
+
+function formatWeight(current?: number, target?: number): string | null {
+  const c = formatPct(current)
+  const t = formatPct(target)
+  if (c && t) return `${c} → ${t}`
+  return t ?? c
+}
+
+// entry_verdict est désormais un libellé FR prêt à afficher (Decision Engine).
+// On garde la table VERDICT_LABELS pour les anciens codes enum éventuels.
+function verdictText(raw?: string): string | null {
+  if (!raw || !raw.trim()) return null
+  return VERDICT_LABELS[raw] ?? raw
 }
 
 function formatUpside(price?: number, target?: number): string | null {
@@ -197,15 +252,18 @@ function DominantCard({ candidate }: { candidate: OpportunityCandidate }) {
   const currency = candidate.currency ?? 'EUR'
   const profileLabel = labelFor(PROFILE_LABELS, candidate.strategic_profile)
   const convictionLabel = labelFor(CONVICTION_LABELS, candidate.conviction)
-  const verdictLabel = labelFor(VERDICT_LABELS, candidate.entry_verdict)
+  const verdictLabel = verdictText(candidate.entry_verdict)
   const score = formatScore(candidate.composite_score)
   const dotColor = scoreColor(candidate.composite_score)
 
   const price = formatPrice(candidate.price, currency)
   const target = formatWhole(candidate.target, currency)
   const upside = formatUpside(candidate.price, candidate.target)
-  const sizing = formatWhole(candidate.suggested_amount_eur, currency)
+  // suggested_amount_eur est toujours libellé en EUR, indépendamment de la
+  // devise de l'actif (Visa coté USD → tranche affichée en €).
+  const sizing = formatWhole(candidate.suggested_amount_eur, 'EUR')
   const entryScore = formatScore(candidate.entry_quality_score)
+  const weight = formatWeight(candidate.weight_current_pct, candidate.weight_target_pct)
 
   const meta = [
     candidate.ticker,
@@ -231,6 +289,7 @@ function DominantCard({ candidate }: { candidate: OpportunityCandidate }) {
 
       {candidate.name ? <h1 style={dominantName}>{candidate.name}</h1> : null}
       {meta.length > 0 ? <p style={dominantMeta}>{meta.join(' · ')}</p> : null}
+      {verdictLabel ? <span style={verdictTag}>{verdictLabel}</span> : null}
 
       <div style={divider} />
 
@@ -240,17 +299,22 @@ function DominantCard({ candidate }: { candidate: OpportunityCandidate }) {
           label="Cible long terme"
           value={target ? (upside ? `${target}  (${upside})` : target) : null}
         />
+        <Fact label="Pondération" value={weight} />
         <Fact
           label="Tranche suggérée"
           value={sizing ? `${sizing} recommandés` : null}
         />
-        {verdictLabel ? (
-          <Fact
-            label="Qualité d'entrée"
-            value={entryScore ? `${verdictLabel} · ${entryScore}/10` : verdictLabel}
-          />
-        ) : null}
+        <Fact label="Compte suggéré" value={candidate.suggested_account_label ?? null} />
+        <Fact
+          label="Qualité d'entrée"
+          value={entryScore ? `${entryScore}/10` : null}
+        />
       </dl>
+
+      <DecisionBreakdownPanel
+        breakdown={candidate.decision_breakdown}
+        composite={candidate.composite_score}
+      />
 
       {reasons.length > 0 ? (
         <>
@@ -302,6 +366,61 @@ function Fact({ label, value }: { label: string; value: string | null }) {
   )
 }
 
+function DecisionBreakdownPanel({
+  breakdown,
+  composite,
+}: {
+  breakdown?: DecisionBreakdown
+  composite?: number
+}) {
+  if (!breakdown) return null
+
+  const segments = BREAKDOWN_META.map((meta) => {
+    const raw = breakdown[meta.key]
+    const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    return { ...meta, value, max: BREAKDOWN_MAX[meta.key] }
+  }).filter((s) => s.value > 0)
+
+  if (segments.length === 0) return null
+
+  const total = segments.reduce((sum, seg) => sum + seg.value, 0)
+  const scale = typeof composite === 'number' && Number.isFinite(composite) ? composite : total
+  const remainder = Math.max(0, 100 - scale)
+
+  return (
+    <>
+      <div style={divider} />
+      <div>
+        <p style={justificationTitle}>Décomposition du score</p>
+        <div style={breakdownBar} role="img" aria-label="Contributions au score composite">
+          {segments.map((seg) => (
+            <span
+              key={seg.key}
+              style={{
+                flexGrow: seg.value,
+                flexBasis: 0,
+                background: seg.color,
+              }}
+            />
+          ))}
+          {remainder > 0 ? (
+            <span style={{ flexGrow: remainder, flexBasis: 0, background: 'transparent' }} />
+          ) : null}
+        </div>
+        <div style={breakdownLegend}>
+          {segments.map((seg) => (
+            <span key={seg.key} style={legendItem}>
+              <span style={{ ...legendDot, background: seg.color }} aria-hidden />
+              {seg.label}&nbsp;{formatScore(seg.value)}
+              <span style={legendMax}>/{seg.max}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // --- Secondary cards -----------------------------------------------------
 
 function SecondarySection({ candidates }: { candidates: OpportunityCandidate[] }) {
@@ -330,10 +449,15 @@ function SecondaryCard({ candidate }: { candidate: OpportunityCandidate }) {
   const price = formatPrice(candidate.price, currency)
   const target = formatWhole(candidate.target, currency)
   const upside = formatUpside(candidate.price, candidate.target)
-  const sizing = formatWhole(candidate.suggested_amount_eur, currency)
+  const sizing = formatWhole(candidate.suggested_amount_eur, 'EUR')
+  const weight = formatWeight(candidate.weight_current_pct, candidate.weight_target_pct)
 
   const heading = [candidate.ticker, candidate.name].filter(Boolean).join(' · ')
   const meta = [profileLabel, convictionLabel].filter(Boolean).join(' · ')
+  const footerBits = [
+    weight ? `Pondération ${weight}` : null,
+    candidate.suggested_account_label,
+  ].filter(Boolean)
 
   return (
     <article style={secondaryCard}>
@@ -361,6 +485,9 @@ function SecondaryCard({ candidate }: { candidate: OpportunityCandidate }) {
       ) : null}
       {sizing ? (
         <p style={secondarySizing}>Tranche suggérée&nbsp;&nbsp;{sizing}</p>
+      ) : null}
+      {footerBits.length > 0 ? (
+        <p style={secondarySizing}>{footerBits.join(' · ')}</p>
       ) : null}
     </article>
   )
@@ -426,12 +553,25 @@ function Footer({ data }: { data: OpportunityPayload }) {
       : null,
   ].filter(Boolean)
 
-  if (line1.length === 0 && line2.length === 0) return null
+  const engine = typeof data.engine === 'string' && data.engine.trim()
+    ? data.engine
+        .split('_')
+        .filter(Boolean)
+        .map((word) =>
+          /^v\d+$/i.test(word)
+            ? word.toLowerCase()
+            : word.charAt(0).toUpperCase() + word.slice(1),
+        )
+        .join(' ')
+    : null
+
+  if (line1.length === 0 && line2.length === 0 && !engine) return null
 
   return (
     <footer style={footer}>
       {line1.length > 0 ? <p style={footerLine}>{line1.join(' · ')}</p> : null}
       {line2.length > 0 ? <p style={footerLine}>{line2.join(' · ')}</p> : null}
+      {engine ? <p style={footerLine}>Moteur décisionnel&nbsp;: {engine}</p> : null}
     </footer>
   )
 }
@@ -536,6 +676,53 @@ const dominantMeta: CSSProperties = {
   fontSize: 11.5,
   color: 'var(--ink-secondary)',
   letterSpacing: '0.04em',
+}
+
+const verdictTag: CSSProperties = {
+  alignSelf: 'flex-start',
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--forest-deep)',
+  background: 'rgba(31, 69, 48, 0.08)',
+  borderRadius: 6,
+  padding: '3px 9px',
+}
+
+const breakdownBar: CSSProperties = {
+  display: 'flex',
+  height: 8,
+  borderRadius: 999,
+  overflow: 'hidden',
+  background: 'var(--border-subtle)',
+  gap: 2,
+  margin: '2px 0 8px',
+}
+
+const breakdownLegend: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '4px 12px',
+}
+
+const legendItem: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 11,
+  color: 'var(--ink-secondary)',
+}
+
+const legendDot: CSSProperties = {
+  width: 7,
+  height: 7,
+  borderRadius: '50%',
+  display: 'inline-block',
+}
+
+const legendMax: CSSProperties = {
+  color: 'var(--ink-tertiary)',
 }
 
 const divider: CSSProperties = {
