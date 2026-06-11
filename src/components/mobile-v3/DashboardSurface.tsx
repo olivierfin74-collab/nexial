@@ -15,23 +15,47 @@
 // No metier recompute, no client-side ranking. All amounts, labels,
 // signals and CTAs come from the backend payloads.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Target } from 'lucide-react'
 import { AppShell } from '@/components/shell/AppShell'
 import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
+import { ExitPlanModal, LadderBuilderModal, ThesisEditorModal } from '@/components/ui/decisional'
+import type { DispatchModalContext } from '@/types/decision'
 import type {
   DashboardHeaderPayload,
   FetchEnvelope,
-  FocusAsset,
-  FocusAssetsListPayload,
   FocusTodayItem,
   FocusTodayPayload,
   MarketContext,
   PortfolioCashAccount,
   PortfolioCashBreakdownPayload,
+  SniperCard,
+  SniperDashboardPayload,
 } from '@/types/nexial-v3'
+
+// ─────────────────────────────────────────────────────────
+// Morning-brief CTA — chaque proposition ouvre SA modale native.
+// ─────────────────────────────────────────────────────────
+type BriefModalSlot = 'thesis' | 'ladder' | 'exit'
+
+interface BriefModalState {
+  slot: BriefModalSlot | null
+  assetId: string | null
+  ticker: string | null
+  urgent: boolean
+  context: DispatchModalContext | null
+}
+
+const closedBriefModal: BriefModalState = {
+  slot: null,
+  assetId: null,
+  ticker: null,
+  urgent: false,
+  context: null,
+}
 
 interface SurfaceState<T> {
   data: T | null
@@ -125,6 +149,30 @@ function distanceTone(color: string | undefined): string {
   }
 }
 
+// Qualitative distance state — mirrors the Sniper page wording so the
+// ribbon speaks the same language as /sniper (single source of truth).
+function distanceLabel(distance_z2_pct: number | null | undefined): string | null {
+  if (distance_z2_pct == null || !Number.isFinite(distance_z2_pct)) return null
+  const abs = Math.abs(distance_z2_pct)
+  if (abs < 1) return 'Dans la zone'
+  if (abs < 3) return 'Proche zone'
+  if (abs <= 10) return 'Approche'
+  return 'Loin'
+}
+
+function formatTarget(value: number | null | undefined, currency: string | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: currency || 'EUR',
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${value} ${currency || 'EUR'}`
+  }
+}
+
 function verdictTone(color: string | undefined): string {
   // Backend-driven verdict color → paper palette token. Same family
   // as distanceTone; kept separate so we can adjust independently.
@@ -184,8 +232,9 @@ export function DashboardSurface() {
   const [header, setHeader] = useState<SurfaceState<DashboardHeaderPayload>>(initial)
   const [cash, setCash] = useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
   const [focusToday, setFocusToday] = useState<SurfaceState<FocusTodayPayload>>(initial)
-  const [focusAssets, setFocusAssets] = useState<SurfaceState<FocusAssetsListPayload>>(initial)
+  const [sniperDash, setSniperDash] = useState<SurfaceState<SniperDashboardPayload>>(initial)
   const [expanded, setExpanded] = useState(false)
+  const [briefModal, setBriefModal] = useState<BriefModalState>(closedBriefModal)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -198,13 +247,13 @@ export function DashboardSurface() {
         ctrl.signal,
       ),
       fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', ctrl.signal),
-      fetchEnvelope<FocusAssetsListPayload>('/api/mobile/focus-assets-list', ctrl.signal),
-    ]).then(([h, c, f, fa]) => {
+      fetchEnvelope<SniperDashboardPayload>('/api/mobile/sniper-dashboard', ctrl.signal),
+    ]).then(([h, c, f, sd]) => {
       if (cancelled) return
       setHeader(h)
       setCash(c)
       setFocusToday(f)
-      setFocusAssets(fa)
+      setSniperDash(sd)
     })
 
     return () => {
@@ -229,8 +278,15 @@ export function DashboardSurface() {
     [focusToday.data?.market_context],
   )
 
-  const focusList = focusAssets.data?.focus_assets ?? []
-  const sniperRibbon = useMemo(() => focusList.slice(0, 5), [focusList])
+  // "Actifs en surveillance" = intentions Sniper ACTIVES, pas la liste
+  // FOCUS (user_position_thesis) qui faisait remonter des cibles CANCELLED
+  // (AI/MELI/SAP/MSFT). fn_sniper_dashboard renvoie TOUS les STRONG_BUY +
+  // ceux ayant un sniper actif ; on ne garde que ceux avec une cible active.
+  const activeSnipers = useMemo(
+    () => (sniperDash.data?.snipers ?? []).filter((s) => (s.sniper_targets_count ?? 0) > 0),
+    [sniperDash.data?.snipers],
+  )
+  const sniperRibbon = useMemo(() => activeSnipers.slice(0, 5), [activeSnipers])
 
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
@@ -298,11 +354,53 @@ export function DashboardSurface() {
       </div>
     ) : null
 
-  // CTA dispatch on Dashboard stays lightweight: every row in the
-  // morning brief routes to /aujourdhui where modals (LadderBuilder,
-  // ExitPlan, ThesisEditor) are wired. The 30-second view never opens
-  // heavy UI locally.
-  const goAujourdhui = () => router.push('/aujourdhui')
+  // Chaque ligne du brief déclenche SON cta natif (fn_focus_today.cta) :
+  // redirect_kind + modal_context.props → on ouvre la bonne modale pour LE
+  // bon actif. Fini le lien générique vers /aujourdhui, qui atterrissait
+  // sur le pick unique du moteur d'achat (NVDA) quel que soit l'actif cliqué.
+  const handleBriefCta = useCallback(
+    (item: FocusTodayItem) => {
+      const cta = item.cta
+      const kind = cta?.redirect_kind
+      const props = cta?.modal_context?.props ?? {}
+      const assetId = typeof props.asset_id === 'string' ? props.asset_id : item.asset_id || null
+      const alertId = typeof props.alert_id === 'string' ? props.alert_id : item.alert_id || undefined
+      const context: DispatchModalContext = {
+        modal_name: cta?.modal_context?.modal_name ?? '',
+        asset_id: assetId,
+        alert_id: alertId,
+        ticker: item.ticker,
+      }
+      switch (kind) {
+        case 'open_thesis_modal':
+        case 'open_thesis_modal_urgent':
+          setBriefModal({
+            slot: 'thesis',
+            assetId,
+            ticker: item.ticker,
+            urgent: props.urgent === true || kind === 'open_thesis_modal_urgent',
+            context,
+          })
+          return
+        case 'open_ladder_modal':
+          setBriefModal({ slot: 'ladder', assetId, ticker: item.ticker, urgent: false, context })
+          return
+        case 'open_exit_modal':
+          setBriefModal({ slot: 'exit', assetId, ticker: item.ticker, urgent: false, context })
+          return
+        case 'navigate_to_asset':
+          router.push('/sniper')
+          return
+        default:
+          // Backend peut ajouter de nouveaux kinds : on ne navigue jamais
+          // au hasard. Garde défensive plutôt qu'un atterrissage faux.
+          toast.info('Action bientôt disponible')
+      }
+    },
+    [router],
+  )
+
+  const closeBriefModal = useCallback(() => setBriefModal(closedBriefModal), [])
 
   return (
     <AppShell>
@@ -588,7 +686,7 @@ export function DashboardSurface() {
                   key={item.alert_id || item.asset_id || item.ticker}
                   item={item}
                   isLast={idx === morningPriorities.length - 1}
-                  onOpen={goAujourdhui}
+                  onOpen={() => handleBriefCta(item)}
                 />
               ))}
             </ul>
@@ -598,19 +696,19 @@ export function DashboardSurface() {
         <CollapsibleSection
           groupKey="dashboard-sniper-ribbon"
           title={
-            sniperRibbon.length > 0
-              ? `${sniperRibbon.length} actif${sniperRibbon.length > 1 ? 's' : ''} en surveillance`
+            activeSnipers.length > 0
+              ? `${activeSnipers.length} actif${activeSnipers.length > 1 ? 's' : ''} en surveillance`
               : 'Actifs en surveillance'
           }
           count={null}
-          subtitle="Actifs proches d’une zone ou à suivre."
+          subtitle="Intentions Sniper actives, proches d’une zone."
           defaultOpen
         >
-          {focusAssets.loading ? (
+          {sniperDash.loading ? (
             <p aria-busy="true" style={paragraph}>
               Chargement…
             </p>
-          ) : focusAssets.error ? (
+          ) : sniperDash.error ? (
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : sniperRibbon.length === 0 ? (
             <p style={paragraph}>Aucun actif en surveillance rapprochée.</p>
@@ -634,7 +732,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-          {!focusAssets.loading ? (
+          {!sniperDash.loading ? (
             <button
               type="button"
               onClick={() => router.push('/sniper')}
@@ -657,20 +755,45 @@ export function DashboardSurface() {
           ) : null}
         </CollapsibleSection>
       </div>
+
+      {/* Modales décisionnelles ouvertes par le cta natif de chaque
+          proposition du brief. asset_id ciblé → toujours le bon actif. */}
+      <ThesisEditorModal
+        open={briefModal.slot === 'thesis'}
+        assetId={briefModal.assetId}
+        ticker={briefModal.ticker ?? undefined}
+        urgent={briefModal.urgent}
+        onClose={closeBriefModal}
+      />
+      <LadderBuilderModal
+        open={briefModal.slot === 'ladder'}
+        context={briefModal.context}
+        onClose={closeBriefModal}
+      />
+      <ExitPlanModal
+        open={briefModal.slot === 'exit'}
+        context={briefModal.context}
+        onClose={closeBriefModal}
+      />
     </AppShell>
   )
 }
 
 interface SniperRibbonRowProps {
-  asset: FocusAsset
+  asset: SniperCard
   isLast: boolean
   onOpen: () => void
 }
 
 function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
-  const target = asset.price_targets?.[0]
-  const distancePct = target?.distance_pct
+  // Enrichissement déjà calculé par fn_sniper_dashboard : prix courant,
+  // couleur de distance, label qualitatif "Approche". Identique à /sniper.
+  const target = asset.sniper_targets?.[0] as Record<string, unknown> | undefined
+  const targetPrice = typeof target?.target_price === 'number' ? target.target_price : null
+  const priceDisplay = asset.card_summary?.price_display
   const distanceColor = asset.signal?.distance_color
+  const dLabel = distanceLabel(asset.signal?.distance_z2_pct ?? null)
+  const cibleLabel = formatTarget(targetPrice, asset.currency)
 
   return (
     <li
@@ -725,19 +848,47 @@ function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
             {asset.ticker}
           </span>
         </span>
-        {Number.isFinite(distancePct) && distancePct != null ? (
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 11,
-              fontWeight: 700,
-              color: distanceTone(distanceColor),
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {Math.abs(distancePct).toFixed(2)} % avant achat
-          </span>
-        ) : null}
+        <span
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 2,
+            flexShrink: 0,
+          }}
+        >
+          {priceDisplay ? (
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--ink-primary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {priceDisplay}
+            </span>
+          ) : null}
+          {cibleLabel || dLabel ? (
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 10.5,
+                color: 'var(--ink-secondary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cibleLabel ? `Cible ${cibleLabel}` : null}
+              {cibleLabel && dLabel ? ' · ' : null}
+              {dLabel ? (
+                <span style={{ color: distanceTone(distanceColor), fontWeight: 700 }}>
+                  {dLabel}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
         <ChevronRight size={14} aria-hidden style={{ color: 'var(--ink-tertiary)', flexShrink: 0 }} />
       </button>
     </li>
@@ -768,7 +919,9 @@ function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
     typeof item.context_compact?.delta_display === 'string'
       ? item.context_compact.delta_display
       : null
-  const ctaLabel = 'Voir dans Aujourd’hui'
+  // Libellé natif du cta backend ("Définir ma stratégie", "Voir le plan
+  // d'achat"…) — plus de "Voir dans Aujourd'hui" générique et trompeur.
+  const ctaLabel = item.cta?.label_fr?.trim() || 'Voir le détail'
 
   return (
     <li
