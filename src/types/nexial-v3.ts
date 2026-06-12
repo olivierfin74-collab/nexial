@@ -363,6 +363,100 @@ export interface FocusAssetsListPayload {
 }
 
 // ════════════════════════════════════════════════════════
+// fn_execution_planner — CIO execution sections (Dashboard)
+// Render-only: the front consumes the payload order verbatim and
+// never sorts/filters/derives. Unstable nested blocks are tagged
+// `unknown` via index signatures — never invent a shape.
+// ════════════════════════════════════════════════════════
+export interface ExecutionPlannerEntry {
+  recommended_action: string;
+  recommended_limit_native?: number | null;
+  current_price?: number | null;
+  [key: string]: unknown;
+}
+
+export interface ExecutionPlannerSuggestedTranche {
+  mode?: string;
+  account?: string | null;
+  whole_shares?: number | null;
+  limit_price_native?: number | null;
+  capped_by_envelope_cash?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ExecutionPlannerOrderActiveDetail {
+  side?: string;
+  currency?: string;
+  quantity?: number;
+  limit_price?: number;
+  submitted_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ExecutionPlannerOrderStatus {
+  active: boolean;
+  active_detail?: ExecutionPlannerOrderActiveDetail | null;
+  executed_recent: boolean;
+}
+
+export interface ExecutionPlannerZoneDistances {
+  z1?: number | null;
+  z2?: number | null;
+  z3?: number | null;
+}
+
+export interface ExecutionPlannerItem {
+  rank: number;
+  ticker: string;
+  name: string;
+  asset_id: string;
+  market_zone?: string;
+  is_pea?: boolean;
+  is_held?: boolean;
+  deployment_score: number;
+  urgency_score: number;
+  urgency_reason_fr?: string;
+  zone_state: 'APPROCHE_ZONE' | 'ZONE_ATTEINTE' | (string & {});
+  zone_state_label_fr?: string;
+  nearest_zone_distance_pct?: number | null;
+  zone_distances_pct?: ExecutionPlannerZoneDistances;
+  need_eur?: number | null;
+  current_price?: number | null;
+  suggested_account_label?: string | null;
+  suggested_tranche?: ExecutionPlannerSuggestedTranche | null;
+  order_status?: ExecutionPlannerOrderStatus | null;
+  entry?: ExecutionPlannerEntry | null;
+  reasons?: string[];
+  [key: string]: unknown;
+}
+
+export interface ExecutionPlannerSection {
+  title_fr: string;
+  subtitle_fr: string;
+  count: number;
+  items: ExecutionPlannerItem[];
+}
+
+export interface ExecutionPlannerSections {
+  priorites_cio_du_jour: ExecutionPlannerSection;
+  opportunites_en_approche: ExecutionPlannerSection;
+}
+
+export interface ExecutionPlannerTotals {
+  priorites: number;
+  en_approche: number;
+}
+
+export interface ExecutionPlannerPayload {
+  schema_version?: string;
+  user_id: string;
+  generated_at: string;
+  totals: ExecutionPlannerTotals;
+  empty_state_fr: string | null;
+  sections: ExecutionPlannerSections;
+}
+
+// ════════════════════════════════════════════════════════
 // fn_dashboard_header — patrimoine recap header
 // ════════════════════════════════════════════════════════
 export interface DashboardCash {
