@@ -23,14 +23,13 @@ import { CollapsibleSection } from '@/components/shell/CollapsibleSection'
 import { MobileTopHeader } from '@/components/shell/MobileTopHeader'
 import type {
   DashboardHeaderPayload,
+  ExecutionPlannerItem,
+  ExecutionPlannerPayload,
   FetchEnvelope,
-  FocusAsset,
-  FocusAssetsListPayload,
-  FocusTodayItem,
-  FocusTodayPayload,
-  MarketContext,
   PortfolioCashAccount,
   PortfolioCashBreakdownPayload,
+  SniperCard,
+  SniperDashboardPayload,
 } from '@/types/nexial-v3'
 
 interface SurfaceState<T> {
@@ -125,33 +124,28 @@ function distanceTone(color: string | undefined): string {
   }
 }
 
-function verdictTone(color: string | undefined): string {
-  // Backend-driven verdict color → paper palette token. Same family
-  // as distanceTone; kept separate so we can adjust independently.
-  switch (color) {
-    case 'green':
-      return CASH_POSITIVE
-    case 'yellow':
-      return CASH_GOLD
-    case 'red':
-      return CASH_NEGATIVE
-    case 'neutral':
-    default:
-      return CASH_INK_SOFT
-  }
+// Qualitative distance state — mirrors the Sniper page wording so the
+// ribbon speaks the same language as /sniper (single source of truth).
+function distanceLabel(distance_z2_pct: number | null | undefined): string | null {
+  if (distance_z2_pct == null || !Number.isFinite(distance_z2_pct)) return null
+  const abs = Math.abs(distance_z2_pct)
+  if (abs < 1) return 'Dans la zone'
+  if (abs < 3) return 'Proche zone'
+  if (abs <= 10) return 'Approche'
+  return 'Loin'
 }
 
-function buildMarketLine(ctx: MarketContext | undefined): string {
-  if (!ctx) return ''
-  const parts: string[] = []
-  if (ctx.regime_label_fr) parts.push(ctx.regime_label_fr)
-  const eu = ctx.eu_open === true
-  const us = ctx.us_open === true
-  if (eu && us) parts.push('EU et US ouverts')
-  else if (eu) parts.push('EU ouverts')
-  else if (us) parts.push('US ouverts')
-  else parts.push('Marchés fermés')
-  return parts.join(' · ')
+function formatTarget(value: number | null | undefined, currency: string | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: currency || 'EUR',
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${value} ${currency || 'EUR'}`
+  }
 }
 
 // Front-side override for the freshness chip wording. Backend ships
@@ -168,23 +162,12 @@ function computeFreshnessLabel(
   return freshness.label_fr
 }
 
-function emptyMorningMessage(payload: FocusTodayPayload | null | undefined): string {
-  const e = payload?.empty_state
-  if (e && typeof e === 'object') {
-    const candidate = (e as Record<string, unknown>).message_fr
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate
-    }
-  }
-  return 'Marchés calmes ce matin, rien d’urgent.'
-}
-
 export function DashboardSurface() {
   const router = useRouter()
   const [header, setHeader] = useState<SurfaceState<DashboardHeaderPayload>>(initial)
   const [cash, setCash] = useState<SurfaceState<PortfolioCashBreakdownPayload>>(initial)
-  const [focusToday, setFocusToday] = useState<SurfaceState<FocusTodayPayload>>(initial)
-  const [focusAssets, setFocusAssets] = useState<SurfaceState<FocusAssetsListPayload>>(initial)
+  const [sniperDash, setSniperDash] = useState<SurfaceState<SniperDashboardPayload>>(initial)
+  const [planner, setPlanner] = useState<SurfaceState<ExecutionPlannerPayload>>(initial)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
@@ -197,14 +180,14 @@ export function DashboardSurface() {
         '/api/mobile/portfolio-cash-breakdown',
         ctrl.signal,
       ),
-      fetchEnvelope<FocusTodayPayload>('/api/mobile/focus-today', ctrl.signal),
-      fetchEnvelope<FocusAssetsListPayload>('/api/mobile/focus-assets-list', ctrl.signal),
-    ]).then(([h, c, f, fa]) => {
+      fetchEnvelope<SniperDashboardPayload>('/api/mobile/sniper-dashboard', ctrl.signal),
+      fetchEnvelope<ExecutionPlannerPayload>('/api/mobile/execution-planner', ctrl.signal),
+    ]).then(([h, c, sd, ep]) => {
       if (cancelled) return
       setHeader(h)
       setCash(c)
-      setFocusToday(f)
-      setFocusAssets(fa)
+      setSniperDash(sd)
+      setPlanner(ep)
     })
 
     return () => {
@@ -220,17 +203,24 @@ export function DashboardSurface() {
   const accountsAll = cash.data?.accounts ?? []
   const visibleAccounts = useMemo(() => accountsAll.filter(hasMoney), [accountsAll])
 
-  const morningPriorities = useMemo(
-    () => (focusToday.data?.priorities ?? []).slice(0, 3),
-    [focusToday.data?.priorities],
+  // "Actifs en surveillance" = intentions Sniper ACTIVES, pas la liste
+  // FOCUS (user_position_thesis) qui faisait remonter des cibles CANCELLED
+  // (AI/MELI/SAP/MSFT). fn_sniper_dashboard renvoie TOUS les STRONG_BUY +
+  // ceux ayant un sniper actif ; on ne garde que ceux avec une cible active.
+  const activeSnipers = useMemo(
+    () => (sniperDash.data?.snipers ?? []).filter((s) => (s.sniper_targets_count ?? 0) > 0),
+    [sniperDash.data?.snipers],
   )
-  const morningMarketLine = useMemo(
-    () => buildMarketLine(focusToday.data?.market_context),
-    [focusToday.data?.market_context],
-  )
+  const sniperRibbon = useMemo(() => activeSnipers.slice(0, 5), [activeSnipers])
 
-  const focusList = focusAssets.data?.focus_assets ?? []
-  const sniperRibbon = useMemo(() => focusList.slice(0, 5), [focusList])
+  // Execution planner — fn_execution_planner. Ordre du payload consommé
+  // verbatim, aucun tri/filtre front.
+  const plannerSections = planner.data?.sections
+  const prioItems = plannerSections?.priorites_cio_du_jour?.items ?? []
+  const apprItems = plannerSections?.opportunites_en_approche?.items ?? []
+  const plannerTotals = planner.data?.totals
+  const plannerEmpty =
+    !!planner.data && (plannerTotals?.priorites ?? 0) === 0 && (plannerTotals?.en_approche ?? 0) === 0
 
   const isLoading = header.loading || cash.loading
   const hasData = !!patrimoine && !!totals
@@ -297,12 +287,6 @@ export function DashboardSurface() {
         ) : null}
       </div>
     ) : null
-
-  // CTA dispatch on Dashboard stays lightweight: every row in the
-  // morning brief routes to /aujourdhui where modals (LadderBuilder,
-  // ExitPlan, ThesisEditor) are wired. The 30-second view never opens
-  // heavy UI locally.
-  const goAujourdhui = () => router.push('/aujourdhui')
 
   return (
     <AppShell>
@@ -554,63 +538,76 @@ export function DashboardSurface() {
           ) : null}
         </section>
 
-        <CollapsibleSection
-          groupKey="dashboard-morning-brief"
-          title={
-            morningPriorities.length > 0
-              ? `Aujourd’hui · ${morningPriorities.length} proposition${morningPriorities.length > 1 ? 's' : ''}`
-              : 'Aujourd’hui'
-          }
-          count={null}
-          subtitle={morningMarketLine || undefined}
-          defaultOpen
-        >
-          {focusToday.loading && !focusToday.data ? (
+        {/* Plan d'exécution du jour — source unique fn_execution_planner.
+            Remplace l'ancien brief fn_focus_today (AI/SAP/Adyen). */}
+        {planner.loading && !planner.data ? (
+          <CollapsibleSection
+            groupKey="dashboard-exec-loading"
+            title="Plan d’exécution du jour"
+            count={null}
+            defaultOpen
+          >
             <p aria-busy="true" style={paragraph}>
               Chargement…
             </p>
-          ) : focusToday.error ? (
+          </CollapsibleSection>
+        ) : planner.error && !planner.data ? (
+          <CollapsibleSection
+            groupKey="dashboard-exec-error"
+            title="Plan d’exécution du jour"
+            count={null}
+            defaultOpen
+          >
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
-          ) : morningPriorities.length === 0 ? (
-            <p style={paragraph}>{emptyMorningMessage(focusToday.data)}</p>
-          ) : (
-            <ul
-              style={{
-                listStyle: 'none',
-                margin: 0,
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {morningPriorities.map((item, idx) => (
-                <MorningBriefRow
-                  key={item.alert_id || item.asset_id || item.ticker}
-                  item={item}
-                  isLast={idx === morningPriorities.length - 1}
-                  onOpen={goAujourdhui}
-                />
-              ))}
-            </ul>
-          )}
-        </CollapsibleSection>
+          </CollapsibleSection>
+        ) : plannerEmpty ? (
+          <CollapsibleSection
+            groupKey="dashboard-exec-empty"
+            title="Plan d’exécution du jour"
+            count={null}
+            defaultOpen
+          >
+            <p style={paragraph}>
+              {planner.data?.empty_state_fr ??
+                'Aucune opportunité aujourd’hui — ne rien faire est une décision valide.'}
+            </p>
+          </CollapsibleSection>
+        ) : planner.data ? (
+          <>
+            <ExecutionPlannerSectionView
+              groupKey="dashboard-exec-prio"
+              title={plannerSections?.priorites_cio_du_jour?.title_fr ?? 'Priorités CIO du jour'}
+              subtitle={plannerSections?.priorites_cio_du_jour?.subtitle_fr}
+              items={prioItems}
+            />
+            <ExecutionPlannerSectionView
+              groupKey="dashboard-exec-appr"
+              title={
+                plannerSections?.opportunites_en_approche?.title_fr ?? 'Opportunités en approche'
+              }
+              subtitle={plannerSections?.opportunites_en_approche?.subtitle_fr}
+              items={apprItems}
+              maxItems={8}
+            />
+          </>
+        ) : null}
 
         <CollapsibleSection
           groupKey="dashboard-sniper-ribbon"
           title={
-            sniperRibbon.length > 0
-              ? `${sniperRibbon.length} actif${sniperRibbon.length > 1 ? 's' : ''} en surveillance`
+            activeSnipers.length > 0
+              ? `${activeSnipers.length} actif${activeSnipers.length > 1 ? 's' : ''} en surveillance`
               : 'Actifs en surveillance'
           }
           count={null}
-          subtitle="Actifs proches d’une zone ou à suivre."
+          subtitle="Intentions Sniper actives, proches d’une zone."
           defaultOpen
         >
-          {focusAssets.loading ? (
+          {sniperDash.loading ? (
             <p aria-busy="true" style={paragraph}>
               Chargement…
             </p>
-          ) : focusAssets.error ? (
+          ) : sniperDash.error ? (
             <p style={paragraph}>Certaines données n’ont pas pu être mises à jour.</p>
           ) : sniperRibbon.length === 0 ? (
             <p style={paragraph}>Aucun actif en surveillance rapprochée.</p>
@@ -634,7 +631,7 @@ export function DashboardSurface() {
               ))}
             </ul>
           )}
-          {!focusAssets.loading ? (
+          {!sniperDash.loading ? (
             <button
               type="button"
               onClick={() => router.push('/sniper')}
@@ -662,15 +659,20 @@ export function DashboardSurface() {
 }
 
 interface SniperRibbonRowProps {
-  asset: FocusAsset
+  asset: SniperCard
   isLast: boolean
   onOpen: () => void
 }
 
 function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
-  const target = asset.price_targets?.[0]
-  const distancePct = target?.distance_pct
+  // Enrichissement déjà calculé par fn_sniper_dashboard : prix courant,
+  // couleur de distance, label qualitatif "Approche". Identique à /sniper.
+  const target = asset.sniper_targets?.[0] as Record<string, unknown> | undefined
+  const targetPrice = typeof target?.target_price === 'number' ? target.target_price : null
+  const priceDisplay = asset.card_summary?.price_display
   const distanceColor = asset.signal?.distance_color
+  const dLabel = distanceLabel(asset.signal?.distance_z2_pct ?? null)
+  const cibleLabel = formatTarget(targetPrice, asset.currency)
 
   return (
     <li
@@ -725,19 +727,47 @@ function SniperRibbonRow({ asset, isLast, onOpen }: SniperRibbonRowProps) {
             {asset.ticker}
           </span>
         </span>
-        {Number.isFinite(distancePct) && distancePct != null ? (
-          <span
-            style={{
-              fontFamily: 'var(--font-editorial-mono)',
-              fontSize: 11,
-              fontWeight: 700,
-              color: distanceTone(distanceColor),
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {Math.abs(distancePct).toFixed(2)} % avant achat
-          </span>
-        ) : null}
+        <span
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 2,
+            flexShrink: 0,
+          }}
+        >
+          {priceDisplay ? (
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--ink-primary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {priceDisplay}
+            </span>
+          ) : null}
+          {cibleLabel || dLabel ? (
+            <span
+              style={{
+                fontFamily: 'var(--font-editorial-mono)',
+                fontSize: 10.5,
+                color: 'var(--ink-secondary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cibleLabel ? `Cible ${cibleLabel}` : null}
+              {cibleLabel && dLabel ? ' · ' : null}
+              {dLabel ? (
+                <span style={{ color: distanceTone(distanceColor), fontWeight: 700 }}>
+                  {dLabel}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
         <ChevronRight size={14} aria-hidden style={{ color: 'var(--ink-tertiary)', flexShrink: 0 }} />
       </button>
     </li>
@@ -752,147 +782,306 @@ const paragraph: React.CSSProperties = {
   lineHeight: 1.4,
 }
 
-interface MorningBriefRowProps {
-  item: FocusTodayItem
-  isLast: boolean
-  onOpen: () => void
+// ─────────────────────────────────────────────────────────
+// Execution planner — sections "Priorités CIO du jour" /
+// "Opportunités en approche". Render-only : chaque champ vient
+// déjà calculé du payload fn_execution_planner.
+// ─────────────────────────────────────────────────────────
+function formatNum(value: number | null | undefined, digits = 2): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(value)
+  } catch {
+    return String(value)
+  }
 }
 
-function MorningBriefRow({ item, isLast, onOpen }: MorningBriefRowProps) {
-  const accent = verdictTone(item.verdict?.color)
-  const priceDisplay =
-    typeof item.context_compact?.price_display === 'string'
-      ? item.context_compact.price_display
-      : null
-  const deltaDisplay =
-    typeof item.context_compact?.delta_display === 'string'
-      ? item.context_compact.delta_display
-      : null
-  const ctaLabel = 'Voir dans Aujourd’hui'
+function formatSignedPct(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
+  return `${sign}${formatNum(Math.abs(value), 2)} %`
+}
 
+function zoneStateTone(state: string | undefined): string {
+  switch (state) {
+    case 'ZONE_ATTEINTE':
+      return CASH_POSITIVE
+    case 'APPROCHE_ZONE':
+      return CASH_GOLD
+    default:
+      return CASH_INK_SOFT
+  }
+}
+
+function executionActionLabel(code: string | undefined): string | null {
+  switch (code) {
+    case 'WAIT_LIMIT_ORDER':
+      return 'Ordre limite conseillé'
+    case 'BUY_NOW':
+    case 'EXECUTE_NOW':
+      return 'Exécutable maintenant'
+    case 'WAIT':
+      return 'Attendre'
+    default:
+      return code ?? null
+  }
+}
+
+function orderSideLabel(side: string | undefined): string {
+  if (side === 'buy') return 'Achat'
+  if (side === 'sell') return 'Vente'
+  return side ?? ''
+}
+
+interface ExecutionPlannerSectionViewProps {
+  groupKey: string
+  title: string
+  subtitle?: string
+  items: ExecutionPlannerItem[]
+  /** Borne d'affichage (en_approche peut renvoyer ~22 items). */
+  maxItems?: number
+}
+
+function ExecutionPlannerSectionView({
+  groupKey,
+  title,
+  subtitle,
+  items,
+  maxItems,
+}: ExecutionPlannerSectionViewProps) {
+  const shown = typeof maxItems === 'number' ? items.slice(0, maxItems) : items
+  const hidden = items.length - shown.length
   return (
-    <li
-      data-ticker={item.ticker}
-      style={{
-        borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
-      }}
+    <CollapsibleSection
+      groupKey={groupKey}
+      title={title}
+      count={items.length || null}
+      subtitle={subtitle}
+      defaultOpen
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        style={{
-          width: '100%',
-          background: 'transparent',
-          border: 'none',
-          padding: '12px 0',
-          textAlign: 'left',
-          cursor: 'pointer',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 4,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 11,
-                fontWeight: 600,
-                color: CASH_SEPIA_MUTED,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-              }}
-            >
-              {item.ticker}
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-sans)',
-                fontSize: 13,
-                fontWeight: 500,
-                color: CASH_INK,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {item.asset_name_fr}
-            </span>
-          </span>
-          {priceDisplay ? (
-            <span
-              style={{
-                fontFamily: 'var(--font-editorial-mono)',
-                fontSize: 12.5,
-                color: CASH_INK,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {priceDisplay}
-            </span>
+      {items.length === 0 ? (
+        <p style={paragraph}>Rien dans cette section pour le moment.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {shown.map((item) => (
+            <ExecutionPlannerCard key={item.asset_id || item.ticker} item={item} />
+          ))}
+          {hidden > 0 ? (
+            <p style={paragraph}>
+              +{hidden} autre{hidden > 1 ? 's' : ''} en approche
+            </p>
           ) : null}
         </div>
+      )}
+    </CollapsibleSection>
+  )
+}
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-            {item.verdict?.label_fr ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-sans)',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: accent,
-                  letterSpacing: '0.01em',
-                }}
-              >
-                {item.verdict.label_fr}
-              </span>
-            ) : null}
-            {deltaDisplay ? (
-              <span
-                style={{
-                  fontFamily: 'var(--font-editorial-mono)',
-                  fontSize: 11,
-                  color: CASH_SEPIA_MUTED,
-                  letterSpacing: '0.02em',
-                }}
-              >
-                · {deltaDisplay}
-              </span>
-            ) : null}
-          </span>
+function ExecutionPlannerCard({ item }: { item: ExecutionPlannerItem }) {
+  const zoneTone = zoneStateTone(item.zone_state)
+  const tranche = item.suggested_tranche
+  const order = item.order_status
+  const shares = typeof tranche?.whole_shares === 'number' ? tranche.whole_shares : null
+  const limit = formatNum(tranche?.limit_price_native ?? null, 2)
+  const needEur = formatTarget(item.need_eur ?? null, 'EUR')
+  const actionLabel = executionActionLabel(item.entry?.recommended_action)
+  const distance = formatSignedPct(item.nearest_zone_distance_pct)
+  const zd = item.zone_distances_pct
+  const detail = order?.active_detail
+
+  return (
+    <article
+      data-card="ExecutionPlannerCard"
+      data-ticker={item.ticker}
+      data-zone-state={item.zone_state}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border-subtle)',
+        borderLeft: `3px solid ${zoneTone}`,
+        borderRadius: 12,
+        padding: '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      {/* En-tête : name + ticker + deployment_score */}
+      <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <span
             style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 3,
-              fontFamily: 'var(--font-editorial-sans)',
-              fontSize: 11.5,
+              fontFamily: 'var(--font-editorial-serif)',
+              fontSize: 16,
               fontWeight: 600,
-              color: CASH_GOLD,
+              color: 'var(--ink-primary)',
+              letterSpacing: 'var(--tracking-display)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
           >
-            {ctaLabel}
-            <ChevronRight size={12} aria-hidden />
+            {item.name}
           </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              color: 'var(--ink-tertiary)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {item.ticker}
+          </span>
+        </span>
+        {Number.isFinite(item.deployment_score) ? (
+          <span
+            title="Score de déploiement"
+            style={{
+              fontFamily: 'var(--font-editorial-mono)',
+              fontSize: 13,
+              fontWeight: 700,
+              color: zoneTone,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {formatNum(item.deployment_score, 1)}
+          </span>
+        ) : null}
+      </header>
+
+      {/* Urgence + état de zone */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={execChip}>Urgence {item.urgency_score}/9</span>
+        {item.zone_state_label_fr ? (
+          <span style={{ ...execChip, color: zoneTone, borderColor: zoneTone }}>
+            {item.zone_state_label_fr}
+          </span>
+        ) : null}
+        {item.urgency_reason_fr ? (
+          <span style={{ fontFamily: 'var(--font-editorial-sans)', fontSize: 11.5, color: 'var(--ink-tertiary)' }}>
+            {item.urgency_reason_fr}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Distance + détail zones */}
+      {distance || zd ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 10,
+            flexWrap: 'wrap',
+            fontFamily: 'var(--font-editorial-mono)',
+            fontSize: 11.5,
+            color: 'var(--ink-secondary)',
+          }}
+        >
+          {distance ? (
+            <span>
+              Zone la plus proche{' '}
+              <span style={{ color: zoneTone, fontWeight: 700 }}>{distance}</span>
+            </span>
+          ) : null}
+          {zd ? (
+            <span style={{ color: 'var(--ink-tertiary)' }}>
+              z1 {formatSignedPct(zd.z1) ?? '—'} · z2 {formatSignedPct(zd.z2) ?? '—'} · z3{' '}
+              {formatSignedPct(zd.z3) ?? '—'}
+            </span>
+          ) : null}
         </div>
-      </button>
-    </li>
+      ) : null}
+
+      {/* Exécution : tranche suggérée + besoin + action */}
+      <dl
+        style={{
+          margin: 0,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(110px,auto) 1fr',
+          rowGap: 4,
+          columnGap: 12,
+          fontFamily: 'var(--font-editorial-sans)',
+          fontSize: 13,
+        }}
+      >
+        {shares != null && limit ? (
+          <>
+            <dt style={execMeta}>Tranche</dt>
+            <dd style={{ ...execValue, justifySelf: 'end' }}>
+              {shares} × {limit}
+              {item.suggested_account_label ? (
+                <span style={{ color: 'var(--ink-tertiary)' }}> · {item.suggested_account_label}</span>
+              ) : null}
+            </dd>
+          </>
+        ) : null}
+        {needEur ? (
+          <>
+            <dt style={execMeta}>Besoin</dt>
+            <dd style={{ ...execValue, justifySelf: 'end' }}>{needEur}</dd>
+          </>
+        ) : null}
+        {actionLabel ? (
+          <>
+            <dt style={execMeta}>Action</dt>
+            <dd style={{ ...execValue, justifySelf: 'end' }}>{actionLabel}</dd>
+          </>
+        ) : null}
+      </dl>
+
+      {/* État ordre */}
+      {order?.active ? (
+        <span style={{ ...execChip, color: CASH_GOLD, borderColor: CASH_GOLD }}>
+          Ordre actif
+          {detail
+            ? ` · ${orderSideLabel(detail.side)} ${
+                typeof detail.quantity === 'number' ? Math.round(detail.quantity) : ''
+              }${detail.limit_price != null ? ` @ ${formatNum(detail.limit_price, 2)}` : ''}`
+            : ''}
+        </span>
+      ) : order?.executed_recent ? (
+        <span style={{ ...execChip, color: CASH_POSITIVE, borderColor: CASH_POSITIVE }}>
+          Exécuté récemment
+        </span>
+      ) : null}
+    </article>
   )
+}
+
+const execChip: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '3px 9px',
+  borderRadius: 999,
+  border: '1px solid var(--border-subtle)',
+  background: 'transparent',
+  color: 'var(--ink-secondary)',
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  whiteSpace: 'nowrap',
+}
+
+const execMeta: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-mono)',
+  fontSize: 10,
+  color: 'var(--ink-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  fontWeight: 500,
+}
+
+const execValue: React.CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-editorial-sans)',
+  fontSize: 13,
+  color: 'var(--ink-primary)',
+  fontWeight: 600,
 }
